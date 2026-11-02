@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"privacyfilter/filter"
+	"github.com/GarlandQian/cpa-plugin-veil/internal/detect"
 
 	"gopkg.in/yaml.v3"
 )
@@ -86,49 +86,34 @@ func (cfg *veilConfig) shouldSkip(model, requestedModel, format string) bool {
 	return false
 }
 
-func newFilter(pluginDir string, cfg veilConfig) (*filter.Filter, error) {
+func newDetector(pluginDir string, cfg veilConfig) (*detect.Detector, error) {
 	tomlPath, embedded := cfg.resolveGitleaksPath(pluginDir)
-
-	// The filter loads its rules from a file path. When no sidecar file is
-	// present (the common case for store installs), materialize the embedded
-	// rules into a temporary file. Compiled rules live in memory, so the temp
-	// file is removed right after the filter is constructed.
-	if embedded {
-		tmp, errTmp := os.CreateTemp("", "veil-gitleaks-*.toml")
-		if errTmp != nil {
-			return nil, fmt.Errorf("create temp rules file: %w", errTmp)
-		}
-		tmpPath := tmp.Name()
-		if _, errWrite := tmp.Write(embeddedGitleaks); errWrite != nil {
-			tmp.Close()
-			os.Remove(tmpPath)
-			return nil, fmt.Errorf("write temp rules file: %w", errWrite)
-		}
-		if errClose := tmp.Close(); errClose != nil {
-			os.Remove(tmpPath)
-			return nil, fmt.Errorf("close temp rules file: %w", errClose)
-		}
-		defer func() { _ = os.Remove(tmpPath) }()
-		tomlPath = tmpPath
+	var source string
+	switch {
+	case embedded:
+		source = "embedded rules"
+	case cfg.GitleaksTOML != "":
+		source = fmt.Sprintf("gitleaks_toml %q", tomlPath)
+	default:
+		source = fmt.Sprintf("sidecar rules file %q", tomlPath)
 	}
 
-	f, err := filter.New(tomlPath, filter.Config{})
-	if err != nil {
-		var source string
-		switch {
-		case embedded:
-			source = "embedded rules"
-		case cfg.GitleaksTOML != "":
-			source = fmt.Sprintf("gitleaks_toml %q", tomlPath)
-		default:
-			source = fmt.Sprintf("sidecar rules file %q", tomlPath)
+	rules := embeddedGitleaks
+	if !embedded {
+		raw, err := os.ReadFile(tomlPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read %s: %w", source, err)
 		}
+		rules = raw
+	}
+	d, err := detect.New(rules)
+	if err != nil {
 		return nil, fmt.Errorf("failed to create the detector from %s: %w", source, err)
 	}
-	rules, skipped := f.Stats()
-	pluginLog(context.Background(), logLevelInfo, fmt.Sprintf("veil loaded %d rules, %d skipped", rules, skipped), map[string]any{
-		"rules":         rules,
+	loaded, skipped := d.Stats()
+	pluginLog(context.Background(), logLevelInfo, fmt.Sprintf("veil loaded %d rules, %d skipped", loaded, skipped), map[string]any{
+		"rules":         loaded,
 		"skipped_rules": skipped,
 	})
-	return f, nil
+	return d, nil
 }

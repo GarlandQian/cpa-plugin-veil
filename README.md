@@ -10,8 +10,8 @@ Coming from `privacyfilter`? See [Migrating from privacyfilter](#migrating-from-
 
 AI learners and builders can join the Linux.do community: [linux.do](https://linux.do/).
 
-This project uses [packyme/privacy-filter](https://github.com/packyme/privacy-filter) for the core filtering logic and
-adapts it to the CPA plugin ABI from [router-for-me/CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI).
+Its detection engine derives from [packyme/privacy-filter](https://github.com/packyme/privacy-filter) and runs inside
+the CPA plugin ABI from [router-for-me/CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI).
 
 ## What It Does
 
@@ -261,16 +261,30 @@ main.go                 Plugin metadata and build entry
 abi.go                  CLIProxyAPI plugin ABI adapter
 interceptor.go          Request interception and redaction logic
 config.go               YAML configuration parsing
+internal/detect/        Detection engine: PII patterns, gitleaks rules, keyword prefilter, hit cache
+internal/jsontree/      Byte-preserving JSON parser that rewrites only the strings it changes
 rules/gitleaks.toml     Built-in detection rules
 ```
 
-Dependency note:
+Run the long-session benchmark (an 80-turn agent session, both hooks per request):
 
-```text
-privacyfilter => github.com/rheodev/privacy-filter
+```bash
+go test -run '^$' -bench LongSession .
 ```
+
+### Performance
+
+An agent re-sends its whole history every turn, so Veil is built for repeated text:
+
+- One Aho-Corasick pass over each text finds which gitleaks rules' keywords occur, and only those rules run.
+- Detection results of texts of 256 bytes or more are cached by hash (offsets only, never text), so history that was
+  already scanned costs one hash per field.
+- The request body is parsed into byte spans; only redacted strings are re-encoded and every other byte is copied
+  through, so key order, number spelling and base64 payloads are untouched.
+- The after-auth hook skips a body the before-auth hook already left clean.
 
 ## Credits
 
-- Core filtering logic: [packyme/privacy-filter](https://github.com/packyme/privacy-filter)
+- Detection engine derived from [packyme/privacy-filter](https://github.com/packyme/privacy-filter) (MIT); see
+  [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
 - Plugin runtime: [router-for-me/CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI)

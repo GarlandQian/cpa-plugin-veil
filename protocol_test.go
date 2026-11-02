@@ -180,7 +180,7 @@ func TestNewFilterErrorNamesRulesSource(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := newFilter(dir, tc.cfg)
+			_, err := newDetector(dir, tc.cfg)
 			if err == nil {
 				t.Fatal("expected invalid rules to fail")
 			}
@@ -280,5 +280,34 @@ func TestReconfigureKeepsPreviousConfigOnInvalidConfig(t *testing.T) {
 	veilABIState.RUnlock()
 	if current == valid {
 		t.Fatal("valid reconfigure must replace the plugin instance")
+	}
+}
+
+// Only redacted strings are re-encoded: key order, number spelling, escapes
+// and HTML characters elsewhere in the body reach the upstream as sent.
+func TestRedactionKeepsUntouchedBytes(t *testing.T) {
+	interceptor := newConfiguredInterceptor(t, "")
+	body := `{"seed":12345678901234567890,"z":1,"a":"<b>&é",` + "\n" + `"messages":[{"role":"user","content":"mail test@example.com"}]}`
+	resp, err := interceptor.InterceptRequestBeforeAuth(context.Background(), pluginapi.RequestInterceptRequest{Body: []byte(body)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `{"seed":12345678901234567890,"z":1,"a":"<b>&é",` + "\n" + `"messages":[{"role":"user","content":"mail [EMAIL]"}]}`
+	if string(resp.Body) != want {
+		t.Fatalf("body = %s\nwant   %s", resp.Body, want)
+	}
+}
+
+// A key sent twice is redacted in both places, whichever one the upstream
+// reads.
+func TestRedactionCoversDuplicateKeys(t *testing.T) {
+	interceptor := newConfiguredInterceptor(t, "")
+	body := `{"input":"first test@example.com","input":"second test@example.com"}`
+	resp, err := interceptor.InterceptRequestBeforeAuth(context.Background(), pluginapi.RequestInterceptRequest{Body: []byte(body)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(resp.Body), "test@example.com") {
+		t.Fatalf("duplicate key leaked: %s", resp.Body)
 	}
 }

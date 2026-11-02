@@ -23,16 +23,16 @@ func buildPlugin(configYAML []byte, pluginDir string) (pluginapi.Plugin, error) 
 		pluginDir = inferPluginDir()
 	}
 
+	d, errDetector := newDetector(pluginDir, cfg)
+	if errDetector != nil {
+		return pluginapi.Plugin{}, errDetector
+	}
 	p := &veilPlugin{
 		cfg:       cfg,
 		pluginDir: pluginDir,
+		detector:  d,
+		clean:     newBodySet(),
 	}
-
-	f, errFilter := newFilter(pluginDir, cfg)
-	if errFilter != nil {
-		return pluginapi.Plugin{}, errFilter
-	}
-	p.filter = f
 
 	return pluginapi.Plugin{
 		Metadata: pluginMetadata(),
