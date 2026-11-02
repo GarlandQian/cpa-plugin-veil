@@ -129,14 +129,43 @@ plugins:
 
 Plugin fields:
 
-| Field           | Type   | Default | Description                                                                            |
-|-----------------|--------|---------|----------------------------------------------------------------------------------------|
-| `gitleaks_toml` | string | `""`    | Custom gitleaks rule file path. Relative paths are resolved from the plugin directory. |
-| `skip_models`   | array  | `[]`    | Models that should skip redaction.                                                     |
-| `skip_formats`  | array  | `[]`    | Source formats that should skip redaction.                                             |
+| Field           | Type   | Default | Description                                                                                  |
+|-----------------|--------|---------|----------------------------------------------------------------------------------------------|
+| `gitleaks_toml` | string | `""`    | Custom gitleaks rule file path. Relative paths are resolved from the plugin directory.       |
+| `actions`       | object | `{}`    | What to do with each kind (`EMAIL`, `SECRET`, ...): `mask` (default), `block` or `warn`.     |
+| `skip_models`   | array  | `[]`    | Models that should skip masking.                                                             |
+| `skip_formats`  | array  | `[]`    | Source formats that should skip masking.                                                     |
 
 When `gitleaks_toml` is empty and no `rules/gitleaks.toml` sidecar file exists,
 the plugin uses the rules embedded in the binary at build time.
+
+### Blocking and warning
+
+`actions` changes what happens to a kind of value:
+
+```yaml
+plugins:
+  configs:
+    veil:
+      actions:
+        SECRET: block   # stop any request that holds a secret
+        EMAIL: warn     # let emails through, but log them
+```
+
+- `mask` (the default) replaces the value with its placeholder.
+- `warn` sends the value as it is and logs a warning with the kind and the JSON path, never the value.
+- `block` stops the request.
+
+A stopped request never carries its text upstream. CLIProxyAPI gives plugins no way to fail a request themselves and
+has already chosen the upstream by the time Veil runs, so Veil replaces the body with one that keeps only the model and
+the stream flag and empties every conversation field, which every provider rejects as a bad request before any
+inference. The client sees that rejection, and the CLIProxyAPI log says why:
+`veil stopped a request, the upstream will reject it: ...`.
+
+Veil fails closed the same way: if it cannot mask a request, for example because the body starts like JSON but does
+not parse, or because masking failed, it stops the request instead of letting it through. A plugin error would make
+CLIProxyAPI send the original body, so Veil never returns one. A request body that is not JSON at all passes through
+untouched. If restoring a response fails, the response reaches the client with its placeholders.
 
 ### Invalid configuration
 

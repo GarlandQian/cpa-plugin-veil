@@ -29,7 +29,11 @@ func buildPlugin(configYAML []byte, pluginDir string) (pluginapi.Plugin, error) 
 	if errDetector != nil {
 		return pluginapi.Plugin{}, errDetector
 	}
-	masker, v, streams := maskerFor(pluginDir, d)
+	actions, errActions := cfg.actions()
+	if errActions != nil {
+		return pluginapi.Plugin{}, errActions
+	}
+	masker, v, streams := maskerFor(pluginDir, d, actions)
 	p := &veilPlugin{
 		cfg:       cfg,
 		pluginDir: pluginDir,
@@ -61,6 +65,11 @@ func pluginMetadata() pluginapi.Metadata {
 				Name:        "gitleaks_toml",
 				Type:        pluginapi.ConfigFieldTypeString,
 				Description: "Path to gitleaks.toml rules file. Empty uses built-in rules.",
+			},
+			{
+				Name:        "actions",
+				Type:        pluginapi.ConfigFieldTypeObject,
+				Description: "What to do per kind (EMAIL, SECRET, ...): mask (default), block the request, or warn and let it through.",
 			},
 			{
 				Name:        "skip_models",

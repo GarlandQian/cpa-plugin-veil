@@ -20,20 +20,21 @@ var masking = struct {
 	streams *streamRegistry
 }{}
 
-// maskerFor returns a Masker detecting with d over the process's Vault, and
+// maskerFor returns a Masker detecting with d and acting as actions say over
+// the process's Vault, and
 // the process's stream registry, creating the Vault, and its key in
 // pluginDir, on first use.
-func maskerFor(pluginDir string, d *detect.Detector) (*mask.Masker, *vault.Vault, *streamRegistry) {
+func maskerFor(pluginDir string, d *detect.Detector, actions map[string]mask.Action) (*mask.Masker, *vault.Vault, *streamRegistry) {
 	masking.Lock()
 	defer masking.Unlock()
 	if masking.vault == nil || masking.dir != pluginDir {
 		masking.dir = pluginDir
 		masking.vault = vault.New(placeholderKey(pluginDir), vault.DefaultLimit)
-		masking.masker = mask.New(d, masking.vault)
+		masking.masker = mask.New(d, masking.vault).WithPolicy(d, actions)
 		masking.streams = newStreamRegistry()
 		return masking.masker, masking.vault, masking.streams
 	}
-	masking.masker = masking.masker.WithDetector(d)
+	masking.masker = masking.masker.WithPolicy(d, actions)
 	return masking.masker, masking.vault, masking.streams
 }
 
