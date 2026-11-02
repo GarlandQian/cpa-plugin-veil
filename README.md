@@ -2,8 +2,8 @@
 
 English | [简体中文](README.zh-CN.md)
 
-Veil is a native privacy plugin for CLIProxyAPI. It intercepts model requests, detects sensitive text, and redacts it
-before the request is forwarded to an upstream provider.
+Veil is a native privacy plugin for CLIProxyAPI. It intercepts model requests, detects sensitive values, and swaps
+each one for a placeholder such as `{{EMAIL_ab12cd34}}` before the request is forwarded to an upstream provider.
 
 Veil started as a fork of [rheodev/cpa-plugin-privacyfilter](https://github.com/rheodev/cpa-plugin-privacyfilter).
 Coming from `privacyfilter`? See [Migrating from privacyfilter](#migrating-from-privacyfilter).
@@ -15,8 +15,9 @@ the CPA plugin ABI from [router-for-me/CLIProxyAPI](https://github.com/router-fo
 
 ## What It Does
 
-When CLIProxyAPI receives a request, this plugin scans supported text fields before the request leaves the local
-process. If sensitive content is found, the request body is rewritten with redacted placeholders.
+When CLIProxyAPI receives a request, Veil scans its text before the request leaves the local process and replaces
+each sensitive value with a placeholder. The same value always gets the same placeholder for the same client, so a
+conversation re-sent turn after turn masks to the same text and the provider's prompt cache keeps matching.
 
 Typical use cases:
 
@@ -28,7 +29,8 @@ Typical use cases:
 ## Features
 
 - Request interceptor for the CLIProxyAPI plugin runtime
-- Redacts emails, phone numbers, secrets, connection strings, certificates, and similar sensitive data
+- Masks emails, phone numbers, secrets, connection strings, certificates, and similar sensitive data with stable
+  placeholders, kept apart per client API key
 - Uses built-in Gitleaks rules from `rules/gitleaks.toml`
 - Supports custom Gitleaks rule files
 - Handles OpenAI Chat / Completions, OpenAI Responses, Claude, Gemini, and Gemini CLI request bodies
@@ -147,40 +149,61 @@ the plugin uses the rules embedded in the binary at build time.
 ### Logging
 
 Plugin logs go through the host's `host.log` callback, so they follow CLIProxyAPI's log level, format, and output and
-carry the request ID. Each interception pass that redacts something produces one line listing the JSON paths of the redacted fields, for
-example `veil redacted 2 field(s): messages[0].content, system`. Request text is never logged.
+carry the request ID. Each interception pass that masks something produces one line with the count per kind and the
+JSON paths of the masked fields, for example
+`veil masked 3 value(s) (EMAIL=2, SECRET=1) in 2 field(s): messages[0].content, system`. Values, parts of values and
+their lengths are never logged.
 
 ## How It Works
 
-The plugin redacts in both the before-auth and after-auth request interception hooks. Both see the client-format
-body (before executor translation). The after-auth pass catches text that other plugins add later in the chain, for
-example a lower-priority before-auth interceptor or a higher-priority after-auth interceptor. Redaction is
-idempotent, so text that is already clean produces no new hits.
+Veil masks in both the before-auth and after-auth request interception hooks. Both see the client-format body
+(before executor translation). The after-auth pass catches text that other plugins add later in the chain, for
+example a lower-priority before-auth interceptor or a higher-priority after-auth interceptor. Masking is idempotent,
+so an already-masked body produces no new hits, and a body the before-auth pass already masked is not scanned again.
 
 1. Checks `skip_models` and `skip_formats`.
-2. Parses the request body as JSON.
-3. Redacts every supported prompt field (see the table below).
-4. Edits free-form text only.
-5. Replaces detected sensitive data with placeholders.
-6. Leaves the request unchanged if parsing fails or no supported field is found.
+2. Parses the request body as JSON; anything else passes through unchanged.
+3. Finds the client's caller scope (see below).
+4. Masks every string of the request except the ones listed below, and writes the rest of the body back byte for byte.
 
-Redacted fields by client format:
+What is masked:
 
-| Format                  | Fields                                                                                             |
-|-------------------------|----------------------------------------------------------------------------------------------------|
-| OpenAI Chat             | `messages[].content` (string or `text` parts)                                                      |
-| OpenAI image / video    | `prompt` (string or list of strings) of image and video generation requests                        |
-| OpenAI Responses        | `instructions`, `input` (string), `input[].content`, `function_call_output` `output`               |
-| Claude                  | `system`, `messages[].content` text blocks, `tool_result` content                                  |
-| Gemini                  | `systemInstruction` / `system_instruction` and `contents[].parts[].text`                           |
-| Gemini CLI              | The same Gemini fields inside the top-level `request` object                                       |
+- All conversation text of every client format: OpenAI Chat / Completions, OpenAI Responses, OpenAI image and video
+  prompts, embeddings input, Claude, Gemini and the Gemini CLI `request` wrapper.
+- Tool calls and tool results: OpenAI `arguments` (a JSON string, masked value by value so it stays valid JSON),
+  Claude `tool_use.input` and `tool_result`, Gemini `functionCall.args` and `functionResponse.response`. Their keys
+  belong to the tool, so every string under them is masked.
+- The `description` of tool definitions and request settings, and nothing else under them.
 
-Left untouched on purpose: tool call arguments (`function_call.arguments`, Claude `tool_use.input`, Gemini
-`functionCall` / `functionResponse`), images, files, Claude `thinking` blocks, and Gemini parts marked
-`thought: true` (their text is bound to a `thoughtSignature`, so editing it would make the upstream reject the request).
+What is left alone:
 
-OpenAI Completions requests are covered through `messages`: the host converts them to chat completions before
-interceptors run.
+- Signed reasoning: Claude `thinking` and `redacted_thinking` blocks, OpenAI Responses `reasoning` items and Gemini
+  parts marked `thought: true`. They must go back to the provider exactly as it signed them.
+- Identifiers, names and protocol fields: `id` and anything ending in `_id`, `Id` or `_ids`, `name`, `model`, `type`,
+  `role`, `signature`, `encrypted_content`, `url`, `image_url`, `media_type` and the like.
+- Binary data: `data` and `file_data` (except a Claude document's plain-text source) and any `data:` URL.
+
+Beyond what the rules find, Veil masks a value wherever it reappears:
+
+- A value found anywhere in a request is masked everywhere in that request, so a secret recognised by its
+  `password:` label is also masked where it appears on its own.
+- A value of 8 bytes or more masked once stays known for that client and is masked in later requests too.
+- Text a client already sent keeps the form it was sent in, even after Veil learns a new value that occurs in it,
+  so the provider's cached prompt prefix still matches.
+
+### Placeholders and caller scope
+
+A placeholder is `{{KIND_xxxxxxxx}}`: the kind (`EMAIL`, `PHONE`, `ID_CARD`, `BANK_CARD`, `IP`, `SECRET`) and eight
+characters of an HMAC of the value. The HMAC key is generated on first start and kept in `veil.key` (mode 0600) in the
+plugin directory, so placeholders survive restarts. Treat `veil.key` as sensitive: whoever holds it can confirm a
+guessed value against a placeholder. Deleting it changes every placeholder.
+
+Each client API key is its own caller scope: the same value gets a different placeholder for another key, and a
+placeholder never restores for a client that did not cause it. Veil reads the key from `Authorization: Bearer`,
+`x-api-key` or `x-goog-api-key` and keeps only its hash. Requests without one of these share the default scope; that
+includes Gemini clients passing their key as the `?key=` query parameter, which plugins cannot see.
+
+The mapping from placeholders back to values lives only in memory and holds the 200,000 most recently used values.
 
 Common `skip_formats` values are the host's source format names, such as `openai`, `openai-response`, `claude`,
 `gemini`, `gemini-cli`, `openai-image`, and `openai-video`.
