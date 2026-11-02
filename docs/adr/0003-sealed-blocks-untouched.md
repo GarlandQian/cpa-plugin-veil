@@ -1,0 +1,3 @@
+# Sealed blocks are neither masked nor restored
+
+A Sealed block must go back to the provider exactly as it was signed. Veil leaves it alone in both directions: the client sees Placeholders inside thinking text, and the block returns to the provider as the provider signed it. magpie instead restores Sealed blocks and, on the way back, puts Placeholders back by exact replacement; that breaks the signature when the model spelled a Placeholder loosely or the message that held the value was compacted away, and in the second case sends personal data in clear. Showing Placeholders in thinking text is the price of never having to rebuild signed text.
