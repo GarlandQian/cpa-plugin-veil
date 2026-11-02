@@ -61,6 +61,7 @@ type Vault struct {
 	entries map[slot]*entry
 	known   map[string]*knownIndex
 	scopes  map[string]int
+	kinds   map[string]bool
 }
 
 // New returns an empty vault minting Placeholders under key.
@@ -74,6 +75,7 @@ func New(key []byte, limit int) *Vault {
 		entries: make(map[slot]*entry),
 		known:   make(map[string]*knownIndex),
 		scopes:  make(map[string]int),
+		kinds:   make(map[string]bool),
 	}
 }
 
@@ -125,6 +127,18 @@ func (v *Vault) HasScope(scope string) bool {
 	return v.scopes[scope] > 0
 }
 
+// Kinds returns every Kind a Placeholder has been minted for.
+func (v *Vault) Kinds() []string {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+	out := make([]string, 0, len(v.kinds))
+	for kind := range v.kinds {
+		out = append(out, kind)
+	}
+	sort.Strings(out)
+	return out
+}
+
 // Len returns how many values the vault holds.
 func (v *Vault) Len() int {
 	v.mu.RLock()
@@ -141,6 +155,7 @@ func (v *Vault) add(scope, placeholder, kind, value string) {
 	e.used.Store(v.clock.Add(1))
 	v.entries[slot{scope, placeholder}] = e
 	v.scopes[scope]++
+	v.kinds[kind] = true
 	if len(value) >= KnownMinLen {
 		idx := v.known[scope]
 		if idx == nil {

@@ -21,12 +21,12 @@ var emailPlaceholder = regexp.MustCompile(`\{\{EMAIL_[a-z2-7]{8}\}\}`)
 func resetMasking(t *testing.T) {
 	t.Helper()
 	masking.Lock()
-	dir, v, m := masking.dir, masking.vault, masking.masker
-	masking.dir, masking.vault, masking.masker = "", nil, nil
+	dir, v, m, st := masking.dir, masking.vault, masking.masker, masking.streams
+	masking.dir, masking.vault, masking.masker, masking.streams = "", nil, nil, nil
 	masking.Unlock()
 	t.Cleanup(func() {
 		masking.Lock()
-		masking.dir, masking.vault, masking.masker = dir, v, m
+		masking.dir, masking.vault, masking.masker, masking.streams = dir, v, m, st
 		masking.Unlock()
 	})
 }
@@ -264,7 +264,7 @@ func TestRegistrationCapabilityJSON(t *testing.T) {
 	if err != nil {
 		t.Fatalf("json.Marshal() error = %v", err)
 	}
-	for _, name := range []string{`"request_interceptor":true`, `"response_interceptor":true`} {
+	for _, name := range []string{`"request_interceptor":true`, `"response_interceptor":true`, `"response_stream_interceptor":true`} {
 		if !strings.Contains(string(raw), name) {
 			t.Fatalf("expected %s in JSON: %s", name, raw)
 		}

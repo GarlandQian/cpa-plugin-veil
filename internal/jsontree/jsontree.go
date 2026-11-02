@@ -117,6 +117,16 @@ func (d *Doc) Text(v *Value) (string, bool) {
 	return s, true
 }
 
+// Raw returns the source bytes of v as they were written.
+func (d *Doc) Raw(v *Value) string {
+	return string(d.src[v.Start:v.End])
+}
+
+// ResetEdits drops every replacement made so far.
+func (d *Doc) ResetEdits() {
+	d.edits = nil
+}
+
 // IsTrue reports whether v is the literal true.
 func (d *Doc) IsTrue(v *Value) bool {
 	return v != nil && v.Kind == Bool && d.src[v.Start] == 't'
