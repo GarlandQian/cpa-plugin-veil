@@ -9,20 +9,21 @@ import (
 	"strings"
 	"testing"
 
-	"privacyfilter/filter"
+	"github.com/GarlandQian/cpa-plugin-veil/internal/detect"
 
 	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginapi"
 )
 
 func newTestPlugin(t *testing.T) *veilPlugin {
 	t.Helper()
-	f, err := filter.New("", filter.Config{})
+	d, err := detect.New(nil)
 	if err != nil {
-		t.Fatalf("filter.New() error = %v", err)
+		t.Fatalf("detect.New() error = %v", err)
 	}
 	return &veilPlugin{
-		cfg:    defaultConfig(),
-		filter: f,
+		cfg:      defaultConfig(),
+		detector: d,
+		clean:    newBodySet(),
 	}
 }
 

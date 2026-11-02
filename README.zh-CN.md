@@ -9,8 +9,8 @@ Veil 源自 [rheodev/cpa-plugin-privacyfilter](https://github.com/rheodev/cpa-pl
 
 学 AI 就上 L 站：[linux.do](https://linux.do/)。
 
-本项目基于 [packyme/privacy-filter](https://github.com/packyme/privacy-filter)
-实现核心过滤能力，并适配 [router-for-me/CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) 的 CPA 插件 ABI。
+检测引擎源自 [packyme/privacy-filter](https://github.com/packyme/privacy-filter)，运行在
+[router-for-me/CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) 的 CPA 插件 ABI 之上。
 
 ## 作用
 
@@ -246,16 +246,28 @@ main.go                 插件元数据和构建入口
 abi.go                  CLIProxyAPI 插件 ABI 适配
 interceptor.go          请求拦截和脱敏逻辑
 config.go               YAML 配置解析
+internal/detect/        检测引擎：PII 规则、gitleaks 规则、关键词预筛、命中缓存
+internal/jsontree/      保留原始字节的 JSON 解析器，只重写改动过的字符串
 rules/gitleaks.toml     内置检测规则
 ```
 
-依赖说明：
+运行长会话基准测试（80 轮 agent 会话，每个请求跑两个拦截阶段）：
 
-```text
-privacyfilter => github.com/rheodev/privacy-filter
+```bash
+go test -run '^$' -bench LongSession .
 ```
+
+### 性能
+
+agent 每一轮都会重发完整历史，所以 Veil 针对重复文本做了优化：
+
+- 对每段文本用 Aho-Corasick 扫一遍，找出出现了哪些 gitleaks 规则的关键词，只运行这些规则。
+- 256 字节及以上的文本按哈希缓存检测结果（只存偏移，不存原文），已经扫过的历史每个字段只需算一次哈希。
+- 请求体解析成字节区间，只重新编码被脱敏的字符串，其余字节原样复制，键顺序、数字写法和 base64 内容都不变。
+- before-auth 已经确认干净的请求体，after-auth 直接跳过。
 
 ## 来源
 
-- 核心过滤逻辑：[packyme/privacy-filter](https://github.com/packyme/privacy-filter)
+- 检测引擎源自 [packyme/privacy-filter](https://github.com/packyme/privacy-filter)（MIT），见
+  [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
 - 插件运行时：[router-for-me/CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI)
