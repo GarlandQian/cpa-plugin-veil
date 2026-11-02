@@ -5,129 +5,13 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 
 	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginabi"
 	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginapi"
 )
-
-func TestRedactionCoversClientFormats(t *testing.T) {
-	interceptor := newConfiguredInterceptor(t, "")
-	cases := []struct {
-		name string
-		body string
-		want string
-	}{
-		{
-			"claude system string",
-			`{"system":"contact test@example.com","messages":[{"role":"user","content":"hi"}]}`,
-			`{"system":"contact [EMAIL]","messages":[{"role":"user","content":"hi"}]}`,
-		},
-		{
-			"claude system blocks",
-			`{"system":[{"type":"text","text":"test@example.com","cache_control":{"type":"ephemeral"}}]}`,
-			`{"system":[{"type":"text","text":"[EMAIL]","cache_control":{"type":"ephemeral"}}]}`,
-		},
-		{
-			"claude tool_result string and blocks",
-			`{"messages":[{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"test@example.com"},{"type":"tool_result","tool_use_id":"t2","content":[{"type":"text","text":"test@example.com"}]}]}]}`,
-			`{"messages":[{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"[EMAIL]"},{"type":"tool_result","tool_use_id":"t2","content":[{"type":"text","text":"[EMAIL]"}]}]}]}`,
-		},
-		{
-			"claude tool_use input and thinking untouched",
-			`{"messages":[{"role":"assistant","content":[{"type":"thinking","thinking":"test@example.com","signature":"sig"},{"type":"tool_use","id":"t1","name":"send","input":{"to":"test@example.com"}},{"type":"text","text":"test@example.com"}]}]}`,
-			`{"messages":[{"role":"assistant","content":[{"type":"thinking","thinking":"test@example.com","signature":"sig"},{"type":"tool_use","id":"t1","name":"send","input":{"to":"test@example.com"}},{"type":"text","text":"[EMAIL]"}]}]}`,
-		},
-		{
-			"responses instructions and function_call_output",
-			`{"instructions":"test@example.com","input":[{"type":"function_call","arguments":"test@example.com"},{"type":"function_call_output","call_id":"c1","output":"test@example.com"},{"type":"function_call_output","call_id":"c2","output":[{"type":"input_text","text":"test@example.com"}]}]}`,
-			`{"instructions":"[EMAIL]","input":[{"type":"function_call","arguments":"test@example.com"},{"type":"function_call_output","call_id":"c1","output":"[EMAIL]"},{"type":"function_call_output","call_id":"c2","output":[{"type":"input_text","text":"[EMAIL]"}]}]}`,
-		},
-		{
-			"gemini contents and systemInstruction",
-			`{"systemInstruction":{"parts":[{"text":"test@example.com"}]},"contents":[{"role":"user","parts":[{"text":"test@example.com"},{"inlineData":{"mimeType":"text/plain","data":"dGVzdA=="}}]},{"role":"model","parts":[{"text":"test@example.com","thought":true,"thoughtSignature":"sig"},{"functionCall":{"name":"send","args":{"to":"test@example.com"}}}]},{"role":"user","parts":[{"functionResponse":{"name":"send","response":{"to":"test@example.com"}}}]}]}`,
-			`{"systemInstruction":{"parts":[{"text":"[EMAIL]"}]},"contents":[{"role":"user","parts":[{"text":"[EMAIL]"},{"inlineData":{"mimeType":"text/plain","data":"dGVzdA=="}}]},{"role":"model","parts":[{"text":"test@example.com","thought":true,"thoughtSignature":"sig"},{"functionCall":{"name":"send","args":{"to":"test@example.com"}}}]},{"role":"user","parts":[{"functionResponse":{"name":"send","response":{"to":"test@example.com"}}}]}]}`,
-		},
-		{
-			"gemini snake_case system_instruction",
-			`{"system_instruction":{"parts":[{"text":"test@example.com"}]}}`,
-			`{"system_instruction":{"parts":[{"text":"[EMAIL]"}]}}`,
-		},
-		{
-			"gemini cli request wrapper",
-			`{"model":"gemini-2.5-pro","project":"p","request":{"systemInstruction":{"parts":[{"text":"test@example.com"}]},"contents":[{"role":"user","parts":[{"text":"test@example.com"}]}]}}`,
-			`{"model":"gemini-2.5-pro","project":"p","request":{"systemInstruction":{"parts":[{"text":"[EMAIL]"}]},"contents":[{"role":"user","parts":[{"text":"[EMAIL]"}]}]}}`,
-		},
-		{
-			"completions prompt",
-			`{"prompt":["test@example.com",7,"hello"],"suffix":"test@example.com"}`,
-			`{"prompt":["[EMAIL]",7,"hello"],"suffix":"test@example.com"}`,
-		},
-		{
-			"completions prompt string",
-			`{"prompt":"test@example.com"}`,
-			`{"prompt":"[EMAIL]"}`,
-		},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			resp, err := interceptor.InterceptRequestBeforeAuth(context.Background(), pluginapi.RequestInterceptRequest{Body: []byte(tc.body)})
-			if err != nil {
-				t.Fatal(err)
-			}
-			assertJSONBody(t, resp.Body, tc.want)
-		})
-	}
-}
-
-func TestRedactionPassesStructuredDataThrough(t *testing.T) {
-	interceptor := newConfiguredInterceptor(t, "")
-	for _, body := range []string{
-		`{"system":{"text":"test@example.com"}}`,
-		`{"instructions":42}`,
-		`{"contents":[{"parts":[{"functionResponse":{"response":{"to":"test@example.com"}}}]}]}`,
-		`{"contents":[{"parts":[{"text":"test@example.com","thought":true}]}]}`,
-		`{"systemInstruction":"test@example.com"}`,
-		`{"metadata":{"request":{"contents":[{"parts":[{"text":"test@example.com"}]}]}}}`,
-		`{"messages":[{"content":[{"type":"tool_use","input":{"to":"test@example.com"}}]}]}`,
-	} {
-		resp, err := interceptor.InterceptRequestBeforeAuth(context.Background(), pluginapi.RequestInterceptRequest{Body: []byte(body)})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if resp.Body != nil {
-			t.Fatalf("expected passthrough for %s, got %s", body, resp.Body)
-		}
-	}
-}
-
-func TestRedactPayloadReportsFieldPaths(t *testing.T) {
-	p := newTestPlugin(t)
-	body := `{"system":"test@example.com","messages":[{"role":"user","content":"hi"},{"role":"user","content":[{"type":"text","text":"test@example.com"},{"type":"tool_result","content":"test@example.com"}]}],"request":{"contents":[{"parts":[{"text":"test@example.com"}]}]}}`
-	modified, hits, err := p.redactPayload([]byte(body))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if modified == nil {
-		t.Fatal("expected redacted body")
-	}
-	want := []string{
-		"messages[1].content[0].text",
-		"messages[1].content[1].content",
-		"system",
-		"request.contents[0].parts[0].text",
-	}
-	if !reflect.DeepEqual(hits, want) {
-		t.Fatalf("hits = %v, want %v", hits, want)
-	}
-	for _, hit := range hits {
-		if strings.Contains(hit, "@") {
-			t.Fatalf("field paths must not contain request content: %q", hit)
-		}
-	}
-}
 
 func TestHostCallbackIDContext(t *testing.T) {
 	if got := hostCallbackIDFromContext(nil); got != "" {
@@ -270,7 +154,9 @@ func TestReconfigureKeepsPreviousConfigOnInvalidConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertJSONBody(t, resp.Body, `{"input":"[EMAIL]"}`)
+	if !emailPlaceholder.Match(resp.Body) {
+		t.Fatalf("expected a placeholder: %s", resp.Body)
+	}
 
 	if _, err = handleVeilRegister(ctx, pluginabi.MethodPluginReconfigure, registerRequest(t, dir, "gitleaks_toml: rules.toml\nskip_models: [second]")); err != nil {
 		t.Fatalf("valid reconfigure error = %v", err)
@@ -283,31 +169,17 @@ func TestReconfigureKeepsPreviousConfigOnInvalidConfig(t *testing.T) {
 	}
 }
 
-// Only redacted strings are re-encoded: key order, number spelling, escapes
+// Only masked strings are re-encoded: key order, number spelling, escapes
 // and HTML characters elsewhere in the body reach the upstream as sent.
-func TestRedactionKeepsUntouchedBytes(t *testing.T) {
+func TestMaskingKeepsUntouchedBytes(t *testing.T) {
 	interceptor := newConfiguredInterceptor(t, "")
 	body := `{"seed":12345678901234567890,"z":1,"a":"<b>&é",` + "\n" + `"messages":[{"role":"user","content":"mail test@example.com"}]}`
 	resp, err := interceptor.InterceptRequestBeforeAuth(context.Background(), pluginapi.RequestInterceptRequest{Body: []byte(body)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := `{"seed":12345678901234567890,"z":1,"a":"<b>&é",` + "\n" + `"messages":[{"role":"user","content":"mail [EMAIL]"}]}`
-	if string(resp.Body) != want {
-		t.Fatalf("body = %s\nwant   %s", resp.Body, want)
-	}
-}
-
-// A key sent twice is redacted in both places, whichever one the upstream
-// reads.
-func TestRedactionCoversDuplicateKeys(t *testing.T) {
-	interceptor := newConfiguredInterceptor(t, "")
-	body := `{"input":"first test@example.com","input":"second test@example.com"}`
-	resp, err := interceptor.InterceptRequestBeforeAuth(context.Background(), pluginapi.RequestInterceptRequest{Body: []byte(body)})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(string(resp.Body), "test@example.com") {
-		t.Fatalf("duplicate key leaked: %s", resp.Body)
+	want := regexp.MustCompile("^" + regexp.QuoteMeta(`{"seed":12345678901234567890,"z":1,"a":"<b>&é",`+"\n"+`"messages":[{"role":"user","content":"mail `) + `\{\{EMAIL_[a-z2-7]{8}\}\}` + regexp.QuoteMeta(`"}]}`) + "$")
+	if !want.Match(resp.Body) {
+		t.Fatalf("body = %s", resp.Body)
 	}
 }

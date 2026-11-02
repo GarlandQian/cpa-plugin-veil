@@ -27,10 +27,12 @@ func buildPlugin(configYAML []byte, pluginDir string) (pluginapi.Plugin, error) 
 	if errDetector != nil {
 		return pluginapi.Plugin{}, errDetector
 	}
+	masker, v := maskerFor(pluginDir, d)
 	p := &veilPlugin{
 		cfg:       cfg,
 		pluginDir: pluginDir,
-		detector:  d,
+		masker:    masker,
+		vault:     v,
 		clean:     newBodySet(),
 	}
 
@@ -57,12 +59,12 @@ func pluginMetadata() pluginapi.Metadata {
 			{
 				Name:        "skip_models",
 				Type:        pluginapi.ConfigFieldTypeArray,
-				Description: "Model names to skip redaction for.",
+				Description: "Model names to skip masking for.",
 			},
 			{
 				Name:        "skip_formats",
 				Type:        pluginapi.ConfigFieldTypeArray,
-				Description: "Source format names to skip redaction for.",
+				Description: "Source format names to skip masking for.",
 			},
 		},
 	}

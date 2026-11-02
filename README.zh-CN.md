@@ -2,7 +2,7 @@
 
 [English](README.md) | 简体中文
 
-Veil 是 CLIProxyAPI 的隐私插件，用于在请求发送给模型前自动识别并脱敏敏感信息。
+Veil 是 CLIProxyAPI 的隐私插件：在请求发送给模型前识别敏感值，把每个值换成 `{{EMAIL_ab12cd34}}` 这样的占位符。
 
 Veil 源自 [rheodev/cpa-plugin-privacyfilter](https://github.com/rheodev/cpa-plugin-privacyfilter) 的分支。
 从 `privacyfilter` 迁移过来？请看[从 privacyfilter 迁移](#从-privacyfilter-迁移)。
@@ -14,7 +14,8 @@ Veil 源自 [rheodev/cpa-plugin-privacyfilter](https://github.com/rheodev/cpa-pl
 
 ## 作用
 
-当 CLIProxyAPI 收到请求时，插件会在请求离开本地进程前扫描支持的文本字段。如果检测到敏感内容，请求体会被改写为脱敏后的内容。
+当 CLIProxyAPI 收到请求时，Veil 会在请求离开本地进程前扫描其中的文本，把每个敏感值换成占位符。同一个客户端的同一个值始终得到同一个占位符，
+所以每一轮重发的对话都掩码成相同的文本，上游的提示词缓存也能持续命中。
 
 典型场景：
 
@@ -26,7 +27,7 @@ Veil 源自 [rheodev/cpa-plugin-privacyfilter](https://github.com/rheodev/cpa-pl
 ## 功能
 
 - CLIProxyAPI 插件运行时的请求拦截器
-- 脱敏邮箱、手机号、密钥、连接串、证书等敏感内容
+- 用稳定的占位符掩码邮箱、手机号、密钥、连接串、证书等敏感内容，不同客户端 API key 之间相互隔离
 - 使用内置 Gitleaks 规则 `rules/gitleaks.toml`
 - 支持自定义 Gitleaks 规则文件
 - 支持 OpenAI Chat / Completions、OpenAI Responses、Claude、Gemini 和 Gemini CLI 请求体
@@ -140,38 +141,56 @@ plugins:
 ### 日志
 
 插件日志通过宿主的 `host.log` 回调输出，遵循 CLIProxyAPI 的日志级别、格式和输出位置，并带上请求 ID。
-每次拦截只要有脱敏就输出一行，列出被脱敏字段的 JSON 路径，例如 `veil redacted 2 field(s): messages[0].content, system`。
-不会记录请求原文。
+每次拦截只要有掩码就输出一行，包含各类型的数量和被掩码字段的 JSON 路径，例如
+`veil masked 3 value(s) (EMAIL=2, SECRET=1) in 2 field(s): messages[0].content, system`。
+不会记录原值、原值的任何片段或长度。
 
 ## 工作方式
 
-插件在 before-auth 和 after-auth 两个请求拦截阶段都会脱敏，两个阶段看到的都是客户端格式的请求体（executor 翻译之前）。
+Veil 在 before-auth 和 after-auth 两个请求拦截阶段都会掩码，两个阶段看到的都是客户端格式的请求体（executor 翻译之前）。
 after-auth 这一遍用来拦住请求链后面其他插件加进来的文本，例如优先级更低的 before-auth 拦截器或优先级更高的 after-auth 拦截器。
-脱敏是幂等的，已经脱敏过的文本不会产生新的命中：
+掩码是幂等的，已经掩码过的请求体不会产生新的命中；before-auth 已经掩码过的请求体，after-auth 不会再扫一遍。
 
 1. 检查 `skip_models` 和 `skip_formats`。
-2. 将请求体解析为 JSON。
-3. 处理所有支持的提示词字段（见下表）。
-4. 只修改自由文本。
-5. 检测到敏感内容后，用占位符替换原文。
-6. 解析失败或未命中可处理字段时，请求保持不变。
+2. 将请求体解析为 JSON；不是 JSON 的请求原样放行。
+3. 确定客户端的调用方范围（见下文）。
+4. 掩码请求里的所有字符串（下面列出的除外），其余字节原样写回。
 
-各客户端格式的脱敏字段：
+会被掩码的内容：
 
-| 格式                 | 字段                                                                                  |
-|--------------------|-------------------------------------------------------------------------------------|
-| OpenAI Chat        | `messages[].content`（字符串或 `text` 分段）                                               |
-| OpenAI 图片 / 视频      | 图片和视频生成请求的 `prompt`（字符串或字符串数组）                                                    |
-| OpenAI Responses   | `instructions`、`input`（字符串）、`input[].content`、`function_call_output` 的 `output`     |
-| Claude             | `system`、`messages[].content` 文本块、`tool_result` 内容                                   |
-| Gemini             | `systemInstruction` / `system_instruction` 和 `contents[].parts[].text`               |
-| Gemini CLI         | 顶层 `request` 对象内的上述 Gemini 字段                                                       |
+- 各客户端格式的全部对话文本：OpenAI Chat / Completions、OpenAI Responses、OpenAI 图片和视频的 prompt、
+  embeddings 的 input、Claude、Gemini，以及 Gemini CLI 的 `request` 包装。
+- 工具调用和工具结果：OpenAI 的 `arguments`（一个 JSON 字符串，逐个值掩码，结果仍是合法 JSON）、
+  Claude 的 `tool_use.input` 和 `tool_result`、Gemini 的 `functionCall.args` 和 `functionResponse.response`。
+  它们的键属于工具本身，所以其下的每个字符串都会掩码。
+- 工具定义和请求参数里的 `description`，其下的其他内容不动。
 
-以下内容有意不修改：工具调用参数（`function_call.arguments`、Claude `tool_use.input`、Gemini `functionCall` /
-`functionResponse`）、图片、文件、Claude `thinking` 块，以及标记了 `thought: true` 的 Gemini 分段（其文本与
-`thoughtSignature` 绑定，修改后上游会拒绝请求）。
+不会改动的内容：
 
-OpenAI Completions 请求通过 `messages` 覆盖：宿主在调用拦截器之前会先把它转成 chat completions 格式。
+- 带签名的推理内容：Claude 的 `thinking` 和 `redacted_thinking` 块、OpenAI Responses 的 `reasoning` 条目，
+  以及标记了 `thought: true` 的 Gemini 分段。它们必须按厂商签名时的原样发回。
+- 标识符、名称和协议字段：`id` 以及以 `_id`、`Id`、`_ids` 结尾的键，`name`、`model`、`type`、`role`、
+  `signature`、`encrypted_content`、`url`、`image_url`、`media_type` 等。
+- 二进制数据：`data` 和 `file_data`（Claude 文档的纯文本来源除外），以及所有 `data:` URL。
+
+除了规则检测到的位置，Veil 还会在以下情况掩码重复出现的值：
+
+- 一个值在请求的任何位置被识别出来，整个请求里出现它的地方都会被掩码。例如靠 `password:` 标签识别出的密钥，
+  在单独出现的地方也会被掩码。
+- 不少于 8 字节、掩码过一次的值，会成为这个客户端的已知值，之后的请求里也会被掩码。
+- 客户端已经发出过的文本保持当时发送的样子，即使 Veil 后来才学到其中某个值，这样上游缓存的提示词前缀依然能命中。
+
+### 占位符与调用方范围
+
+占位符的格式是 `{{KIND_xxxxxxxx}}`：类型（`EMAIL`、`PHONE`、`ID_CARD`、`BANK_CARD`、`IP`、`SECRET`）加上原值 HMAC 的 8 个字符。
+HMAC 密钥在首次启动时生成，保存在插件目录的 `veil.key`（权限 0600）中，所以重启后占位符不变。请把 `veil.key` 当作敏感文件：
+拿到它的人可以把猜测的值和占位符对照验证。删掉它，所有占位符都会改变。
+
+每个客户端 API key 是一个独立的调用方范围：同一个值在另一个 key 下得到不同的占位符，占位符也不会为另一个客户端还原。
+Veil 从 `Authorization: Bearer`、`x-api-key` 或 `x-goog-api-key` 读取 key，只保存它的哈希。没有这些请求头的请求共用默认范围，
+其中包括用 `?key=` 查询参数传 key 的 Gemini 客户端，因为插件看不到查询参数。
+
+占位符到原值的映射只保存在内存中，最多保留最近使用的 200,000 个值。
 
 `skip_formats` 的常见取值是宿主的来源格式名，例如 `openai`、`openai-response`、`claude`、`gemini`、`gemini-cli`、`openai-image`、`openai-video`。
 

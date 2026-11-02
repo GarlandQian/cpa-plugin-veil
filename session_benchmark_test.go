@@ -62,6 +62,9 @@ func BenchmarkLongSession(b *testing.B) {
 	b.ResetTimer()
 	for range b.N {
 		b.StopTimer()
+		masking.Lock()
+		masking.dir, masking.vault, masking.masker = "", nil, nil
+		masking.Unlock()
 		plugin, err := buildPlugin(nil, dir)
 		if err != nil {
 			b.Fatal(err)
