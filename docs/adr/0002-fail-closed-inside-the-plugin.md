@@ -1,0 +1,3 @@
+# Veil fails closed on its own because the host fails open
+
+CLIProxyAPI sends the original body upstream when a request interceptor returns an error, and permanently fuses a plugin that panics, after which every request skips it; a plugin has no way to reject a request. So Veil recovers its own panics, never returns an error from masking, and turns a request it cannot mask, or one whose Hit carries the block Action, into a Stopped request by rewriting it so that it fails without carrying any of its original text. There is no switch to fail open: a privacy plugin that sometimes lets the plain request through gives the user nothing they can rely on.
