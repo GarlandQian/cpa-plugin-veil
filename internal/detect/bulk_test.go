@@ -203,7 +203,7 @@ func genRealSecrets() []bulkCase {
 		// GitHub PAT
 		"g\x68p_1234567890abcdefghijklmnopqrstuvwxyzAB",
 		// Google API key
-		"A\x49zaSyD-1234567890abcdefghijklmnop_qrstu",
+		"A\x49zaSyD-1234567890abcdefghijklmnop_qrst",
 		// Slack token
 		"x\x6fxb-1234567890-1234567890-AbCdEfGh1234567890",
 	}
@@ -266,7 +266,7 @@ func genPII() []bulkCase {
 	var out []bulkCase
 	// 邮箱
 	emails := []string{
-		"a@b.cn", "test.user@example.com", "first.last+tag@sub.example.io",
+		"a@b.cn", "test.user@acme-corp.cn", "first.last+tag@sub.example.io",
 		"x@y.io", "alice@beta.dev",
 	}
 	for _, e := range emails {
@@ -284,7 +284,7 @@ func genPII() []bulkCase {
 	}
 	// 身份证
 	ids := []string{
-		"11010519900307743X", "440301198512125678", "320106200001011234", "330106199911114321",
+		"110105199003077438", "440301198512125677", "320106200001011233", "330106199911114326",
 	}
 	for _, id := range ids {
 		out = append(out, bulkCase{"pii-idcard", "raw", id, true})
@@ -293,17 +293,17 @@ func genPII() []bulkCase {
 	// 银行卡（Luhn-valid）
 	cards := []string{
 		"4111111111111111", "4012888888881881", "5555555555554444", "5105105105105100",
-		"6011111111111117", "30569309025904", "38520000023237", "4222222222222",
+		"6011111111111117", "378282246310005", "371449635398431", "4000056655665556",
 	}
 	for _, c := range cards {
 		out = append(out, bulkCase{"pii-bank", "raw", c, true})
 		out = append(out, bulkCase{"pii-bank", "prose", "付款卡号 " + c, true})
 	}
-	// IPv4
+	// IPv4：ip 类别默认关闭，内网、回环、公共 DNS 等地址即使打开也不掩
 	ips := []string{"192.168.1.1", "10.0.0.1", "172.16.0.1", "8.8.8.8", "127.0.0.1", "255.255.255.0"}
 	for _, ip := range ips {
-		out = append(out, bulkCase{"pii-ip", "raw", ip, true})
-		out = append(out, bulkCase{"pii-ip", "prose", "服务器 IP " + ip + " 已部署", true})
+		out = append(out, bulkCase{"pii-ip", "raw", ip, false})
+		out = append(out, bulkCase{"pii-ip", "prose", "服务器 IP " + ip + " 已部署", false})
 	}
 	return out
 }
@@ -519,7 +519,7 @@ func genCloudSecrets() []bulkCase {
 		{"Azure SAS (with context)", "sas_token=sv=2020-08-04&ss=b&srt=sco&sp=rwdlacx&sig=AbCdEfGh1234567890XyZQwErTyUiOpAsDfGhJk"},
 		// GCP
 		{"GCP Service Account", `{"type":"service_account","project_id":"my-project","private_key_id":"abc123def456","private_key":"` + "-\x2d---BEGIN PRIVATE KEY-----" + `\nMIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQDxxxxxxxxxxxx\n-----END PRIVATE KEY-----\n"}`},
-		{"GCP API key", "A\x49zaSyD-1234567890abcdefghijklmnop_qrstu"},
+		{"GCP API key", "A\x49zaSyD-1234567890abcdefghijklmnop_qrst"},
 		// Cloudflare
 		{"Cloudflare API Token", "v1.0-AbCdEfGh1234567890XyZ-AbCdEfGh1234567890XyZAbCdEfGh1234567890XyZAbCdEfGh1234567890XyZ"},
 		// Stripe
@@ -756,7 +756,7 @@ users.forEach(u => console.log(u.name));`,
 	}
 
 	// SQL
-	sqlSecret := `INSERT INTO users (email, password) VALUES ('alice@example.com', 'Hunter2xyzAbCdEf');`
+	sqlSecret := `INSERT INTO users (email, password) VALUES ('alice@acme-corp.cn', 'Hunter2xyzAbCdEf');`
 	out = append(out, bulkCase{"code-sql", "sql with PII+secret", sqlSecret, true})
 	sqlClean := `SELECT id, name, created_at FROM users WHERE status = 'active' ORDER BY created_at DESC LIMIT 10;`
 	out = append(out, bulkCase{"code-sql", "sql clean", sqlClean, false})
@@ -785,8 +785,8 @@ func genLogLines() []bulkCase {
 		line string
 		hit  bool
 	}{
-		{`192.168.1.42 - - [28/May/2026:14:32:01 +0800] "GET / HTTP/1.1" 200 1234 "-" "Mozilla/5.0"`, true},
-		{`10.0.0.15 - - [28/May/2026:14:32:01 +0800] "POST /api/login HTTP/1.1" 200 100`, true},
+		{`192.168.1.42 - - [28/May/2026:14:32:01 +0800] "GET / HTTP/1.1" 200 1234 "-" "Mozilla/5.0"`, false},
+		{`10.0.0.15 - - [28/May/2026:14:32:01 +0800] "POST /api/login HTTP/1.1" 200 100`, false},
 	}
 	for _, l := range nginxLogs {
 		out = append(out, bulkCase{"log-nginx", "nginx line", l.line, l.hit})
@@ -796,7 +796,7 @@ func genLogLines() []bulkCase {
 		line string
 		hit  bool
 	}{
-		{`{"timestamp":"2026-05-28T14:32:01Z","level":"info","msg":"login","user":"alice@example.com"}`, true},
+		{`{"timestamp":"2026-05-28T14:32:01Z","level":"info","msg":"login","user":"alice@acme-corp.cn"}`, true},
 		{`{"timestamp":"2026-05-28T14:32:01Z","level":"info","msg":"api call","duration_ms":12,"status":200}`, false},
 		{`{"timestamp":"2026-05-28T14:32:01Z","level":"error","msg":"auth failed","token":"` + "s\x6b-abcdefghijklmnopqrstT3Blbk\x46Jabcdefghijklmnopqrst" + `"}`, true},
 		{`{"timestamp":"2026-05-28T14:32:01Z","level":"info","msg":"processing","path":"/var/log/app.log"}`, false},
@@ -863,7 +863,8 @@ func genIPVariations() []bulkCase {
 		"src=10.0.0.15 dst=10.0.0.16",
 	}
 	for _, ip := range v4hit {
-		out = append(out, bulkCase{"ip-v4", "v4", ip, true})
+		// ip 类别默认关闭
+		out = append(out, bulkCase{"ip-v4", "v4", ip, false})
 	}
 	// 不是 IP 的串
 	notIP := []string{
@@ -873,8 +874,7 @@ func genIPVariations() []bulkCase {
 	for _, s := range notIP {
 		// 这些里面有的真的是 IP 在中间，比如 "version 1.2.3.4 released" 其实含 1.2.3.4
 		// 1.2.3.4 是合法 IP
-		expectHit := s == "version 1.2.3.4 released"
-		out = append(out, bulkCase{"ip-edge", "edge", s, expectHit})
+		out = append(out, bulkCase{"ip-edge", "edge", s, false})
 	}
 	// IPv6 (当前未实现 IPv6 → 期望不脱)
 	v6 := []string{
@@ -884,8 +884,8 @@ func genIPVariations() []bulkCase {
 		out = append(out, bulkCase{"ip-v6", "v6 (unsupported)", ip, false})
 	}
 	// IP + port
-	out = append(out, bulkCase{"ip-port", "v4 port", "10.0.0.1:8080", true})
-	out = append(out, bulkCase{"ip-port", "v4 port host", "host=10.0.0.1:5432", true})
+	out = append(out, bulkCase{"ip-port", "v4 port", "10.0.0.1:8080", false})
+	out = append(out, bulkCase{"ip-port", "v4 port host", "host=10.0.0.1:5432", false})
 	return out
 }
 
@@ -897,7 +897,7 @@ func genMultiEntity() []bulkCase {
 		"用户 %s 手机 %s api_key=%s",
 		"From: %s, Phone: %s, Token: %s",
 	}
-	emails := []string{"alice@example.com", "bob@test.io", "user@domain.cn"}
+	emails := []string{"alice@acme-corp.cn", "bob@test.io", "user@domain.cn"}
 	phones := []string{"13812345678", "13900001111", "+86-13700001234"}
 	secrets := []string{
 		"Hunter2xyz",
@@ -1050,7 +1050,7 @@ func genMultilingual() []bulkCase {
 	}
 	// 多语言中 PII 仍能识别（邮箱/手机号是结构化的，与语言无关）
 	out = append(out, bulkCase{"lang-mixed", "jp + email",
-		"連絡先: alice@example.com です", true})
+		"連絡先: alice@acme-corp.cn です", true})
 	out = append(out, bulkCase{"lang-mixed", "kr + phone",
 		"전화번호 13812345678", true})
 	// 已知限制：日/韩/俄语的"密码是"关键词不在 reContextSecret 里，

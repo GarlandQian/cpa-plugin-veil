@@ -68,11 +68,11 @@ func TestKeywordIndexMatchesContains(t *testing.T) {
 }
 
 func TestDetectCacheReturnsCopies(t *testing.T) {
-	d, err := New(nil)
+	d, err := New(nil, Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	text := strings.Repeat("plain words ", 30) + "mail me at someone@example.com"
+	text := strings.Repeat("plain words ", 30) + "mail me at someone@acme-corp.cn"
 	first := d.Detect(text)
 	if len(first) != 1 || first[0].Kind != KindEmail {
 		t.Fatalf("hits = %+v", first)

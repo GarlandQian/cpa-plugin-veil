@@ -20,7 +20,7 @@ func sessionTurns(turns int) [][]byte {
 	messages := []any{}
 	bodies := make([][]byte, 0, turns)
 	for i := 0; i < turns; i++ {
-		user := fmt.Sprintf("Turn %d: please check why the deploy failed and mail ops-%d@example.com when done. ", i, i) +
+		user := fmt.Sprintf("Turn %d: please check why the deploy failed and mail ops-%d@acme-corp.cn when done. ", i, i) +
 			strings.Repeat("The service logs are attached below for context. ", 8)
 		reply := fmt.Sprintf("Looking at turn %d. The handler reads the config and retries the request.\n", i) +
 			strings.Repeat("```go\nfunc handle(ctx context.Context, req *Request) error {\n\treturn retry(ctx, req)\n}\n```\n", 6)

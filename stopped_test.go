@@ -41,7 +41,7 @@ func stoppedFor(t *testing.T, interceptor pluginapi.RequestInterceptor, body str
 
 func TestBlockActionStopsTheRequest(t *testing.T) {
 	interceptor := newConfiguredInterceptor(t, "actions:\n  email: Block\n")
-	got := stoppedFor(t, interceptor, `{"model":"m","messages":[{"role":"user","content":"mail test@example.com"}]}`)
+	got := stoppedFor(t, interceptor, `{"model":"m","messages":[{"role":"user","content":"mail test@acme-corp.cn"}]}`)
 	if string(got) != `{"model":"m","messages":[]}` {
 		t.Fatalf("body = %s", got)
 	}
@@ -49,7 +49,7 @@ func TestBlockActionStopsTheRequest(t *testing.T) {
 
 func TestWarnActionLetsTheValueThrough(t *testing.T) {
 	interceptor := newConfiguredInterceptor(t, "actions:\n  EMAIL: warn\n")
-	if got := stoppedFor(t, interceptor, `{"input":"mail test@example.com"}`); got != nil {
+	if got := stoppedFor(t, interceptor, `{"input":"mail test@acme-corp.cn"}`); got != nil {
 		t.Fatalf("warned value changed the body: %s", got)
 	}
 }
@@ -58,11 +58,11 @@ func TestMaskingFailureStopsTheRequest(t *testing.T) {
 	p := newConfiguredInterceptor(t, "").(*veilPlugin)
 	// A masker without a detector panics on the first field.
 	p.masker = mask.New(nil, p.vault)
-	got := stoppedFor(t, p, `{"model":"m","input":"mail test@example.com"}`)
+	got := stoppedFor(t, p, `{"model":"m","input":"mail test@acme-corp.cn"}`)
 	if string(got) != `{"model":"m","input":[]}` {
 		t.Fatalf("body = %s", got)
 	}
-	if got := stoppedFor(t, newConfiguredInterceptor(t, ""), `{"input":"test@example.com"`); string(got) != `{}` {
+	if got := stoppedFor(t, newConfiguredInterceptor(t, ""), `{"input":"test@acme-corp.cn"`); string(got) != `{}` {
 		t.Fatalf("malformed JSON body = %s", got)
 	}
 }

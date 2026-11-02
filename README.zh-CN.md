@@ -125,7 +125,12 @@ plugins:
 
 | 字段              | 类型     | 默认值  | 说明                                                        |
 |-----------------|--------|------|-----------------------------------------------------------|
-| `gitleaks_toml` | string | `""` | 自定义 gitleaks 规则文件路径，支持相对插件目录路径                            |
+| `gitleaks_toml` | string | `""` | 替换内置规则的 gitleaks 规则文件，相对插件目录解析                            |
+| `rules_toml`    | string | `""` | 追加到内置规则之后的 gitleaks 规则文件，见[规则](#规则)                         |
+| `disabled_rules`| array  | `[]` | 要关闭的规则 ID                                                    |
+| `categories`    | object | `{}` | 打开或关闭类别，见[规则](#规则)                                             |
+| `terms`         | array  | `[]` | 始终掩码的用户词，类型为 `TERM`                                          |
+| `allow`         | array  | `[]` | 永不掩码的值                                                       |
 | `actions`       | object | `{}` | 按类型（`EMAIL`、`SECRET` 等）指定处理方式：`mask`（默认）、`block` 或 `warn` |
 | `skip_models`   | array  | `[]` | 命中的模型不做掩码                                                 |
 | `skip_formats`  | array  | `[]` | 命中的来源格式不做掩码                                               |
@@ -209,7 +214,7 @@ after-auth 这一遍用来拦住请求链后面其他插件加进来的文本，
 
 ### 占位符与调用方范围
 
-占位符的格式是 `{{KIND_xxxxxxxx}}`：类型（`EMAIL`、`PHONE`、`ID_CARD`、`BANK_CARD`、`IP`、`SECRET`）加上原值 HMAC 的 8 个字符。
+占位符的格式是 `{{KIND_xxxxxxxx}}`：类型（`EMAIL`、`SECRET`、`PASSWORD` 等，见[规则](#规则)）加上原值 HMAC 的 8 个字符。
 HMAC 密钥在首次启动时生成，保存在插件目录的 `veil.key`（权限 0600）中，所以重启后占位符不变。请把 `veil.key` 当作敏感文件：
 拿到它的人可以把猜测的值和占位符对照验证。删掉它，所有占位符都会改变。
 
@@ -260,6 +265,66 @@ ping 事件可以越过被扣住的事件先发出；其他事件到来时，被
 
 ## 规则
 
+### Veil 会识别什么
+
+检测按类别分组，可以用 `categories` 整组打开或关闭：
+
+| 类别         | 类型                                     | 默认 | 识别内容                                                                    |
+|------------|----------------------------------------|----|-------------------------------------------------------------------------|
+| `secrets`  | `SECRET`、`PASSWORD`、`PRIVATE_KEY`      | 开  | 厂商密钥（gitleaks 规则和已知前缀）、写在名称后面的口令和密钥、URL 里的密码、Authorization 和 Cookie 请求头、私钥，以及紧挨着密钥名称的随机串 |
+| `personal` | `EMAIL`、`PHONE`、`ID_CARD`、`BANK_CARD` | 开  | 真实域名的邮箱、不在编号语境里的大陆手机号、校验位正确的身份证号、通过 Luhn 校验的银行卡号 |
+| `ssn`      | `SSN`                                  | 开  | 美国 SSA 实际签发号段内的社保号                                                |
+| `passport` | `PASSPORT`                             | 开  | 写在 "passport" / 护照 后面的护照号                                          |
+| `iban`     | `IBAN`                                 | 开  | 校验和正确的 IBAN                                                         |
+| `birthday` | `BIRTHDAY`                             | 开  | 写在 "birthday"、"DOB"、生日等词后面、且早于一年前的日期                               |
+| `mac`      | `MAC`                                  | 开  | MAC 地址（文档示例地址和广播地址除外）                                             |
+| `serial`   | `SERIAL`                               | 开  | 写在 "S/N"、"serial"、序列号 后面的序列号                                      |
+| `home`     | `USERNAME`                             | 关  | 主目录路径里的用户名：`/Users/<name>`、`/home/<name>`、`C:\Users\<name>`     |
+| `userhost` | `USERNAME`、`HOSTNAME`                  | 关  | 命令提示符和 ssh/scp/rsync 命令里的 `user@host`，以及 `hostname:`、`User:` 行     |
+| `ip`       | `IP`                                   | 关  | 公网 IPv4 和 IPv6；内网、回环、链路本地、CGNAT、文档地址和公共 DNS 永远不掩              |
+| `bucket`   | `BUCKET`                               | 关  | `s3://`、`gs://` 等 URL 和域名里的云存储 bucket                                |
+
+`home`、`userhost`、`ip`、`bucket` 默认关闭，因为主目录和主机名几乎出现在每个编程请求里，而且模型需要逐字照抄它们。
+
+除了按值的样子识别，名字表明存放密钥的字段（`api_key`、`password`、`client_secret`、`Authorization`、`db_pass` 等），
+只要值不少于 8 个字符，不论长什么样都整值掩码。为了减少误报，以下内容不会被掩码：UUID、长十六进制 id 和摘要（以及它们的任何片段）、
+小数、JSON 里的裸数字、id 类字段的值、给密钥起名的代码（`token = get_token_v2`）、版本号、路径、文件行号，以及 `${API_KEY}` 这类占位写法。
+附近没有密钥名称的随机串不算密钥。
+
+### 自定义规则
+
+```yaml
+plugins:
+  configs:
+    veil:
+      categories:
+        ip: true          # 打开（或关闭）某个类别
+      terms:              # 始终掩码，类型为 TERM
+        - 烛龙
+        - {term: Phoenix, any_case: true, whole_word: true}
+      allow:              # 永不掩码，按整个值比较，不区分大小写
+        - support@acme-corp.cn
+      rules_toml: rules/extra.toml   # 追加到内置规则之后的 gitleaks 规则
+      disabled_rules:     # 要关闭的规则 ID
+        - phone-cn
+```
+
+`rules_toml` 里的规则可以自定类型，要求全大写、不超过 24 个字符：
+
+```toml
+[[rules]]
+id = "internal-ticket"
+regex = '''TKT-[0-9]{6}'''
+keywords = ["tkt-"]
+kind = "TICKET"
+```
+
+`disabled_rules` 可以填 gitleaks 规则 ID，也可以填 Veil 自己的规则 ID：`email`、`phone-cn`、`id-card-cn`、`bank-card`、
+`url-password`、`named-secret`、`env-secret`、`auth-header`、`key-field`、`cjk-password`、`cjk-secret`、`copula-secret`、
+`context-secret`、`high-entropy`、各个 `vendor-*` 密钥规则，以及各类别自己的规则。写了不存在的类别或规则 ID，配置会加载失败。
+
+### 内置 gitleaks 规则
+
 内置规则在构建时内嵌到共享库中，来源：
 
 ```text
@@ -268,7 +333,7 @@ rules/gitleaks.toml
 
 运行时按以下顺序解析规则：
 
-1. 配置项 `gitleaks_toml`（若设置）
+1. 配置项 `gitleaks_toml`（若设置；它会替换内置规则，想追加规则请用 `rules_toml`）
 2. 共享库旁的 `rules/gitleaks.toml` 附带文件
 3. 构建时内嵌的规则（默认）
 
@@ -279,12 +344,6 @@ make update-rules
 make build
 ```
 
-也可以通过 `gitleaks_toml` 指定自己的规则文件：
-
-```yaml
-gitleaks_toml: custom/gitleaks.toml
-```
-
 相对路径会基于插件目录解析。
 
 ## 从 privacyfilter 迁移
@@ -293,6 +352,8 @@ gitleaks_toml: custom/gitleaks.toml
 2. 配置键从 `plugins.configs.privacyfilter` 改为 `plugins.configs.veil`。`gitleaks_toml`、`skip_models`、`skip_formats` 含义不变。
 3. 删除 `replacement` 和 `replacement_labels`。Veil 会忽略这两项，并在启动时输出
    `veil ignores removed config field(s): ...`，直到删掉为止。
+4. 命中结果会有变化：值现在换成占位符，并在回复里还原；IP 地址默认不再掩码（如需掩码公网地址，打开 `ip` 类别）；
+   `example.com` 这类文档域名的邮箱、校验位不对的身份证号、看起来是订单号的手机号不再掩码；工具调用参数和工具结果也会掩码。
 
 ## 开发
 

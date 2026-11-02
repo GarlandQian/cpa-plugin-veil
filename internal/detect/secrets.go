@@ -1,6 +1,7 @@
 package detect
 
 import (
+	"fmt"
 	"math"
 	"regexp"
 	"strings"
@@ -9,9 +10,8 @@ import (
 )
 
 const (
-	entropyMin       = 4.0 // 高熵兜底默认阈值（贴近 gitleaks 经验值）
-	entropyMinStrict = 4.8 // 周围无密钥语义关键词时启用，进一步压低误报
-	contextLookback  = 30  // hasSecretContext 往前回溯字节数
+	entropyMin      = 4.0 // 高熵兜底默认阈值（贴近 gitleaks 经验值）
+	contextLookback = 30  // hasSecretContext 往前回溯字节数
 )
 
 // 上下文型口令：藏在句子里的密码/token，如「我的密码是 hunter2」「api_key: xxx」。
@@ -22,7 +22,7 @@ var reContextSecret = regexp.MustCompile(
 var reEntropyToken = regexp.MustCompile(`[A-Za-z0-9+/=_\-]{20,}`)
 
 // 密钥语义关键词。命中表示候选串身处"明显在谈密钥"的上下文里，
-// 保留 entropyMin；不命中则用 entropyMinStrict 收紧阈值。
+// 高熵兜底只在这种上下文里生效。
 // 目前覆盖英文 + 中文；日 / 韩 / 俄等其它语种关键词未覆盖（已知限制）。
 var reSecretContext = regexp.MustCompile(
 	`(?i)(?:password|passwd|pwd|secret|token|api[_\s-]?key|access[_\s-]?key|bearer|authorization|credential|jwt|密码|口令|密钥|凭证|令牌|鉴权)`)
@@ -113,12 +113,15 @@ type secretRule struct {
 	keywords    []string // 已小写；空表示该规则总是参与
 	entropy     float64
 	secretGroup int
+	kind        Kind
 }
 
 type secretDetector struct {
 	rules    []secretRule
 	skipped  int // 因正则语法不兼容被跳过的规则数（Go RE2 下通常为 0）
 	keywords *keywordIndex
+	all      []string        // every rule ID loaded, disabled ones too
+	user     map[string]bool // the IDs of the rules the user added
 }
 
 // gitleaks.toml 的最小结构；未知字段（allowlist 等）会被忽略。
@@ -129,26 +132,60 @@ type tomlConfig struct {
 		Keywords    []string `toml:"keywords"`
 		Entropy     float64  `toml:"entropy"`
 		SecretGroup int      `toml:"secretGroup"`
+		Kind        string   `toml:"kind"`
 	} `toml:"rules"`
 }
 
-func newSecretDetector(rules []byte) (*secretDetector, error) {
-	sd := &secretDetector{}
-	if len(rules) == 0 {
-		sd.loadBuiltin()
-		sd.keywords = newKeywordIndex(sd.rules)
-		return sd, nil
+// newSecretDetector loads the built-in gitleaks rules, falling back to a
+// small set when they are empty or none compiles, then the user's extra
+// rules, leaving out the disabled ones.
+func newSecretDetector(rules, extra []byte, disabled map[string]bool) (*secretDetector, error) {
+	sd := &secretDetector{user: map[string]bool{}}
+	if len(rules) > 0 {
+		if err := sd.load(rules, disabled, false); err != nil {
+			return nil, err
+		}
 	}
+	if len(sd.rules) == 0 {
+		sd.loadBuiltin(disabled)
+	}
+	if len(extra) > 0 {
+		if err := sd.load(extra, disabled, true); err != nil {
+			return nil, fmt.Errorf("rules_toml: %w", err)
+		}
+	}
+	sd.keywords = newKeywordIndex(sd.rules)
+	return sd, nil
+}
+
+func (sd *secretDetector) load(raw []byte, disabled map[string]bool, user bool) error {
 	var cfg tomlConfig
-	if _, err := toml.Decode(string(rules), &cfg); err != nil {
-		return nil, err
+	if _, err := toml.Decode(string(raw), &cfg); err != nil {
+		return err
 	}
 	for _, r := range cfg.Rules {
 		if r.Regex == "" {
 			continue
 		}
+		kind := KindSecret
+		if r.ID == "private-key" {
+			kind = KindPrivateKey
+		}
+		if r.Kind != "" {
+			if !user || !customKind.MatchString(r.Kind) {
+				return fmt.Errorf("rule %q: kind %q must be upper case, at most 24 characters", r.ID, r.Kind)
+			}
+			kind = Kind(r.Kind)
+		}
+		sd.all = append(sd.all, r.ID)
+		if disabled[r.ID] {
+			continue
+		}
 		re, err := regexp.Compile(r.Regex)
 		if err != nil {
+			if user {
+				return fmt.Errorf("rule %q: %w", r.ID, err)
+			}
 			sd.skipped++
 			continue
 		}
@@ -156,17 +193,16 @@ func newSecretDetector(rules []byte) (*secretDetector, error) {
 		for i, k := range r.Keywords {
 			kws[i] = strings.ToLower(k)
 		}
-		sd.rules = append(sd.rules, secretRule{r.ID, re, kws, r.Entropy, r.SecretGroup})
+		if user {
+			sd.user[r.ID] = true
+		}
+		sd.rules = append(sd.rules, secretRule{r.ID, re, kws, r.Entropy, r.SecretGroup, kind})
 	}
-	if len(sd.rules) == 0 {
-		sd.loadBuiltin()
-	}
-	sd.keywords = newKeywordIndex(sd.rules)
-	return sd, nil
+	return nil
 }
 
 // loadBuiltin 在 gitleaks.toml 缺失时提供一组兜底规则。
-func (sd *secretDetector) loadBuiltin() {
+func (sd *secretDetector) loadBuiltin(disabled map[string]bool) {
 	builtin := []struct {
 		id, pat string
 		kws     []string
@@ -180,7 +216,15 @@ func (sd *secretDetector) loadBuiltin() {
 		{"private-key", `-----BEGIN[A-Z ]*PRIVATE KEY-----`, []string{"private key"}},
 	}
 	for _, b := range builtin {
-		sd.rules = append(sd.rules, secretRule{b.id, regexp.MustCompile(b.pat), b.kws, 0, 0})
+		sd.all = append(sd.all, b.id)
+		if disabled[b.id] {
+			continue
+		}
+		kind := KindSecret
+		if b.id == "private-key" {
+			kind = KindPrivateKey
+		}
+		sd.rules = append(sd.rules, secretRule{b.id, regexp.MustCompile(b.pat), b.kws, 0, 0, kind})
 	}
 }
 
@@ -218,22 +262,29 @@ func (sd *secretDetector) detect(text string) []span {
 				isLikelyPlaceholder(cand) || hasJSONNoise(cand) {
 				continue
 			}
-			spans = append(spans, span{s, e, KindSecret, r.id})
+			spans = append(spans, span{s, e, r.kind, r.id})
 		}
 	}
 	// 上下文口令：只脱掉 value（第 2 个分组）
 	for _, m := range reContextSecret.FindAllStringSubmatchIndex(text, -1) {
 		if len(m) >= 6 && m[4] >= 0 {
 			value := text[m[4]:m[5]]
-			// 模板变量（${TOKEN} / {{ X }} 等）不是真值，跳过
-			if isTemplateVar(value) {
+			// 模板变量（${TOKEN} / {{ X }} 等）不是真值，跳过；代码里给密钥起的名字、
+			// 版本号、路径、文件行号也不是（见 fieldvalue.go）
+			if isTemplateVar(value) || namesASecret(value) || versionValue(value) || pathValue(value) || lineRef(value) {
 				continue
 			}
 			// 低熵短串（"REPLACE_ME" / "TODO" / "null" / "abc" 等占位符）跳过
 			if len(value) <= 16 && shannonEntropy(value) < 3.0 {
 				continue
 			}
-			spans = append(spans, span{m[4], m[5], KindSecret, "context-secret"})
+			// 口令类关键词归 PASSWORD，其余（密钥、token 等）归 SECRET
+			kind := KindSecret
+			switch strings.ToLower(text[m[2]:m[3]]) {
+			case "密码", "口令", "password", "passwd", "pwd":
+				kind = KindPassword
+			}
+			spans = append(spans, span{m[4], m[5], kind, "context-secret"})
 		}
 	}
 	// 高熵兜底
@@ -250,11 +301,12 @@ func (sd *secretDetector) detect(text string) []span {
 		if isTemplateVar(cand) || isHexHash(cand) || isUUID(cand) || isBusinessIDAssignment(cand) {
 			continue
 		}
-		threshold := entropyMin
+		// 只在附近有密钥语义关键词时才做熵判断：无语境的随机串（base64、
+		// 随机 ID、压缩代码）不算密钥
 		if !hasSecretContext(text, s, e) {
-			threshold = entropyMinStrict
+			continue
 		}
-		if shannonEntropy(cand) >= threshold {
+		if shannonEntropy(cand) >= entropyMin {
 			spans = append(spans, span{s, e, KindSecret, "high-entropy"})
 		}
 	}
@@ -287,7 +339,7 @@ func isOnPathOrURLBoundary(text string, start, end int) bool {
 }
 
 // hasSecretContext 检查 [start-contextLookback, end) 区间是否出现密钥语义关键词，
-// 命中保留 entropyMin，否则改用更严的 entropyMinStrict。
+// 不命中时高熵兜底不生效。
 func hasSecretContext(text string, start, end int) bool {
 	lo := start - contextLookback
 	if lo < 0 {

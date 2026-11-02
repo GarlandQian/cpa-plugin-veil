@@ -69,9 +69,9 @@ func bearer(key string) http.Header {
 func TestInterceptMasksWithPlaceholders(t *testing.T) {
 	interceptor := newConfiguredInterceptor(t, "")
 	body := intercept(t, interceptor, pluginapi.RequestInterceptRequest{
-		Body: []byte(`{"model":"gpt-4","messages":[{"role":"user","content":"my email is test@example.com"}]}`),
+		Body: []byte(`{"model":"gpt-4","messages":[{"role":"user","content":"my email is test@acme-corp.cn"}]}`),
 	})
-	if strings.Contains(string(body), "test@example.com") || !emailPlaceholder.Match(body) {
+	if strings.Contains(string(body), "test@acme-corp.cn") || !emailPlaceholder.Match(body) {
 		t.Fatalf("expected a placeholder instead of the email: %s", body)
 	}
 }
@@ -80,7 +80,7 @@ func TestInterceptPassesCleanAndNonJSONBodiesThrough(t *testing.T) {
 	interceptor := newConfiguredInterceptor(t, "")
 	for _, body := range []string{
 		`{"model":"gpt-4","messages":[{"role":"user","content":"hello world"}]}`,
-		`not JSON test@example.com`,
+		`not JSON test@acme-corp.cn`,
 		"",
 	} {
 		if got := intercept(t, interceptor, pluginapi.RequestInterceptRequest{Body: []byte(body)}); got != nil {
@@ -94,7 +94,7 @@ func TestInterceptPassesCleanAndNonJSONBodiesThrough(t *testing.T) {
 func TestInterceptAfterAuthMasksTextInjectedLater(t *testing.T) {
 	interceptor := newConfiguredInterceptor(t, "")
 	before := intercept(t, interceptor, pluginapi.RequestInterceptRequest{
-		Body: []byte(`{"messages":[{"role":"user","content":"my email is test@example.com"}]}`),
+		Body: []byte(`{"messages":[{"role":"user","content":"my email is test@acme-corp.cn"}]}`),
 	})
 	if again, err := interceptor.InterceptRequestAfterAuth(context.Background(), pluginapi.RequestInterceptRequest{Body: before}); err != nil || again.Body != nil {
 		t.Fatalf("after-auth changed an already-masked body: %s %v", again.Body, err)
@@ -103,7 +103,7 @@ func TestInterceptAfterAuthMasksTextInjectedLater(t *testing.T) {
 	if err := json.Unmarshal(before, &payload); err != nil {
 		t.Fatal(err)
 	}
-	payload["system"] = "memory: other@example.com"
+	payload["system"] = "memory: other@acme-corp.cn"
 	injected, err := json.Marshal(payload)
 	if err != nil {
 		t.Fatal(err)
@@ -112,7 +112,7 @@ func TestInterceptAfterAuthMasksTextInjectedLater(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if after.Body == nil || strings.Contains(string(after.Body), "other@example.com") {
+	if after.Body == nil || strings.Contains(string(after.Body), "other@acme-corp.cn") {
 		t.Fatalf("after-auth hook must mask injected text, got %s", after.Body)
 	}
 	if got := emailPlaceholder.FindAllString(string(after.Body), -1); len(got) != 2 || got[0] == got[1] {
@@ -122,7 +122,7 @@ func TestInterceptAfterAuthMasksTextInjectedLater(t *testing.T) {
 
 func TestCallerScopesGetDifferentPlaceholders(t *testing.T) {
 	interceptor := newConfiguredInterceptor(t, "")
-	body := []byte(`{"input":"test@example.com"}`)
+	body := []byte(`{"input":"test@acme-corp.cn"}`)
 	a := intercept(t, interceptor, pluginapi.RequestInterceptRequest{Headers: bearer("client-a"), Body: body})
 	b := intercept(t, interceptor, pluginapi.RequestInterceptRequest{Headers: bearer("client-b"), Body: body})
 	again := intercept(t, interceptor, pluginapi.RequestInterceptRequest{Headers: bearer("client-a"), Body: body})
@@ -139,7 +139,7 @@ func TestCallerScopesGetDifferentPlaceholders(t *testing.T) {
 func TestPlaceholdersSurviveRestart(t *testing.T) {
 	resetMasking(t)
 	dir := t.TempDir()
-	body := []byte(`{"input":"test@example.com"}`)
+	body := []byte(`{"input":"test@acme-corp.cn"}`)
 	first := intercept(t, buildInterceptor(t, dir, ""), pluginapi.RequestInterceptRequest{Body: body})
 
 	resetMasking(t)
@@ -158,7 +158,7 @@ func TestReloadKeepsTheVault(t *testing.T) {
 	resetMasking(t)
 	dir := t.TempDir()
 	first := buildInterceptor(t, dir, "").(*veilPlugin)
-	intercept(t, first, pluginapi.RequestInterceptRequest{Body: []byte(`{"input":"test@example.com"}`)})
+	intercept(t, first, pluginapi.RequestInterceptRequest{Body: []byte(`{"input":"test@acme-corp.cn"}`)})
 	second := buildInterceptor(t, dir, "skip_models: [other]").(*veilPlugin)
 	if second.vault != first.vault || second.vault.Len() == 0 {
 		t.Fatal("reload dropped the vault")
@@ -167,7 +167,7 @@ func TestReloadKeepsTheVault(t *testing.T) {
 
 func TestInterceptRequest_SkippedModel(t *testing.T) {
 	interceptor := newConfiguredInterceptor(t, "skip_models: [' GPT-4 ']\nskip_formats: [' OPENAI ']")
-	body := []byte(`{"input":"test@example.com"}`)
+	body := []byte(`{"input":"test@acme-corp.cn"}`)
 	for _, req := range []pluginapi.RequestInterceptRequest{
 		{Model: "gpt-4", Body: body},
 		{Model: "upstream-model", RequestedModel: "gpt-4", Body: body},
@@ -253,7 +253,7 @@ func TestConfigParseReportsRemovedFields(t *testing.T) {
 	if len(cfg.SkipModels) != 1 {
 		t.Fatalf("skip_models = %v, want [gpt-4]", cfg.SkipModels)
 	}
-	body := intercept(t, newConfiguredInterceptor(t, raw), pluginapi.RequestInterceptRequest{Body: []byte(`{"input":"test@example.com"}`)})
+	body := intercept(t, newConfiguredInterceptor(t, raw), pluginapi.RequestInterceptRequest{Body: []byte(`{"input":"test@acme-corp.cn"}`)})
 	if !emailPlaceholder.Match(body) {
 		t.Fatalf("expected a placeholder: %s", body)
 	}
@@ -302,7 +302,7 @@ func TestRoundTripThroughTheABI(t *testing.T) {
 		return envelope.Result
 	}
 	headers := bearer("client-a")
-	request := []byte(`{"messages":[{"role":"user","content":"mail test@example.com"}]}`)
+	request := []byte(`{"messages":[{"role":"user","content":"mail test@acme-corp.cn"}]}`)
 	var masked pluginapi.RequestInterceptResponse
 	if err := json.Unmarshal(call("request.intercept_before", abiRequestInterceptRequest{RequestInterceptRequest: pluginapi.RequestInterceptRequest{Headers: headers, Body: request}}), &masked); err != nil {
 		t.Fatal(err)
@@ -317,7 +317,7 @@ func TestRoundTripThroughTheABI(t *testing.T) {
 	if err := json.Unmarshal(call("response.intercept_after", abiResponseInterceptRequest{ResponseInterceptRequest: pluginapi.ResponseInterceptRequest{RequestHeaders: headers, Body: answer}}), &restored); err != nil {
 		t.Fatal(err)
 	}
-	want := `{"content":[{"type":"text","text":"I will mail test@example.com"},{"type":"tool_use","id":"t1","name":"send","input":{"to":"test@example.com"}}]}`
+	want := `{"content":[{"type":"text","text":"I will mail test@acme-corp.cn"},{"type":"tool_use","id":"t1","name":"send","input":{"to":"test@acme-corp.cn"}}]}`
 	if string(restored.Body) != want {
 		t.Fatalf("restored = %s", restored.Body)
 	}
@@ -331,12 +331,12 @@ func TestRoundTripThroughTheABI(t *testing.T) {
 		t.Fatalf("another client got the value back: %s", foreign.Body)
 	}
 
-	next := []byte(`{"messages":[{"role":"user","content":"mail test@example.com"},{"role":"assistant","content":[{"type":"text","text":"I will mail test@example.com"},{"type":"tool_use","id":"t1","name":"send","input":{"to":"test@example.com"}}]}]}`)
+	next := []byte(`{"messages":[{"role":"user","content":"mail test@acme-corp.cn"},{"role":"assistant","content":[{"type":"text","text":"I will mail test@acme-corp.cn"},{"type":"tool_use","id":"t1","name":"send","input":{"to":"test@acme-corp.cn"}}]}]}`)
 	var again pluginapi.RequestInterceptResponse
 	if err := json.Unmarshal(call("request.intercept_before", abiRequestInterceptRequest{RequestInterceptRequest: pluginapi.RequestInterceptRequest{Headers: headers, Body: next}}), &again); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(again.Body), "test@example.com") || strings.Count(string(again.Body), p) != 3 {
+	if strings.Contains(string(again.Body), "test@acme-corp.cn") || strings.Count(string(again.Body), p) != 3 {
 		t.Fatalf("history did not mask back to the same placeholder: %s", again.Body)
 	}
 }

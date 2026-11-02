@@ -64,7 +64,32 @@ func pluginMetadata() pluginapi.Metadata {
 			{
 				Name:        "gitleaks_toml",
 				Type:        pluginapi.ConfigFieldTypeString,
-				Description: "Path to gitleaks.toml rules file. Empty uses built-in rules.",
+				Description: "Path to a gitleaks.toml that replaces the built-in rules. Empty uses built-in rules; to add rules, use rules_toml.",
+			},
+			{
+				Name:        "rules_toml",
+				Type:        pluginapi.ConfigFieldTypeString,
+				Description: "Path to extra gitleaks rules added to the built-in ones. A rule may set kind to name its own kind.",
+			},
+			{
+				Name:        "disabled_rules",
+				Type:        pluginapi.ConfigFieldTypeArray,
+				Description: "Rule IDs to turn off, built-in or gitleaks.",
+			},
+			{
+				Name:        "categories",
+				Type:        pluginapi.ConfigFieldTypeObject,
+				Description: "Turn categories on or off: secrets, personal, ssn, passport, iban, birthday, mac, serial (on); home, userhost, ip, bucket (off).",
+			},
+			{
+				Name:        "terms",
+				Type:        pluginapi.ConfigFieldTypeArray,
+				Description: "Words to mask wherever they appear, as TERM: a string, or {term, any_case, whole_word}.",
+			},
+			{
+				Name:        "allow",
+				Type:        pluginapi.ConfigFieldTypeArray,
+				Description: "Values never to mask, compared whole and in any case.",
 			},
 			{
 				Name:        "actions",

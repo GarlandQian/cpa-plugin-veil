@@ -36,7 +36,7 @@ func newKeywordIndex(rules []secretRule) *keywordIndex {
 			}
 			word := []byte(kw)
 			for j, b := range word {
-				word[j] = lowerASCII(b)
+				word[j] = lowerByte(b)
 			}
 			if at, ok := seen[string(word)]; ok {
 				owners[at] = append(owners[at], i)
@@ -135,13 +135,6 @@ func (k *keywordIndex) scan(text string) []bool {
 		}
 	}
 	return applies
-}
-
-func lowerASCII(b byte) byte {
-	if b >= 'A' && b <= 'Z' {
-		return b + 'a' - 'A'
-	}
-	return b
 }
 
 func asciiOnly(words []string) bool {

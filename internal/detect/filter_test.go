@@ -24,7 +24,7 @@ func redact(t *testing.T, f *Detector, text string) string {
 
 func TestEmail(t *testing.T) {
 	f := newFilter(t)
-	if got := redact(t, f, "有事联系 test.user@example.com 谢谢"); !strings.Contains(got, "[EMAIL]") {
+	if got := redact(t, f, "有事联系 test.user@acme-corp.cn 谢谢"); !strings.Contains(got, "[EMAIL]") {
 		t.Errorf("邮箱未脱敏: %q", got)
 	}
 }
@@ -38,7 +38,7 @@ func TestPhoneCN(t *testing.T) {
 
 func TestIDCard(t *testing.T) {
 	f := newFilter(t)
-	if got := redact(t, f, "身份证号 11010519900307743X 务必保密"); !strings.Contains(got, "[ID]") {
+	if got := redact(t, f, "身份证号 110105199003077438 务必保密"); !strings.Contains(got, "[ID]") {
 		t.Errorf("身份证未脱敏: %q", got)
 	}
 }
@@ -111,7 +111,7 @@ func TestSSHCommandContextSkipsEmail(t *testing.T) {
 // 反面：纯邮箱（无 ssh 命令前缀）仍要脱
 func TestSSHCommandContextPlainEmailStillRedacted(t *testing.T) {
 	f := newFilter(t)
-	in := "我的邮箱是 alice@example.com 请保密"
+	in := "我的邮箱是 alice@acme-corp.cn 请保密"
 	if got := redact(t, f, in); !strings.Contains(got, "[EMAIL]") {
 		t.Errorf("普通邮箱漏脱: %q", got)
 	}
@@ -282,9 +282,9 @@ func TestMultipleEntities(t *testing.T) {
 }
 
 func TestBuiltinFallback(t *testing.T) {
-	f, err := New(nil) // 空规则 → 用内置兜底规则
+	f, err := New(nil, Options{}) // 空规则 → 用内置兜底规则
 	if err != nil {
-		t.Fatalf("New(nil): %v", err)
+		t.Fatalf("New(nil, Options{}): %v", err)
 	}
 	if rules, _ := f.Stats(); rules == 0 {
 		t.Error("内置兜底规则为空")

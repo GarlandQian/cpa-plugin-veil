@@ -6,6 +6,8 @@ require (
 	github.com/BurntSushi/toml v1.6.0
 	github.com/router-for-me/CLIProxyAPI/v7 v7.1.70
 	github.com/sirupsen/logrus v1.9.4
-	golang.org/x/sys v0.42.0
+	golang.org/x/sys v0.49.0
 	gopkg.in/yaml.v3 v3.0.1
 )
+
+require golang.org/x/net v0.62.0
