@@ -214,3 +214,34 @@ func TestDuplicateKeysAndNonObjects(t *testing.T) {
 		}
 	}
 }
+
+func TestActions(t *testing.T) {
+	m, _ := newMasker(t)
+	m = m.WithPolicy(m.detector, map[string]Action{"EMAIL": Warn, "PHONE": Block})
+	out, report, err := m.Mask("", []byte(`{"input":"mail test@example.com"}`))
+	if err != nil || out != nil {
+		t.Fatalf("warned value changed the body: %s %v", out, err)
+	}
+	if report.Warned["EMAIL"] != 1 || len(report.WarnedPaths) != 1 {
+		t.Fatalf("report = %+v", report)
+	}
+	_, report, err = m.Mask("", []byte(`{"messages":[{"role":"user","content":"call 13800138000"}]}`))
+	if err != nil || report.Blocked["PHONE"] != 1 || report.BlockedPaths[0] != "messages[0].content" {
+		t.Fatalf("report = %+v, %v", report, err)
+	}
+	// A blocked request was never sent, so its text has no Sent form: once
+	// PHONE is masked again, the same text masks.
+	unblocked := m.WithPolicy(m.detector, nil)
+	if got := mask(t, unblocked, "", `{"messages":[{"role":"user","content":"call 13800138000"}]}`); strings.Contains(got, "13800138000") {
+		t.Fatalf("text of a blocked request kept a Sent form: %s", got)
+	}
+}
+
+func TestMalformedJSONIsAnError(t *testing.T) {
+	m, _ := newMasker(t)
+	for _, body := range []string{`{"input":"test@example.com"`, ` [1,`} {
+		if _, _, err := m.Mask("", []byte(body)); err != ErrMalformed {
+			t.Fatalf("%q: err = %v", body, err)
+		}
+	}
+}

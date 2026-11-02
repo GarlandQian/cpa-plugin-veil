@@ -3,7 +3,9 @@
 package mask
 
 import (
+	"bytes"
 	"crypto/sha256"
+	"errors"
 	"sort"
 	"strings"
 	"sync"
@@ -14,38 +16,86 @@ import (
 	"github.com/GarlandQian/cpa-plugin-veil/internal/vault"
 )
 
-// Masker masks requests with one detector and one vault.
+// Action is what Veil does with a value of a Kind.
+type Action string
+
+const (
+	// Mask replaces the value with its Placeholder; the default.
+	Mask Action = "mask"
+	// Block stops the whole request.
+	Block Action = "block"
+	// Warn lets the value through and reports it.
+	Warn Action = "warn"
+)
+
+// ErrMalformed is returned for a body that starts like JSON but does not
+// parse, so Veil cannot tell what in it is sensitive.
+var ErrMalformed = errors.New("request body is not valid JSON")
+
+// Masker masks requests with one detector, one vault and one set of Actions.
 type Masker struct {
 	detector *detect.Detector
 	vault    *vault.Vault
 	sent     *sentForms
+	actions  map[string]Action
 }
 
-// New returns a Masker.
+// New returns a Masker that masks every Kind.
 func New(d *detect.Detector, v *vault.Vault) *Masker {
 	return &Masker{detector: d, vault: v, sent: newSentForms()}
 }
 
-// WithDetector returns a Masker that detects with d and shares m's vault and
-// Sent forms, for a config reload that changes the rules.
-func (m *Masker) WithDetector(d *detect.Detector) *Masker {
-	return &Masker{detector: d, vault: m.vault, sent: m.sent}
+// WithPolicy returns a Masker that detects with d, acts on Kinds as actions
+// say (Mask where they say nothing) and shares m's vault and Sent forms, for
+// a config reload.
+func (m *Masker) WithPolicy(d *detect.Detector, actions map[string]Action) *Masker {
+	return &Masker{detector: d, vault: m.vault, sent: m.sent, actions: actions}
 }
 
-// Report says what a request had masked: the JSON paths of the fields, in
-// document order, and how many values of each Kind. It never holds a value.
+func (m *Masker) action(kind string) Action {
+	if a, ok := m.actions[kind]; ok {
+		return a
+	}
+	return Mask
+}
+
+// Report says what Veil found in a request, per Action: the JSON paths of the
+// fields, in document order, and how many values of each Kind. It never holds
+// a value.
 type Report struct {
 	Paths  []string
 	Counts map[string]int
+	// Warned are values let through by the warn Action.
+	WarnedPaths  []string
+	Warned       map[string]int
+	BlockedPaths []string
+	Blocked      map[string]int
 }
 
 // Total returns how many values were masked.
 func (r Report) Total() int {
+	return total(r.Counts)
+}
+
+func total(counts map[string]int) int {
 	n := 0
-	for _, c := range r.Counts {
+	for _, c := range counts {
 		n += c
 	}
 	return n
+}
+
+// tally adds one value of kind found at path to a count and a path list.
+func tally(counts map[string]int, paths *[]string, kind, path string) {
+	counts[kind]++
+	if n := len(*paths); n == 0 || (*paths)[n-1] != path {
+		for _, p := range *paths {
+			if p == path {
+				return
+			}
+		}
+		*paths = append(*paths, path)
+	}
 }
 
 // minFieldLen is the shortest string worth looking at: nothing Veil detects
@@ -69,7 +119,13 @@ type span struct {
 // appears without context too.
 func (m *Masker) Mask(scope string, body []byte) ([]byte, Report, error) {
 	doc, err := jsontree.Parse(body)
-	if err != nil || doc.Root.Kind != jsontree.Object {
+	if err != nil {
+		if trimmed := bytes.TrimSpace(body); len(trimmed) > 0 && (trimmed[0] == '{' || trimmed[0] == '[') {
+			return nil, Report{}, ErrMalformed
+		}
+		return nil, Report{}, nil
+	}
+	if doc.Root.Kind != jsontree.Object {
 		return nil, Report{}, nil
 	}
 	w := fields.Walk(doc)
@@ -99,7 +155,9 @@ func (m *Masker) Mask(scope string, body []byte) ([]byte, Report, error) {
 		hits = outsidePlaceholders(f.Text, hits)
 		// Minting makes the value Known, so it is masked across the request.
 		for _, h := range hits {
-			m.vault.Placeholder(scope, h.kind, f.Text[h.start:h.end])
+			if m.action(h.kind) == Mask {
+				m.vault.Placeholder(scope, h.kind, f.Text[h.start:h.end])
+			}
 		}
 		fresh[i] = &pending{key: key, hits: hits}
 	}
@@ -110,33 +168,46 @@ func (m *Masker) Mask(scope string, body []byte) ([]byte, Report, error) {
 			known = append(known, span{k.Start, k.End, k.Kind})
 		}
 		spans[i] = merge(p.hits, outsidePlaceholders(f.Text, known))
+	}
+
+	report := Report{Counts: map[string]int{}, Warned: map[string]int{}, Blocked: map[string]int{}}
+	for i, f := range w.Fields {
+		for _, s := range spans[i] {
+			if m.action(s.kind) == Block {
+				tally(report.Blocked, &report.BlockedPaths, s.kind, f.Path)
+			}
+		}
+	}
+	if len(report.Blocked) > 0 {
+		// The request never goes out, so nothing of it was sent.
+		return nil, report, nil
+	}
+	for i, p := range fresh {
 		m.sent.put(p.key, spans[i])
 	}
 
-	report := Report{Counts: map[string]int{}}
-	seen := map[string]bool{}
 	for i, f := range w.Fields {
-		if len(spans[i]) == 0 {
-			continue
-		}
 		var b strings.Builder
 		prev := 0
 		for _, s := range spans[i] {
+			if m.action(s.kind) == Warn {
+				tally(report.Warned, &report.WarnedPaths, s.kind, f.Path)
+				continue
+			}
 			b.WriteString(f.Text[prev:s.start])
 			b.WriteString(m.vault.Placeholder(scope, s.kind, f.Text[s.start:s.end]))
 			prev = s.end
-			report.Counts[s.kind]++
+			tally(report.Counts, &report.Paths, s.kind, f.Path)
+		}
+		if prev == 0 {
+			continue
 		}
 		b.WriteString(f.Text[prev:])
 		f.Doc.SetString(f.Value, b.String())
-		if !seen[f.Path] {
-			seen[f.Path] = true
-			report.Paths = append(report.Paths, f.Path)
-		}
 	}
 	w.Commit()
 	if !doc.Changed() {
-		return nil, Report{}, nil
+		return nil, report, nil
 	}
 	return doc.Bytes(), report, nil
 }

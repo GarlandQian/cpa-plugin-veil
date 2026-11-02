@@ -276,7 +276,14 @@ func VeilPluginShutdown() {
 	veilABIState.inFlight.Wait()
 }
 
-func handleVeilABIMethod(ctx context.Context, method string, request []byte) ([]byte, error) {
+func handleVeilABIMethod(ctx context.Context, method string, request []byte) (out []byte, err error) {
+	// A panic must not cross into the host: it would take the whole process
+	// down. Request interceptors recover on their own and stop the request.
+	defer func() {
+		if r := recover(); r != nil {
+			out, err = nil, fmt.Errorf("veil %s panicked: %v", method, r)
+		}
+	}()
 	switch method {
 	case pluginabi.MethodPluginRegister, pluginabi.MethodPluginReconfigure:
 		return handleVeilRegister(ctx, method, request)

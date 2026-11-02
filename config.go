@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/GarlandQian/cpa-plugin-veil/internal/detect"
+	"github.com/GarlandQian/cpa-plugin-veil/internal/mask"
 
 	"gopkg.in/yaml.v3"
 )
@@ -16,9 +17,10 @@ const veilProvider = "veil"
 const pluginName = "veil"
 
 type veilConfig struct {
-	GitleaksTOML string   `yaml:"gitleaks_toml"`
-	SkipModels   []string `yaml:"skip_models"`
-	SkipFormats  []string `yaml:"skip_formats"`
+	GitleaksTOML string            `yaml:"gitleaks_toml"`
+	SkipModels   []string          `yaml:"skip_models"`
+	SkipFormats  []string          `yaml:"skip_formats"`
+	Actions      map[string]string `yaml:"actions"`
 }
 
 // removedConfigKeys are fields earlier releases accepted that no longer do
@@ -44,6 +46,9 @@ func parseConfig(raw []byte) (veilConfig, []string, error) {
 	if err := yaml.Unmarshal(raw, &fields); err != nil {
 		return cfg, nil, fmt.Errorf("invalid veil config: %w", err)
 	}
+	if _, err := cfg.actions(); err != nil {
+		return cfg, nil, fmt.Errorf("invalid veil config: %w", err)
+	}
 	var removed []string
 	for _, key := range removedConfigKeys {
 		if _, ok := fields[key]; ok {
@@ -51,6 +56,25 @@ func parseConfig(raw []byte) (veilConfig, []string, error) {
 		}
 	}
 	return cfg, removed, nil
+}
+
+// actions returns the configured Action of each Kind, keyed by the Kind in
+// upper case.
+func (cfg *veilConfig) actions() (map[string]mask.Action, error) {
+	out := make(map[string]mask.Action, len(cfg.Actions))
+	for kind, action := range cfg.Actions {
+		name := strings.ToUpper(strings.TrimSpace(kind))
+		if name == "" {
+			return nil, fmt.Errorf("actions: empty kind")
+		}
+		switch a := mask.Action(strings.ToLower(strings.TrimSpace(action))); a {
+		case mask.Mask, mask.Block, mask.Warn:
+			out[name] = a
+		default:
+			return nil, fmt.Errorf("actions[%s]: %q is not mask, block or warn", kind, action)
+		}
+	}
+	return out, nil
 }
 
 // resolveGitleaksPath resolves the configured gitleaks rule file. The return is

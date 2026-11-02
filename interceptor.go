@@ -48,8 +48,15 @@ func (p *veilPlugin) InterceptRequestAfterAuth(ctx context.Context, req pluginap
 	return p.interceptRequest(ctx, req)
 }
 
-func (p *veilPlugin) interceptRequest(ctx context.Context, req pluginapi.RequestInterceptRequest) (pluginapi.RequestInterceptResponse, error) {
-	resp := pluginapi.RequestInterceptResponse{}
+// interceptRequest masks a request. It never returns an error: the host would
+// send the original body upstream. A request Veil cannot mask, or one holding
+// a Kind whose Action is block, becomes a Stopped request instead.
+func (p *veilPlugin) interceptRequest(ctx context.Context, req pluginapi.RequestInterceptRequest) (resp pluginapi.RequestInterceptResponse, _ error) {
+	defer func() {
+		if r := recover(); r != nil {
+			resp = p.stop(ctx, req, fmt.Sprintf("masking failed: %v", r))
+		}
+	}()
 
 	if p.cfg.shouldSkip(req.Model, req.RequestedModel, req.SourceFormat) {
 		return resp, nil
@@ -67,10 +74,18 @@ func (p *veilPlugin) interceptRequest(ctx context.Context, req pluginapi.Request
 
 	masked, report, err := p.masker.Mask(scope, req.Body)
 	if err != nil {
-		pluginLog(ctx, logLevelWarn, "veil failed to process request body: "+err.Error(), map[string]any{
-			"error": err.Error(),
+		return p.stop(ctx, req, "masking failed: "+err.Error()), nil
+	}
+	if len(report.Blocked) > 0 {
+		return p.stop(ctx, req, fmt.Sprintf("it holds %s in %s, whose action is block", kindSummary(report.Blocked), strings.Join(report.BlockedPaths, ", "))), nil
+	}
+	if len(report.Warned) > 0 {
+		pluginLog(ctx, logLevelWarn, fmt.Sprintf("veil let %d value(s) (%s) through unmasked in %d field(s): %s", total(report.Warned), kindSummary(report.Warned), len(report.WarnedPaths), strings.Join(report.WarnedPaths, ", ")), map[string]any{
+			"model":         req.Model,
+			"source_format": req.SourceFormat,
+			"warned_kinds":  report.Warned,
+			"warned_fields": report.WarnedPaths,
 		})
-		return resp, nil
 	}
 	if masked == nil {
 		p.clean.add(sum)
@@ -92,10 +107,25 @@ func (p *veilPlugin) interceptRequest(ctx context.Context, req pluginapi.Request
 	return resp, nil
 }
 
+// stop turns a request into a Stopped request and says why in the log.
+func (p *veilPlugin) stop(ctx context.Context, req pluginapi.RequestInterceptRequest, reason string) pluginapi.RequestInterceptResponse {
+	pluginLog(ctx, logLevelError, "veil stopped a request, the upstream will reject it: "+reason, map[string]any{
+		"model":         req.Model,
+		"source_format": req.SourceFormat,
+	})
+	return pluginapi.RequestInterceptResponse{Body: stoppedBody(req.Body)}
+}
+
 // InterceptResponse restores the Placeholders of a non-streaming response,
-// looking them up in the Caller scope of the request that caused it.
-func (p *veilPlugin) InterceptResponse(ctx context.Context, req pluginapi.ResponseInterceptRequest) (pluginapi.ResponseInterceptResponse, error) {
-	resp := pluginapi.ResponseInterceptResponse{}
+// looking them up in the Caller scope of the request that caused it. If
+// restoring fails, the response goes through with its Placeholders.
+func (p *veilPlugin) InterceptResponse(ctx context.Context, req pluginapi.ResponseInterceptRequest) (resp pluginapi.ResponseInterceptResponse, _ error) {
+	defer func() {
+		if r := recover(); r != nil {
+			resp = pluginapi.ResponseInterceptResponse{}
+			pluginLog(ctx, logLevelError, fmt.Sprintf("veil failed to restore a response: %v", r), nil)
+		}
+	}()
 	if len(req.Body) == 0 {
 		return resp, nil
 	}
@@ -106,8 +136,13 @@ func (p *veilPlugin) InterceptResponse(ctx context.Context, req pluginapi.Respon
 // InterceptStreamChunk restores the Placeholders of a streamed response. The
 // header-only call that opens a stream registers it; each chunk then goes
 // through that stream's Held tail state.
-func (p *veilPlugin) InterceptStreamChunk(ctx context.Context, req pluginapi.StreamChunkInterceptRequest) (pluginapi.StreamChunkInterceptResponse, error) {
-	resp := pluginapi.StreamChunkInterceptResponse{}
+func (p *veilPlugin) InterceptStreamChunk(ctx context.Context, req pluginapi.StreamChunkInterceptRequest) (resp pluginapi.StreamChunkInterceptResponse, _ error) {
+	defer func() {
+		if r := recover(); r != nil {
+			resp = pluginapi.StreamChunkInterceptResponse{}
+			pluginLog(ctx, logLevelError, fmt.Sprintf("veil failed to restore a stream chunk: %v", r), nil)
+		}
+	}()
 	scope := vault.ScopeOf(req.RequestHeaders)
 	key := bodySum(scope, req.RequestBody)
 	if req.ChunkIndex == pluginapi.StreamChunkHeaderInitIndex {
@@ -140,6 +175,14 @@ func (p *veilPlugin) InterceptStreamChunk(ctx context.Context, req pluginapi.Str
 		resp.Body = out
 	}
 	return resp, nil
+}
+
+func total(counts map[string]int) int {
+	n := 0
+	for _, c := range counts {
+		n += c
+	}
+	return n
 }
 
 // kindSummary lists the counts per Kind, such as "EMAIL=2, SECRET=1".
