@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/GarlandQian/cpa-plugin-veil/internal/mask"
+	"github.com/GarlandQian/cpa-plugin-veil/internal/restore"
 	"github.com/GarlandQian/cpa-plugin-veil/internal/vault"
 
 	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginapi"
@@ -18,11 +19,15 @@ type veilPlugin struct {
 	cfg       veilConfig
 	pluginDir string
 	masker    *mask.Masker
+	restorer  *restore.Restorer
 	vault     *vault.Vault
 	clean     *bodySet
 }
 
-var _ pluginapi.RequestInterceptor = (*veilPlugin)(nil)
+var (
+	_ pluginapi.RequestInterceptor  = (*veilPlugin)(nil)
+	_ pluginapi.ResponseInterceptor = (*veilPlugin)(nil)
+)
 
 func (p *veilPlugin) Identifier() string {
 	return veilProvider
@@ -81,6 +86,17 @@ func (p *veilPlugin) interceptRequest(ctx context.Context, req pluginapi.Request
 		"masked_fields": report.Paths,
 	})
 	resp.Body = masked
+	return resp, nil
+}
+
+// InterceptResponse restores the Placeholders of a non-streaming response,
+// looking them up in the Caller scope of the request that caused it.
+func (p *veilPlugin) InterceptResponse(ctx context.Context, req pluginapi.ResponseInterceptRequest) (pluginapi.ResponseInterceptResponse, error) {
+	resp := pluginapi.ResponseInterceptResponse{}
+	if len(req.Body) == 0 {
+		return resp, nil
+	}
+	resp.Body = p.restorer.Body(vault.ScopeOf(req.RequestHeaders), req.Body)
 	return resp, nil
 }
 

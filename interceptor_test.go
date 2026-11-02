@@ -260,12 +260,83 @@ func TestConfigParseReportsRemovedFields(t *testing.T) {
 }
 
 func TestRegistrationCapabilityJSON(t *testing.T) {
-	caps := abiCapabilities{RequestInterceptor: true}
-	raw, err := json.Marshal(caps)
+	raw, err := json.Marshal(newABIRegistration(pluginMetadata()).Capabilities)
 	if err != nil {
 		t.Fatalf("json.Marshal() error = %v", err)
 	}
-	if !strings.Contains(string(raw), `"request_interceptor":true`) {
-		t.Fatalf("expected request_interceptor in JSON: %s", string(raw))
+	for _, name := range []string{`"request_interceptor":true`, `"response_interceptor":true`} {
+		if !strings.Contains(string(raw), name) {
+			t.Fatalf("expected %s in JSON: %s", name, raw)
+		}
+	}
+}
+
+// The loop an agent runs: the request is masked, the model answers with the
+// placeholder (also in a tool call), the answer is restored for the client,
+// and the next turn re-sends that answer, which masks to the same
+// placeholder again.
+func TestRoundTripThroughTheABI(t *testing.T) {
+	resetMasking(t)
+	dir := t.TempDir()
+	raw, err := handleVeilRegister(context.Background(), "plugin.register", registerRequest(t, dir, ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reg := decodeRegistration(t, raw); !reg.Capabilities.RequestInterceptor || !reg.Capabilities.ResponseInterceptor {
+		t.Fatalf("capabilities = %+v", reg.Capabilities)
+	}
+	call := func(method string, req any) json.RawMessage {
+		t.Helper()
+		payload, err := json.Marshal(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out, err := handleVeilABIMethod(context.Background(), method, payload)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var envelope abiEnvelope
+		if err := json.Unmarshal(out, &envelope); err != nil || !envelope.OK {
+			t.Fatalf("envelope %s: %v", out, err)
+		}
+		return envelope.Result
+	}
+	headers := bearer("client-a")
+	request := []byte(`{"messages":[{"role":"user","content":"mail test@example.com"}]}`)
+	var masked pluginapi.RequestInterceptResponse
+	if err := json.Unmarshal(call("request.intercept_before", abiRequestInterceptRequest{RequestInterceptRequest: pluginapi.RequestInterceptRequest{Headers: headers, Body: request}}), &masked); err != nil {
+		t.Fatal(err)
+	}
+	p := emailPlaceholder.FindString(string(masked.Body))
+	if p == "" {
+		t.Fatalf("request not masked: %s", masked.Body)
+	}
+
+	answer := []byte(`{"content":[{"type":"text","text":"I will mail ` + p + `"},{"type":"tool_use","id":"t1","name":"send","input":{"to":"` + p + `"}}]}`)
+	var restored pluginapi.ResponseInterceptResponse
+	if err := json.Unmarshal(call("response.intercept_after", abiResponseInterceptRequest{ResponseInterceptRequest: pluginapi.ResponseInterceptRequest{RequestHeaders: headers, Body: answer}}), &restored); err != nil {
+		t.Fatal(err)
+	}
+	want := `{"content":[{"type":"text","text":"I will mail test@example.com"},{"type":"tool_use","id":"t1","name":"send","input":{"to":"test@example.com"}}]}`
+	if string(restored.Body) != want {
+		t.Fatalf("restored = %s", restored.Body)
+	}
+
+	other := pluginapi.ResponseInterceptRequest{RequestHeaders: bearer("client-b"), Body: answer}
+	var foreign pluginapi.ResponseInterceptResponse
+	if err := json.Unmarshal(call("response.intercept_after", abiResponseInterceptRequest{ResponseInterceptRequest: other}), &foreign); err != nil {
+		t.Fatal(err)
+	}
+	if foreign.Body != nil {
+		t.Fatalf("another client got the value back: %s", foreign.Body)
+	}
+
+	next := []byte(`{"messages":[{"role":"user","content":"mail test@example.com"},{"role":"assistant","content":[{"type":"text","text":"I will mail test@example.com"},{"type":"tool_use","id":"t1","name":"send","input":{"to":"test@example.com"}}]}]}`)
+	var again pluginapi.RequestInterceptResponse
+	if err := json.Unmarshal(call("request.intercept_before", abiRequestInterceptRequest{RequestInterceptRequest: pluginapi.RequestInterceptRequest{Headers: headers, Body: next}}), &again); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(again.Body), "test@example.com") || strings.Count(string(again.Body), p) != 3 {
+		t.Fatalf("history did not mask back to the same placeholder: %s", again.Body)
 	}
 }

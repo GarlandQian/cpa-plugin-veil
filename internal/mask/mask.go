@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/GarlandQian/cpa-plugin-veil/internal/detect"
+	"github.com/GarlandQian/cpa-plugin-veil/internal/fields"
 	"github.com/GarlandQian/cpa-plugin-veil/internal/jsontree"
 	"github.com/GarlandQian/cpa-plugin-veil/internal/vault"
 )
@@ -67,9 +68,8 @@ func (m *Masker) Mask(scope string, body []byte) ([]byte, Report, error) {
 	if err != nil || doc.Root.Kind != jsontree.Object {
 		return nil, Report{}, nil
 	}
-	w := &walker{}
-	w.root(doc)
-	if len(w.fields) == 0 {
+	w := fields.Walk(doc)
+	if len(w.Fields) == 0 {
 		return nil, Report{}, nil
 	}
 
@@ -77,63 +77,57 @@ func (m *Masker) Mask(scope string, body []byte) ([]byte, Report, error) {
 		key  [sha256.Size]byte
 		hits []span
 	}
-	spans := make([][]span, len(w.fields))
+	spans := make([][]span, len(w.Fields))
 	fresh := map[int]*pending{}
-	for i, f := range w.fields {
-		key := sentKey(scope, f.text)
+	for i, f := range w.Fields {
+		key := sentKey(scope, f.Text)
 		if frozen, ok := m.sent.get(key); ok {
 			spans[i] = frozen
 			continue
 		}
 		var hits []span
-		for _, h := range m.detector.Detect(f.text) {
+		for _, h := range m.detector.Detect(f.Text) {
 			hits = append(hits, span{h.Start, h.End, string(h.Kind)})
 		}
-		hits = outsidePlaceholders(f.text, hits)
+		hits = outsidePlaceholders(f.Text, hits)
 		// Minting makes the value Known, so it is masked across the request.
 		for _, h := range hits {
-			m.vault.Placeholder(scope, h.kind, f.text[h.start:h.end])
+			m.vault.Placeholder(scope, h.kind, f.Text[h.start:h.end])
 		}
 		fresh[i] = &pending{key: key, hits: hits}
 	}
 	for i, p := range fresh {
-		f := w.fields[i]
+		f := w.Fields[i]
 		var known []span
-		for _, k := range m.vault.KnownMatches(scope, f.text) {
+		for _, k := range m.vault.KnownMatches(scope, f.Text) {
 			known = append(known, span{k.Start, k.End, k.Kind})
 		}
-		spans[i] = merge(p.hits, outsidePlaceholders(f.text, known))
+		spans[i] = merge(p.hits, outsidePlaceholders(f.Text, known))
 		m.sent.put(p.key, spans[i])
 	}
 
 	report := Report{Counts: map[string]int{}}
 	seen := map[string]bool{}
-	for i, f := range w.fields {
+	for i, f := range w.Fields {
 		if len(spans[i]) == 0 {
 			continue
 		}
 		var b strings.Builder
 		prev := 0
 		for _, s := range spans[i] {
-			b.WriteString(f.text[prev:s.start])
-			b.WriteString(m.vault.Placeholder(scope, s.kind, f.text[s.start:s.end]))
+			b.WriteString(f.Text[prev:s.start])
+			b.WriteString(m.vault.Placeholder(scope, s.kind, f.Text[s.start:s.end]))
 			prev = s.end
 			report.Counts[s.kind]++
 		}
-		b.WriteString(f.text[prev:])
-		f.doc.SetString(f.value, b.String())
-		if !seen[f.path] {
-			seen[f.path] = true
-			report.Paths = append(report.Paths, f.path)
+		b.WriteString(f.Text[prev:])
+		f.Doc.SetString(f.Value, b.String())
+		if !seen[f.Path] {
+			seen[f.Path] = true
+			report.Paths = append(report.Paths, f.Path)
 		}
 	}
-	// Inner documents first: an argument string can sit inside another.
-	for i := len(w.nested) - 1; i >= 0; i-- {
-		n := w.nested[i]
-		if n.inner.Changed() {
-			n.outer.SetString(n.value, string(n.inner.Bytes()))
-		}
-	}
+	w.Commit()
 	if !doc.Changed() {
 		return nil, Report{}, nil
 	}

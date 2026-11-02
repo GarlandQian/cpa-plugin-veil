@@ -31,6 +31,7 @@ Typical use cases:
 - Request interceptor for the CLIProxyAPI plugin runtime
 - Masks emails, phone numbers, secrets, connection strings, certificates, and similar sensitive data with stable
   placeholders, kept apart per client API key
+- Restores the placeholders in model responses, tool calls included, so the client sees and runs the real values
 - Uses built-in Gitleaks rules from `rules/gitleaks.toml`
 - Supports custom Gitleaks rule files
 - Handles OpenAI Chat / Completions, OpenAI Responses, Claude, Gemini, and Gemini CLI request bodies
@@ -89,7 +90,7 @@ Then enable the `veil` plugin in CLIProxyAPI.
 Plugin metadata:
 
 - Name: `veil`
-- Capability: `RequestInterceptor`
+- Capabilities: `RequestInterceptor`, `ResponseInterceptor`
 - Author: `GarlandQian`
 
 ## Configuration
@@ -204,6 +205,21 @@ placeholder never restores for a client that did not cause it. Veil reads the ke
 includes Gemini clients passing their key as the `?key=` query parameter, which plugins cannot see.
 
 The mapping from placeholders back to values lives only in memory and holds the 200,000 most recently used values.
+
+### Restoring responses
+
+Before a response reaches the client, Veil puts the original values back wherever the model wrote a placeholder of
+the same client: in text, in tool calls (OpenAI `arguments` are restored inside their JSON, with values escaped as
+JSON needs), in Claude `tool_use.input` and in Gemini `functionCall.args`. A tool the client runs therefore gets the
+real value, and when the client sends the conversation back, those values mask to the same placeholders again.
+
+- Models do not always copy a placeholder exactly. Veil also restores it with its kind or hash in another case,
+  with spaces inside the braces, or with one or both braces missing, as long as it names a placeholder the vault
+  holds for that client.
+- Signed reasoning (thinking blocks, reasoning items, Gemini thought parts) is not restored, so it goes back to the
+  provider exactly as signed; the client may see placeholders there.
+- A placeholder the vault no longer holds, for example one kept only in a provider-side conversation from before a
+  restart, reaches the client unchanged.
 
 Common `skip_formats` values are the host's source format names, such as `openai`, `openai-response`, `claude`,
 `gemini`, `gemini-cli`, `openai-image`, and `openai-video`.

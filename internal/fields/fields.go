@@ -1,4 +1,7 @@
-package mask
+// Package fields finds the strings of a request or response that carry what
+// people and tools wrote, as opposed to identifiers, protocol fields, binary
+// data and signed reasoning. Masking and restoring walk the same fields.
+package fields
 
 import (
 	"fmt"
@@ -7,14 +10,14 @@ import (
 	"github.com/GarlandQian/cpa-plugin-veil/internal/jsontree"
 )
 
-// mode is how a subtree of the request is masked.
+// mode is how a subtree of the document is walked.
 type mode uint8
 
 const (
-	// conversation: every string is masked except under keptKeys.
+	// conversation: every string is a Field except under keptKeys.
 	conversation mode = iota
 	// tool: a tool's own arguments or result, whose keys belong to the tool,
-	// so every string is masked whatever its key.
+	// so every string is a Field whatever its key.
 	tool
 	// definition: request settings and tool definitions; only descriptions
 	// are free text.
@@ -22,7 +25,7 @@ const (
 )
 
 // keptKeys hold identifiers, signatures, binary data, names and protocol
-// fields: masking them would break the request without hiding anything a
+// fields: rewriting them would break the request without hiding anything a
 // person wrote.
 var keptKeys = map[string]bool{
 	"signature": true, "encrypted_content": true, "data": true, "file_data": true,
@@ -55,33 +58,53 @@ var toolUseTypes = map[string]bool{"tool_use": true, "server_tool_use": true, "m
 // Gemini marks its sealed parts with thought: true instead.
 var sealedTypes = map[string]bool{"thinking": true, "redacted_thinking": true, "reasoning": true}
 
-// minFieldLen is the shortest string worth looking at: nothing Veil detects
-// is shorter.
+// minFieldLen is the shortest string worth looking at: no sensitive value or
+// Placeholder is shorter.
 const minFieldLen = 4
 
-// field is one string of the request that Veil masks.
-type field struct {
-	doc   *jsontree.Doc
-	value *jsontree.Value
-	text  string
-	path  string
+// Field is one string to mask or restore.
+type Field struct {
+	Doc   *jsontree.Doc
+	Value *jsontree.Value
+	Text  string
+	Path  string
 }
 
-// nested is a string holding JSON, such as OpenAI's tool call arguments,
-// whose own strings are masked.
-type nested struct {
-	outer *jsontree.Doc
-	value *jsontree.Value
-	inner *jsontree.Doc
+// Nested is a string holding JSON, such as OpenAI's tool call arguments,
+// whose own strings are Fields of Inner.
+type Nested struct {
+	Outer *jsontree.Doc
+	Value *jsontree.Value
+	Inner *jsontree.Doc
+}
+
+// Set is the Fields of a document and the JSON strings nested in it.
+type Set struct {
+	Fields []*Field
+	Nested []*Nested
+}
+
+// Walk finds the Fields of doc, whose root is an object, in document order.
+func Walk(doc *jsontree.Doc) *Set {
+	w := &walker{}
+	w.object(doc, doc.Root, "", "", conversation, true)
+	return &Set{Fields: w.fields, Nested: w.nested}
+}
+
+// Commit writes every changed nested document back into its outer string,
+// innermost first, since an argument string can sit inside another.
+func (s *Set) Commit() {
+	for i := len(s.Nested) - 1; i >= 0; i-- {
+		n := s.Nested[i]
+		if n.Inner.Changed() {
+			n.Outer.SetString(n.Value, string(n.Inner.Bytes()))
+		}
+	}
 }
 
 type walker struct {
-	fields []*field
-	nested []*nested
-}
-
-func (w *walker) root(doc *jsontree.Doc) {
-	w.object(doc, doc.Root, "", "", conversation, true)
+	fields []*Field
+	nested []*Nested
 }
 
 func (w *walker) value(doc *jsontree.Doc, v *jsontree.Value, path, key string, m mode) {
@@ -149,9 +172,9 @@ func kept(key string) bool {
 	return keptKeys[key] || strings.HasSuffix(key, "_id") || strings.HasSuffix(key, "Id") || strings.HasSuffix(key, "_ids")
 }
 
-// arguments masks a tool call's arguments, which OpenAI sends as JSON inside
-// a string: their strings are masked one by one so the result stays valid
-// JSON. Arguments that are not JSON are masked as plain text.
+// arguments handles a tool call's arguments, which OpenAI sends as JSON
+// inside a string: their strings are Fields one by one, so the result stays
+// valid JSON. Arguments that are not JSON are one plain-text Field.
 func (w *walker) arguments(doc *jsontree.Doc, v *jsontree.Value, path string) {
 	text, ok := doc.Text(v)
 	if !ok {
@@ -162,7 +185,7 @@ func (w *walker) arguments(doc *jsontree.Doc, v *jsontree.Value, path string) {
 		w.text(doc, v, path)
 		return
 	}
-	w.nested = append(w.nested, &nested{outer: doc, value: v, inner: inner})
+	w.nested = append(w.nested, &Nested{Outer: doc, Value: v, Inner: inner})
 	sub := &walker{}
 	sub.value(inner, inner.Root, path, "", tool)
 	w.fields = append(w.fields, sub.fields...)
@@ -174,7 +197,7 @@ func (w *walker) text(doc *jsontree.Doc, v *jsontree.Value, path string) {
 	if !ok || len(text) < minFieldLen || strings.HasPrefix(text, "data:") {
 		return
 	}
-	w.fields = append(w.fields, &field{doc: doc, value: v, text: text, path: path})
+	w.fields = append(w.fields, &Field{Doc: doc, Value: v, Text: text, Path: path})
 }
 
 func joinPath(path, key string) string {
