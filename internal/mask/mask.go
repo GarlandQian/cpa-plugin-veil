@@ -48,6 +48,10 @@ func (r Report) Total() int {
 	return n
 }
 
+// minFieldLen is the shortest string worth looking at: nothing Veil detects
+// is shorter.
+const minFieldLen = 4
+
 // span is one value of a field to mask.
 type span struct {
 	start, end int
@@ -80,6 +84,9 @@ func (m *Masker) Mask(scope string, body []byte) ([]byte, Report, error) {
 	spans := make([][]span, len(w.Fields))
 	fresh := map[int]*pending{}
 	for i, f := range w.Fields {
+		if len(f.Text) < minFieldLen {
+			continue
+		}
 		key := sentKey(scope, f.Text)
 		if frozen, ok := m.sent.get(key); ok {
 			spans[i] = frozen

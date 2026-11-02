@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"fmt"
@@ -21,12 +22,14 @@ type veilPlugin struct {
 	masker    *mask.Masker
 	restorer  *restore.Restorer
 	vault     *vault.Vault
+	streams   *streamRegistry
 	clean     *bodySet
 }
 
 var (
-	_ pluginapi.RequestInterceptor  = (*veilPlugin)(nil)
-	_ pluginapi.ResponseInterceptor = (*veilPlugin)(nil)
+	_ pluginapi.RequestInterceptor     = (*veilPlugin)(nil)
+	_ pluginapi.ResponseInterceptor    = (*veilPlugin)(nil)
+	_ pluginapi.StreamChunkInterceptor = (*veilPlugin)(nil)
 )
 
 func (p *veilPlugin) Identifier() string {
@@ -97,6 +100,45 @@ func (p *veilPlugin) InterceptResponse(ctx context.Context, req pluginapi.Respon
 		return resp, nil
 	}
 	resp.Body = p.restorer.Body(vault.ScopeOf(req.RequestHeaders), req.Body)
+	return resp, nil
+}
+
+// InterceptStreamChunk restores the Placeholders of a streamed response. The
+// header-only call that opens a stream registers it; each chunk then goes
+// through that stream's Held tail state.
+func (p *veilPlugin) InterceptStreamChunk(ctx context.Context, req pluginapi.StreamChunkInterceptRequest) (pluginapi.StreamChunkInterceptResponse, error) {
+	resp := pluginapi.StreamChunkInterceptResponse{}
+	scope := vault.ScopeOf(req.RequestHeaders)
+	key := bodySum(scope, req.RequestBody)
+	if req.ChunkIndex == pluginapi.StreamChunkHeaderInitIndex {
+		if p.vault.HasScope(scope) {
+			p.streams.start(key, func(hold bool) *restore.Stream { return p.restorer.NewStream(scope, hold) })
+		}
+		return resp, nil
+	}
+	if len(req.Body) == 0 {
+		return resp, nil
+	}
+	entry := p.streams.take(key, req.ChunkIndex)
+	var stream *restore.Stream
+	switch {
+	case entry != nil:
+		stream = entry.stream
+	case p.vault.HasScope(scope):
+		stream = p.restorer.NewStream(scope, false)
+	default:
+		return resp, nil
+	}
+	out, done := stream.Chunk(req.Body)
+	if done && entry != nil {
+		p.streams.end(key, entry)
+	}
+	switch {
+	case len(out) == 0:
+		resp.DropChunk = true
+	case !bytes.Equal(out, req.Body):
+		resp.Body = out
+	}
 	return resp, nil
 }
 

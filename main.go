@@ -29,21 +29,23 @@ func buildPlugin(configYAML []byte, pluginDir string) (pluginapi.Plugin, error) 
 	if errDetector != nil {
 		return pluginapi.Plugin{}, errDetector
 	}
-	masker, v := maskerFor(pluginDir, d)
+	masker, v, streams := maskerFor(pluginDir, d)
 	p := &veilPlugin{
 		cfg:       cfg,
 		pluginDir: pluginDir,
 		masker:    masker,
 		restorer:  restore.New(v),
 		vault:     v,
+		streams:   streams,
 		clean:     newBodySet(),
 	}
 
 	return pluginapi.Plugin{
 		Metadata: pluginMetadata(),
 		Capabilities: pluginapi.Capabilities{
-			RequestInterceptor:  p,
-			ResponseInterceptor: p,
+			RequestInterceptor:     p,
+			ResponseInterceptor:    p,
+			StreamChunkInterceptor: p,
 		},
 	}, nil
 }

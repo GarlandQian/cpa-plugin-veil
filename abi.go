@@ -94,6 +94,11 @@ type abiResponseInterceptRequest struct {
 	HostCallbackID string `json:"host_callback_id,omitempty"`
 }
 
+type abiStreamChunkInterceptRequest struct {
+	pluginapi.StreamChunkInterceptRequest
+	HostCallbackID string `json:"host_callback_id,omitempty"`
+}
+
 type abiRegistration struct {
 	SchemaVersion uint32             `json:"schema_version"`
 	Metadata      pluginapi.Metadata `json:"metadata"`
@@ -101,8 +106,9 @@ type abiRegistration struct {
 }
 
 type abiCapabilities struct {
-	RequestInterceptor  bool `json:"request_interceptor"`
-	ResponseInterceptor bool `json:"response_interceptor"`
+	RequestInterceptor     bool `json:"request_interceptor"`
+	ResponseInterceptor    bool `json:"response_interceptor"`
+	StreamChunkInterceptor bool `json:"response_stream_interceptor"`
 }
 
 type abiHostLogRequest struct {
@@ -304,6 +310,13 @@ func handleVeilABIMethod(ctx context.Context, method string, request []byte) ([]
 		}
 		resp, errCall := p.InterceptResponse(withHostCallbackID(ctx, req.HostCallbackID), req.ResponseInterceptRequest)
 		return abiOKEnvelopeWithError(resp, errCall)
+	case pluginabi.MethodResponseInterceptStreamChunk:
+		var req abiStreamChunkInterceptRequest
+		if errDecode := json.Unmarshal(request, &req); errDecode != nil {
+			return nil, errDecode
+		}
+		resp, errCall := p.InterceptStreamChunk(withHostCallbackID(ctx, req.HostCallbackID), req.StreamChunkInterceptRequest)
+		return abiOKEnvelopeWithError(resp, errCall)
 	default:
 		return abiErrorEnvelope("unknown_method", "unknown method: "+method), nil
 	}
@@ -345,7 +358,7 @@ func newABIRegistration(metadata pluginapi.Metadata) abiRegistration {
 	return abiRegistration{
 		SchemaVersion: pluginabi.SchemaVersion,
 		Metadata:      metadata,
-		Capabilities:  abiCapabilities{RequestInterceptor: true, ResponseInterceptor: true},
+		Capabilities:  abiCapabilities{RequestInterceptor: true, ResponseInterceptor: true, StreamChunkInterceptor: true},
 	}
 }
 

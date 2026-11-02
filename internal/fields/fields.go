@@ -54,20 +54,28 @@ var definitionKeys = map[string]bool{
 var toolUseTypes = map[string]bool{"tool_use": true, "server_tool_use": true, "mcp_tool_use": true}
 
 // sealedTypes are reasoning blocks bound to a provider signature: Claude
-// thinking and redacted thinking, and OpenAI Responses reasoning items.
-// Gemini marks its sealed parts with thought: true instead.
-var sealedTypes = map[string]bool{"thinking": true, "redacted_thinking": true, "reasoning": true}
+// thinking and redacted thinking and their stream deltas, and OpenAI
+// Responses reasoning items. Gemini marks its sealed parts with thought: true
+// instead, and Responses streams reasoning in events typed response.reasoning*.
+var sealedTypes = map[string]bool{
+	"thinking": true, "redacted_thinking": true, "thinking_delta": true, "signature_delta": true,
+	"reasoning": true,
+}
 
-// minFieldLen is the shortest string worth looking at: no sensitive value or
-// Placeholder is shorter.
-const minFieldLen = 4
+func sealed(typ string) bool {
+	return sealedTypes[typ] || strings.HasPrefix(typ, "response.reasoning")
+}
 
-// Field is one string to mask or restore.
+// Field is one string to mask or restore. Path locates it by array position,
+// for logs; Ctx locates it by the index a streamed element carries, such as
+// an OpenAI tool call's index, so the same field of consecutive stream events
+// has the same Ctx.
 type Field struct {
 	Doc   *jsontree.Doc
 	Value *jsontree.Value
 	Text  string
 	Path  string
+	Ctx   string
 }
 
 // Nested is a string holding JSON, such as OpenAI's tool call arguments,
@@ -87,7 +95,7 @@ type Set struct {
 // Walk finds the Fields of doc, whose root is an object, in document order.
 func Walk(doc *jsontree.Doc) *Set {
 	w := &walker{}
-	w.object(doc, doc.Root, "", "", conversation, true)
+	w.object(doc, doc.Root, "", "", "", conversation, true)
 	return &Set{Fields: w.fields, Nested: w.nested}
 }
 
@@ -107,62 +115,66 @@ type walker struct {
 	nested []*Nested
 }
 
-func (w *walker) value(doc *jsontree.Doc, v *jsontree.Value, path, key string, m mode) {
+func (w *walker) value(doc *jsontree.Doc, v *jsontree.Value, path, ctx, key string, m mode) {
 	switch v.Kind {
 	case jsontree.String:
 		if m != definition {
-			w.text(doc, v, path)
+			w.text(doc, v, path, ctx)
 		}
 	case jsontree.Array:
 		for i, item := range v.Items {
-			w.value(doc, item, fmt.Sprintf("%s[%d]", path, i), key, m)
+			itemCtx := fmt.Sprintf("%s[%d]", ctx, i)
+			if index := item.Get("index"); index != nil && index.Kind == jsontree.Number {
+				itemCtx = ctx + "#" + doc.Raw(index)
+			}
+			w.value(doc, item, fmt.Sprintf("%s[%d]", path, i), itemCtx, key, m)
 		}
 	case jsontree.Object:
-		w.object(doc, v, path, key, m, false)
+		w.object(doc, v, path, ctx, key, m, false)
 	}
 }
 
 // object walks the members of o, which is the value of key in its parent.
 // isRoot marks the request object itself, whose definitionKeys are settings.
-func (w *walker) object(doc *jsontree.Doc, o *jsontree.Value, path, key string, m mode, isRoot bool) {
+func (w *walker) object(doc *jsontree.Doc, o *jsontree.Value, path, ctx, key string, m mode, isRoot bool) {
 	typ, _ := doc.Text(o.Get("type"))
-	if m == conversation && (sealedTypes[typ] || doc.IsTrue(o.Get("thought"))) {
+	if m == conversation && (sealed(typ) || doc.IsTrue(o.Get("thought"))) {
 		return
 	}
 	for _, member := range o.Members {
 		k, v := member.Key, member.Value
-		p := joinPath(path, k)
+		p, c := joinPath(path, k), joinPath(ctx, k)
 		switch m {
 		case definition:
 			if k == "description" {
 				if v.Kind == jsontree.String {
-					w.text(doc, v, p)
+					w.text(doc, v, p, c)
 				}
 				continue
 			}
-			w.value(doc, v, p, k, definition)
+			w.value(doc, v, p, c, k, definition)
 		case tool:
-			w.value(doc, v, p, k, tool)
+			w.value(doc, v, p, c, k, tool)
 		default:
 			switch {
 			case isRoot && definitionKeys[k] && (k != "text" || v.Kind == jsontree.Object):
-				w.value(doc, v, p, k, definition)
+				w.value(doc, v, p, c, k, definition)
 			case isRoot && k == "request" && v.Kind == jsontree.Object:
 				// Gemini CLI wraps a Gemini request in a top-level request.
-				w.object(doc, v, p, k, conversation, true)
+				w.object(doc, v, p, c, k, conversation, true)
 			case k == "data" && typ == "text":
 				// A Claude document with a plain-text source keeps its text
 				// in data.
-				w.value(doc, v, p, k, conversation)
+				w.value(doc, v, p, c, k, conversation)
 			case kept(k):
 			case k == "input" && toolUseTypes[typ],
 				k == "args" && (key == "functionCall" || key == "function_call"),
 				k == "response" && (key == "functionResponse" || key == "function_response"):
-				w.value(doc, v, p, k, tool)
+				w.value(doc, v, p, c, k, tool)
 			case k == "arguments" && v.Kind == jsontree.String:
-				w.arguments(doc, v, p)
+				w.arguments(doc, v, p, c)
 			default:
-				w.value(doc, v, p, k, conversation)
+				w.value(doc, v, p, c, k, conversation)
 			}
 		}
 	}
@@ -175,29 +187,29 @@ func kept(key string) bool {
 // arguments handles a tool call's arguments, which OpenAI sends as JSON
 // inside a string: their strings are Fields one by one, so the result stays
 // valid JSON. Arguments that are not JSON are one plain-text Field.
-func (w *walker) arguments(doc *jsontree.Doc, v *jsontree.Value, path string) {
+func (w *walker) arguments(doc *jsontree.Doc, v *jsontree.Value, path, ctx string) {
 	text, ok := doc.Text(v)
 	if !ok {
 		return
 	}
 	inner, err := jsontree.Parse([]byte(text))
 	if err != nil || (inner.Root.Kind != jsontree.Object && inner.Root.Kind != jsontree.Array) {
-		w.text(doc, v, path)
+		w.text(doc, v, path, ctx)
 		return
 	}
 	w.nested = append(w.nested, &Nested{Outer: doc, Value: v, Inner: inner})
 	sub := &walker{}
-	sub.value(inner, inner.Root, path, "", tool)
+	sub.value(inner, inner.Root, path, ctx, "", tool)
 	w.fields = append(w.fields, sub.fields...)
 	w.nested = append(w.nested, sub.nested...)
 }
 
-func (w *walker) text(doc *jsontree.Doc, v *jsontree.Value, path string) {
+func (w *walker) text(doc *jsontree.Doc, v *jsontree.Value, path, ctx string) {
 	text, ok := doc.Text(v)
-	if !ok || len(text) < minFieldLen || strings.HasPrefix(text, "data:") {
+	if !ok || strings.HasPrefix(text, "data:") {
 		return
 	}
-	w.fields = append(w.fields, &Field{Doc: doc, Value: v, Text: text, Path: path})
+	w.fields = append(w.fields, &Field{Doc: doc, Value: v, Text: text, Path: path, Ctx: ctx})
 }
 
 func joinPath(path, key string) string {

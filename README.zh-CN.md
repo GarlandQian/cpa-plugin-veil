@@ -86,7 +86,7 @@ veil/
 插件注册信息：
 
 - 名称：`veil`
-- 能力：`RequestInterceptor`、`ResponseInterceptor`
+- 能力：`RequestInterceptor`、`ResponseInterceptor`、`StreamChunkInterceptor`
 - 作者：`GarlandQian`
 
 ## 配置
@@ -204,6 +204,13 @@ Veil 从 `Authorization: Bearer`、`x-api-key` 或 `x-goog-api-key` 读取 key�
 - 带签名的推理内容（thinking 块、reasoning 条目、Gemini 的 thought 分段）不还原，这样才能按签名时的原样发回上游；
   客户端在这些地方可能会看到占位符。
 - Vault 里已经没有的占位符会原样到达客户端，例如重启之前只保存在厂商侧对话里的占位符。
+
+流式回复同样会还原。模型会把一个占位符分成几段输出，所以当某个事件的文本结尾可能是占位符的开头
+（`{{`、`{{EMA`、`EMAIL_ab` 等）时，Veil 会先扣住这个事件，等同一个块的下一个事件到来、看清后续内容后，把两者一起发出并还原其中的值。
+ping 事件可以越过被扣住的事件先发出；其他事件到来时，被扣住的事件原样放出；一个块的最后一个事件不会被扣住。
+事件总是完整、按顺序发出，客户端看到的 SSE 分帧、事件名和序号都与上游发出的一致。
+如果同一个客户端用完全相同的请求体同时开了两个流，Veil 无法区分它们的分块，只能逐块单独还原，
+这时被切到不同分块里的占位符会原样到达客户端。
 
 `skip_formats` 的常见取值是宿主的来源格式名，例如 `openai`、`openai-response`、`claude`、`gemini`、`gemini-cli`、`openai-image`、`openai-video`。
 

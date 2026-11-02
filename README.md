@@ -90,7 +90,7 @@ Then enable the `veil` plugin in CLIProxyAPI.
 Plugin metadata:
 
 - Name: `veil`
-- Capabilities: `RequestInterceptor`, `ResponseInterceptor`
+- Capabilities: `RequestInterceptor`, `ResponseInterceptor`, `StreamChunkInterceptor`
 - Author: `GarlandQian`
 
 ## Configuration
@@ -220,6 +220,14 @@ real value, and when the client sends the conversation back, those values mask t
   provider exactly as signed; the client may see placeholders there.
 - A placeholder the vault no longer holds, for example one kept only in a provider-side conversation from before a
   restart, reaches the client unchanged.
+
+Streamed responses are restored too. A model streams a placeholder in pieces, so when an event's text ends in what
+may be the start of one (`{{`, `{{EMA`, `EMAIL_ab`...), Veil holds that event back until the next event of the same
+block shows how it continues, then sends both with the value restored. Ping events pass by a held event; any other
+event releases it unchanged, and the last event of a block is never held. Events go out whole and in order, so the
+SSE framing, event names and sequence numbers the client sees are those the provider sent. If two streams of the same
+client and request body run at once, Veil cannot tell their chunks apart and restores each chunk on its own, so a
+placeholder split across chunks in those streams reaches the client unrestored.
 
 Common `skip_formats` values are the host's source format names, such as `openai`, `openai-response`, `claude`,
 `gemini`, `gemini-cli`, `openai-image`, and `openai-video`.
