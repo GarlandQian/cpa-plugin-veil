@@ -89,6 +89,11 @@ type abiRequestInterceptRequest struct {
 	HostCallbackID string `json:"host_callback_id,omitempty"`
 }
 
+type abiResponseInterceptRequest struct {
+	pluginapi.ResponseInterceptRequest
+	HostCallbackID string `json:"host_callback_id,omitempty"`
+}
+
 type abiRegistration struct {
 	SchemaVersion uint32             `json:"schema_version"`
 	Metadata      pluginapi.Metadata `json:"metadata"`
@@ -96,7 +101,8 @@ type abiRegistration struct {
 }
 
 type abiCapabilities struct {
-	RequestInterceptor bool `json:"request_interceptor"`
+	RequestInterceptor  bool `json:"request_interceptor"`
+	ResponseInterceptor bool `json:"response_interceptor"`
 }
 
 type abiHostLogRequest struct {
@@ -291,6 +297,13 @@ func handleVeilABIMethod(ctx context.Context, method string, request []byte) ([]
 		}
 		resp, errCall := p.InterceptRequestAfterAuth(withHostCallbackID(ctx, req.HostCallbackID), req.RequestInterceptRequest)
 		return abiOKEnvelopeWithError(resp, errCall)
+	case pluginabi.MethodResponseInterceptAfter:
+		var req abiResponseInterceptRequest
+		if errDecode := json.Unmarshal(request, &req); errDecode != nil {
+			return nil, errDecode
+		}
+		resp, errCall := p.InterceptResponse(withHostCallbackID(ctx, req.HostCallbackID), req.ResponseInterceptRequest)
+		return abiOKEnvelopeWithError(resp, errCall)
 	default:
 		return abiErrorEnvelope("unknown_method", "unknown method: "+method), nil
 	}
@@ -332,7 +345,7 @@ func newABIRegistration(metadata pluginapi.Metadata) abiRegistration {
 	return abiRegistration{
 		SchemaVersion: pluginabi.SchemaVersion,
 		Metadata:      metadata,
-		Capabilities:  abiCapabilities{RequestInterceptor: true},
+		Capabilities:  abiCapabilities{RequestInterceptor: true, ResponseInterceptor: true},
 	}
 }
 

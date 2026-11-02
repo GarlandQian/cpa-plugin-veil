@@ -60,6 +60,7 @@ type Vault struct {
 	mu      sync.RWMutex
 	entries map[slot]*entry
 	known   map[string]*knownIndex
+	scopes  map[string]int
 }
 
 // New returns an empty vault minting Placeholders under key.
@@ -72,6 +73,7 @@ func New(key []byte, limit int) *Vault {
 		limit:   limit,
 		entries: make(map[slot]*entry),
 		known:   make(map[string]*knownIndex),
+		scopes:  make(map[string]int),
 	}
 }
 
@@ -116,6 +118,13 @@ func (v *Vault) Lookup(scope, placeholder string) (string, bool) {
 	return e.value, true
 }
 
+// HasScope reports whether scope has any Placeholder to restore.
+func (v *Vault) HasScope(scope string) bool {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+	return v.scopes[scope] > 0
+}
+
 // Len returns how many values the vault holds.
 func (v *Vault) Len() int {
 	v.mu.RLock()
@@ -131,6 +140,7 @@ func (v *Vault) add(scope, placeholder, kind, value string) {
 	e := &entry{kind: kind, value: value}
 	e.used.Store(v.clock.Add(1))
 	v.entries[slot{scope, placeholder}] = e
+	v.scopes[scope]++
 	if len(value) >= KnownMinLen {
 		idx := v.known[scope]
 		if idx == nil {
@@ -155,6 +165,9 @@ func (v *Vault) evict() {
 	sort.Slice(all, func(i, j int) bool { return all[i].used < all[j].used })
 	for _, a := range all[:len(all)/2] {
 		delete(v.entries, a.slot)
+		if v.scopes[a.slot.scope]--; v.scopes[a.slot.scope] == 0 {
+			delete(v.scopes, a.slot.scope)
+		}
 	}
 	v.known = make(map[string]*knownIndex)
 	for s, e := range v.entries {

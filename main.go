@@ -4,6 +4,8 @@ import (
 	"context"
 	"strings"
 
+	"github.com/GarlandQian/cpa-plugin-veil/internal/restore"
+
 	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginapi"
 )
 
@@ -32,6 +34,7 @@ func buildPlugin(configYAML []byte, pluginDir string) (pluginapi.Plugin, error) 
 		cfg:       cfg,
 		pluginDir: pluginDir,
 		masker:    masker,
+		restorer:  restore.New(v),
 		vault:     v,
 		clean:     newBodySet(),
 	}
@@ -39,7 +42,8 @@ func buildPlugin(configYAML []byte, pluginDir string) (pluginapi.Plugin, error) 
 	return pluginapi.Plugin{
 		Metadata: pluginMetadata(),
 		Capabilities: pluginapi.Capabilities{
-			RequestInterceptor: p,
+			RequestInterceptor:  p,
+			ResponseInterceptor: p,
 		},
 	}, nil
 }

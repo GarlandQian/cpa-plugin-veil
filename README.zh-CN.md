@@ -28,6 +28,7 @@ Veil 源自 [rheodev/cpa-plugin-privacyfilter](https://github.com/rheodev/cpa-pl
 
 - CLIProxyAPI 插件运行时的请求拦截器
 - 用稳定的占位符掩码邮箱、手机号、密钥、连接串、证书等敏感内容，不同客户端 API key 之间相互隔离
+- 把模型回复（包括工具调用）里的占位符还原成原值，客户端看到和执行的都是真实值
 - 使用内置 Gitleaks 规则 `rules/gitleaks.toml`
 - 支持自定义 Gitleaks 规则文件
 - 支持 OpenAI Chat / Completions、OpenAI Responses、Claude、Gemini 和 Gemini CLI 请求体
@@ -85,7 +86,7 @@ veil/
 插件注册信息：
 
 - 名称：`veil`
-- 能力：`RequestInterceptor`
+- 能力：`RequestInterceptor`、`ResponseInterceptor`
 - 作者：`GarlandQian`
 
 ## 配置
@@ -191,6 +192,18 @@ Veil 从 `Authorization: Bearer`、`x-api-key` 或 `x-goog-api-key` 读取 key�
 其中包括用 `?key=` 查询参数传 key 的 Gemini 客户端，因为插件看不到查询参数。
 
 占位符到原值的映射只保存在内存中，最多保留最近使用的 200,000 个值。
+
+### 还原回复
+
+回复到达客户端之前，只要模型写的是该客户端的占位符，Veil 都会换回原值：文本、工具调用（OpenAI 的 `arguments`
+在其 JSON 内部还原，值按 JSON 要求转义）、Claude 的 `tool_use.input` 和 Gemini 的 `functionCall.args` 都包括在内。
+因此客户端执行工具时拿到的是真实值；客户端把对话发回来时，这些值又会掩码成同样的占位符。
+
+- 模型不一定原样照抄占位符。类型或哈希换了大小写、括号里多了空格、少了一边或两边括号，Veil 也会还原，
+  前提是它对应 Vault 里该客户端确实存在的占位符。
+- 带签名的推理内容（thinking 块、reasoning 条目、Gemini 的 thought 分段）不还原，这样才能按签名时的原样发回上游；
+  客户端在这些地方可能会看到占位符。
+- Vault 里已经没有的占位符会原样到达客户端，例如重启之前只保存在厂商侧对话里的占位符。
 
 `skip_formats` 的常见取值是宿主的来源格式名，例如 `openai`、`openai-response`、`claude`、`gemini`、`gemini-cli`、`openai-image`、`openai-video`。
 
