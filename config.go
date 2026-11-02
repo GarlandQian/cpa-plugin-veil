@@ -17,10 +17,35 @@ const veilProvider = "veil"
 const pluginName = "veil"
 
 type veilConfig struct {
-	GitleaksTOML string            `yaml:"gitleaks_toml"`
-	SkipModels   []string          `yaml:"skip_models"`
-	SkipFormats  []string          `yaml:"skip_formats"`
-	Actions      map[string]string `yaml:"actions"`
+	GitleaksTOML  string            `yaml:"gitleaks_toml"`
+	RulesTOML     string            `yaml:"rules_toml"`
+	DisabledRules []string          `yaml:"disabled_rules"`
+	Categories    map[string]bool   `yaml:"categories"`
+	Terms         []termConfig      `yaml:"terms"`
+	Allow         []string          `yaml:"allow"`
+	SkipModels    []string          `yaml:"skip_models"`
+	SkipFormats   []string          `yaml:"skip_formats"`
+	Actions       map[string]string `yaml:"actions"`
+}
+
+// termConfig is a Term, written as the word alone or with its options:
+//
+//	terms:
+//	  - 烛龙
+//	  - {term: Phoenix, any_case: true, whole_word: true}
+type termConfig struct {
+	Term      string `yaml:"term"`
+	AnyCase   bool   `yaml:"any_case"`
+	WholeWord bool   `yaml:"whole_word"`
+}
+
+func (t *termConfig) UnmarshalYAML(node *yaml.Node) error {
+	if node.Kind == yaml.ScalarNode {
+		t.Term = node.Value
+		return nil
+	}
+	type plain termConfig
+	return node.Decode((*plain)(t))
 }
 
 // removedConfigKeys are fields earlier releases accepted that no longer do
@@ -130,7 +155,26 @@ func newDetector(pluginDir string, cfg veilConfig) (*detect.Detector, error) {
 		}
 		rules = raw
 	}
-	d, err := detect.New(rules)
+	opts := detect.Options{
+		Categories:    cfg.Categories,
+		Allow:         cfg.Allow,
+		DisabledRules: cfg.DisabledRules,
+	}
+	for _, t := range cfg.Terms {
+		opts.Terms = append(opts.Terms, detect.Term{Text: t.Term, AnyCase: t.AnyCase, WholeWord: t.WholeWord})
+	}
+	if cfg.RulesTOML != "" {
+		path := cfg.RulesTOML
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(pluginDir, path)
+		}
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read rules_toml %q: %w", path, err)
+		}
+		opts.ExtraRules = raw
+	}
+	d, err := detect.New(rules, opts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create the detector from %s: %w", source, err)
 	}

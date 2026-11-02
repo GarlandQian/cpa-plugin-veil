@@ -77,7 +77,7 @@ func streamedText(t *testing.T, stream string) string {
 
 func maskedPlaceholder(t *testing.T, p *veilPlugin, key string) string {
 	t.Helper()
-	body := intercept(t, p, pluginapi.RequestInterceptRequest{Headers: bearer(key), Body: []byte(`{"messages":[{"role":"user","content":"mail test@example.com"}]}`)})
+	body := intercept(t, p, pluginapi.RequestInterceptRequest{Headers: bearer(key), Body: []byte(`{"messages":[{"role":"user","content":"mail test@acme-corp.cn"}]}`)})
 	placeholder := emailPlaceholder.FindString(string(body))
 	if placeholder == "" {
 		t.Fatalf("not masked: %s", body)
@@ -97,7 +97,7 @@ func TestStreamThroughTheHost(t *testing.T) {
 	for _, line := range []string{"event: message_stop\n", "data: {\"type\":\"message_stop\"}\n", "\n"} {
 		h.send(line)
 	}
-	if got := streamedText(t, h.visible.String()); got != "sending to test@example.com now" {
+	if got := streamedText(t, h.visible.String()); got != "sending to test@acme-corp.cn now" {
 		t.Fatalf("client saw %q\n%s", got, h.visible.String())
 	}
 	if len(p.streams.streams) != 0 {
@@ -123,10 +123,10 @@ func TestConcurrentIdenticalStreams(t *testing.T) {
 			b.send(line)
 		}
 	}
-	if got := streamedText(t, a.visible.String()); got != "a: test@example.com end" {
+	if got := streamedText(t, a.visible.String()); got != "a: test@acme-corp.cn end" {
 		t.Fatalf("a saw %q", got)
 	}
-	if got := streamedText(t, b.visible.String()); got != "b: test@example.com end" {
+	if got := streamedText(t, b.visible.String()); got != "b: test@acme-corp.cn end" {
 		t.Fatalf("b saw %q", got)
 	}
 }

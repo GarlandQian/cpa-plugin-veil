@@ -131,7 +131,12 @@ Plugin fields:
 
 | Field           | Type   | Default | Description                                                                                  |
 |-----------------|--------|---------|----------------------------------------------------------------------------------------------|
-| `gitleaks_toml` | string | `""`    | Custom gitleaks rule file path. Relative paths are resolved from the plugin directory.       |
+| `gitleaks_toml` | string | `""`    | A gitleaks rule file that replaces the built-in rules. Relative to the plugin directory.     |
+| `rules_toml`    | string | `""`    | A gitleaks rule file added to the built-in rules; see [Rules](#rules).                      |
+| `disabled_rules`| array  | `[]`    | Rule IDs to turn off.                                                                        |
+| `categories`    | object | `{}`    | Categories to turn on or off; see [Rules](#rules).                                           |
+| `terms`         | array  | `[]`    | Words always masked, as `TERM`.                                                              |
+| `allow`         | array  | `[]`    | Values never masked.                                                                         |
 | `actions`       | object | `{}`    | What to do with each kind (`EMAIL`, `SECRET`, ...): `mask` (default), `block` or `warn`.     |
 | `skip_models`   | array  | `[]`    | Models that should skip masking.                                                             |
 | `skip_formats`  | array  | `[]`    | Source formats that should skip masking.                                                     |
@@ -223,7 +228,7 @@ Beyond what the rules find, Veil masks a value wherever it reappears:
 
 ### Placeholders and caller scope
 
-A placeholder is `{{KIND_xxxxxxxx}}`: the kind (`EMAIL`, `PHONE`, `ID_CARD`, `BANK_CARD`, `IP`, `SECRET`) and eight
+A placeholder is `{{KIND_xxxxxxxx}}`: the kind (`EMAIL`, `SECRET`, `PASSWORD`, ... see [Rules](#rules)) and eight
 characters of an HMAC of the value. The HMAC key is generated on first start and kept in `veil.key` (mode 0600) in the
 plugin directory, so placeholders survive restarts. Treat `veil.key` as sensitive: whoever holds it can confirm a
 guessed value against a placeholder. Deleting it changes every placeholder.
@@ -284,6 +289,69 @@ Supported request shapes include:
 
 ## Rules
 
+### What Veil finds
+
+Detections are grouped in categories, each switched on or off as a whole with `categories`:
+
+| Category   | Kinds                                  | Default | Finds                                                                                     |
+|------------|----------------------------------------|---------|-------------------------------------------------------------------------------------------|
+| `secrets`  | `SECRET`, `PASSWORD`, `PRIVATE_KEY`    | on      | Vendor keys (gitleaks and known prefixes), passwords and keys written after their name, URL passwords, Authorization and Cookie headers, private keys, random strings next to a secret's name |
+| `personal` | `EMAIL`, `PHONE`, `ID_CARD`, `BANK_CARD` | on    | Emails on a real domain, mainland mobile numbers outside an id's context, mainland ID numbers with a valid check digit, card numbers passing Luhn |
+| `ssn`      | `SSN`                                  | on      | US Social Security numbers in the ranges the SSA issues                                   |
+| `passport` | `PASSPORT`                             | on      | Passport numbers after "passport" / 护照                                                   |
+| `iban`     | `IBAN`                                 | on      | IBANs with a valid checksum                                                               |
+| `birthday` | `BIRTHDAY`                             | on      | Dates after "birthday", "DOB", 生日 and the like, over a year ago                          |
+| `mac`      | `MAC`                                  | on      | MAC addresses, except documentation and broadcast ones                                    |
+| `serial`   | `SERIAL`                               | on      | Serial numbers after "S/N", "serial", 序列号                                               |
+| `home`     | `USERNAME`                             | off     | The user name in a home folder: `/Users/<name>`, `/home/<name>`, `C:\Users\<name>`       |
+| `userhost` | `USERNAME`, `HOSTNAME`                 | off     | `user@host` in shell prompts and ssh/scp/rsync commands, `hostname:` and `User:` lines    |
+| `ip`       | `IP`                                   | off     | Public IPv4 and IPv6 addresses; never private, loopback, link-local, CGNAT, documentation addresses or public DNS resolvers |
+| `bucket`   | `BUCKET`                               | off     | Cloud storage buckets in `s3://`, `gs://` and similar URLs and hosts                     |
+
+The `home`, `userhost`, `ip` and `bucket` categories are off by default because home folders and hosts appear in
+nearly every coding request and the model has to copy them exactly.
+
+Beyond what a value looks like, Veil masks the whole value of a field named for a secret (`api_key`, `password`,
+`client_secret`, `Authorization`, `db_pass`, ...) when it has 8 characters or more, whatever it looks like. To keep
+false positives down it leaves alone UUIDs, long hex ids and digests (and any piece of one), decimals, bare JSON
+numbers, values of fields named for an id, code that names a secret (`token = get_token_v2`), versions, paths,
+file positions and placeholders such as `${API_KEY}`. A random string with no secret's name near it is not a secret.
+
+### Your own rules
+
+```yaml
+plugins:
+  configs:
+    veil:
+      categories:
+        ip: true          # turn a category on (or off)
+      terms:              # always masked, as TERM
+        - 烛龙
+        - {term: Phoenix, any_case: true, whole_word: true}
+      allow:              # never masked, compared whole and in any case
+        - support@acme-corp.cn
+      rules_toml: rules/extra.toml   # gitleaks rules added to the built-in ones
+      disabled_rules:     # rule IDs to turn off
+        - phone-cn
+```
+
+A rule in `rules_toml` may name its own kind, in upper case and at most 24 characters:
+
+```toml
+[[rules]]
+id = "internal-ticket"
+regex = '''TKT-[0-9]{6}'''
+keywords = ["tkt-"]
+kind = "TICKET"
+```
+
+`disabled_rules` takes gitleaks rule IDs and Veil's own: `email`, `phone-cn`, `id-card-cn`, `bank-card`,
+`url-password`, `named-secret`, `env-secret`, `auth-header`, `key-field`, `cjk-password`, `cjk-secret`,
+`copula-secret`, `context-secret`, `high-entropy`, the `vendor-*` key rules and each category's rules. An unknown
+category or rule ID fails the config.
+
+### Built-in gitleaks rules
+
 Built-in rules are embedded into the shared library at build time from:
 
 ```text
@@ -292,7 +360,7 @@ rules/gitleaks.toml
 
 At runtime the plugin resolves rules in this order:
 
-1. `gitleaks_toml` config value, if set
+1. `gitleaks_toml` config value, if set (it replaces the built-in rules; use `rules_toml` to add to them)
 2. `rules/gitleaks.toml` sidecar next to the shared library
 3. The rules embedded at build time (default)
 
@@ -301,12 +369,6 @@ Update embedded rules and rebuild:
 ```bash
 make update-rules
 make build
-```
-
-You can also set `gitleaks_toml` to use your own rule file:
-
-```yaml
-gitleaks_toml: custom/gitleaks.toml
 ```
 
 Relative paths are resolved from the plugin directory.
@@ -319,6 +381,10 @@ Relative paths are resolved from the plugin directory.
    `skip_models` and `skip_formats` keep their meaning.
 3. Delete `replacement` and `replacement_labels`. Veil ignores them and logs
    `veil ignores removed config field(s): ...` at startup until they are gone.
+4. Expect different hits: values are now replaced by placeholders and restored in responses; IP addresses are no
+   longer masked by default (turn on the `ip` category for public ones); emails at documentation domains such as
+   `example.com`, ID numbers with a wrong check digit and phone numbers that read as order ids are left alone; tool
+   call arguments and tool results are masked too.
 
 ## Development
 

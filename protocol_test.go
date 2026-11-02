@@ -150,7 +150,7 @@ func TestReconfigureKeepsPreviousConfigOnInvalidConfig(t *testing.T) {
 	if current != valid {
 		t.Fatal("invalid reconfigure must keep the previous plugin instance")
 	}
-	resp, err := current.InterceptRequestBeforeAuth(ctx, pluginapi.RequestInterceptRequest{Body: []byte(`{"input":"test@example.com"}`)})
+	resp, err := current.InterceptRequestBeforeAuth(ctx, pluginapi.RequestInterceptRequest{Body: []byte(`{"input":"test@acme-corp.cn"}`)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -173,7 +173,7 @@ func TestReconfigureKeepsPreviousConfigOnInvalidConfig(t *testing.T) {
 // and HTML characters elsewhere in the body reach the upstream as sent.
 func TestMaskingKeepsUntouchedBytes(t *testing.T) {
 	interceptor := newConfiguredInterceptor(t, "")
-	body := `{"seed":12345678901234567890,"z":1,"a":"<b>&é",` + "\n" + `"messages":[{"role":"user","content":"mail test@example.com"}]}`
+	body := `{"seed":12345678901234567890,"z":1,"a":"<b>&é",` + "\n" + `"messages":[{"role":"user","content":"mail test@acme-corp.cn"}]}`
 	resp, err := interceptor.InterceptRequestBeforeAuth(context.Background(), pluginapi.RequestInterceptRequest{Body: []byte(body)})
 	if err != nil {
 		t.Fatal(err)

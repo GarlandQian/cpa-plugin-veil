@@ -10,13 +10,13 @@ import (
 	"github.com/GarlandQian/cpa-plugin-veil/internal/vault"
 )
 
-const email = "test@example.com"
+const email = "test@acme-corp.cn"
 
 var placeholderRe = regexp.MustCompile(`\{\{[A-Z_]+_[a-z2-7]{8,}\}\}`)
 
 func newMasker(t *testing.T) (*Masker, *vault.Vault) {
 	t.Helper()
-	d, err := detect.New(nil)
+	d, err := detect.New(nil, detect.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,21 +43,21 @@ func TestMasksEveryClientFormat(t *testing.T) {
 	m, v := newMasker(t)
 	p := v.Placeholder("", "EMAIL", email)
 	cases := []struct{ name, body string }{
-		{"claude system string", `{"system":"contact test@example.com"}`},
-		{"claude system blocks", `{"system":[{"type":"text","text":"test@example.com","cache_control":{"type":"ephemeral"}}]}`},
-		{"claude tool_result", `{"messages":[{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":[{"type":"text","text":"test@example.com"}]}]}]}`},
-		{"claude tool_use input", `{"messages":[{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"send","input":{"to":"test@example.com","name":"test@example.com"}}]}]}`},
-		{"claude document text source", `{"messages":[{"role":"user","content":[{"type":"document","source":{"type":"text","media_type":"text/plain","data":"test@example.com"}}]}]}`},
-		{"openai chat", `{"messages":[{"role":"user","content":"test@example.com"},{"role":"user","content":[{"type":"text","text":"test@example.com"}]}]}`},
-		{"openai tool call arguments", `{"messages":[{"role":"assistant","tool_calls":[{"id":"c1","type":"function","function":{"name":"send","arguments":"{\"to\":\"test@example.com\"}"}}]}]}`},
-		{"openai tool message", `{"messages":[{"role":"tool","tool_call_id":"c1","content":"sent to test@example.com"}]}`},
-		{"responses", `{"instructions":"test@example.com","input":[{"role":"user","content":[{"type":"input_text","text":"test@example.com"}]},{"type":"function_call","call_id":"c1","name":"send","arguments":"{\"to\":\"test@example.com\"}"},{"type":"function_call_output","call_id":"c1","output":"test@example.com"}]}`},
-		{"responses string input", `{"input":"test@example.com"}`},
-		{"gemini", `{"systemInstruction":{"parts":[{"text":"test@example.com"}]},"contents":[{"role":"user","parts":[{"text":"test@example.com"}]},{"role":"model","parts":[{"functionCall":{"name":"send","args":{"to":"test@example.com"}},"thoughtSignature":"sig"}]},{"role":"user","parts":[{"functionResponse":{"name":"send","response":{"result":"test@example.com"}}}]}]}`},
-		{"gemini cli", `{"model":"gemini-2.5-pro","project":"p","request":{"contents":[{"role":"user","parts":[{"text":"test@example.com"}]}]}}`},
-		{"image prompt", `{"prompt":["test@example.com","hello"]}`},
-		{"embeddings", `{"input":["test@example.com"]}`},
-		{"metadata", `{"metadata":{"note":"test@example.com","user_id":"test@example.com"}}`},
+		{"claude system string", `{"system":"contact test@acme-corp.cn"}`},
+		{"claude system blocks", `{"system":[{"type":"text","text":"test@acme-corp.cn","cache_control":{"type":"ephemeral"}}]}`},
+		{"claude tool_result", `{"messages":[{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":[{"type":"text","text":"test@acme-corp.cn"}]}]}]}`},
+		{"claude tool_use input", `{"messages":[{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"send","input":{"to":"test@acme-corp.cn","name":"test@acme-corp.cn"}}]}]}`},
+		{"claude document text source", `{"messages":[{"role":"user","content":[{"type":"document","source":{"type":"text","media_type":"text/plain","data":"test@acme-corp.cn"}}]}]}`},
+		{"openai chat", `{"messages":[{"role":"user","content":"test@acme-corp.cn"},{"role":"user","content":[{"type":"text","text":"test@acme-corp.cn"}]}]}`},
+		{"openai tool call arguments", `{"messages":[{"role":"assistant","tool_calls":[{"id":"c1","type":"function","function":{"name":"send","arguments":"{\"to\":\"test@acme-corp.cn\"}"}}]}]}`},
+		{"openai tool message", `{"messages":[{"role":"tool","tool_call_id":"c1","content":"sent to test@acme-corp.cn"}]}`},
+		{"responses", `{"instructions":"test@acme-corp.cn","input":[{"role":"user","content":[{"type":"input_text","text":"test@acme-corp.cn"}]},{"type":"function_call","call_id":"c1","name":"send","arguments":"{\"to\":\"test@acme-corp.cn\"}"},{"type":"function_call_output","call_id":"c1","output":"test@acme-corp.cn"}]}`},
+		{"responses string input", `{"input":"test@acme-corp.cn"}`},
+		{"gemini", `{"systemInstruction":{"parts":[{"text":"test@acme-corp.cn"}]},"contents":[{"role":"user","parts":[{"text":"test@acme-corp.cn"}]},{"role":"model","parts":[{"functionCall":{"name":"send","args":{"to":"test@acme-corp.cn"}},"thoughtSignature":"sig"}]},{"role":"user","parts":[{"functionResponse":{"name":"send","response":{"result":"test@acme-corp.cn"}}}]}]}`},
+		{"gemini cli", `{"model":"gemini-2.5-pro","project":"p","request":{"contents":[{"role":"user","parts":[{"text":"test@acme-corp.cn"}]}]}}`},
+		{"image prompt", `{"prompt":["test@acme-corp.cn","hello"]}`},
+		{"embeddings", `{"input":["test@acme-corp.cn"]}`},
+		{"metadata", `{"metadata":{"note":"test@acme-corp.cn","user_id":"test@acme-corp.cn"}}`},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -68,7 +68,7 @@ func TestMasksEveryClientFormat(t *testing.T) {
 			rest := strings.Count(got, email)
 			// Identifiers stay as sent; a tool's own argument named "name"
 			// does not.
-			want := strings.Count(tc.body, `"user_id":"test@example.com"`)
+			want := strings.Count(tc.body, `"user_id":"test@acme-corp.cn"`)
 			if rest != want {
 				t.Fatalf("%d copies of the email left, want %d: %s", rest, want, got)
 			}
@@ -79,13 +79,13 @@ func TestMasksEveryClientFormat(t *testing.T) {
 func TestLeavesSealedBlocksAndIdentifiersAlone(t *testing.T) {
 	m, _ := newMasker(t)
 	for _, body := range []string{
-		`{"messages":[{"role":"assistant","content":[{"type":"thinking","thinking":"test@example.com","signature":"sig"},{"type":"redacted_thinking","data":"test@example.com"}]}]}`,
-		`{"input":[{"type":"reasoning","id":"r1","summary":[{"type":"summary_text","text":"test@example.com"}],"encrypted_content":"x"}]}`,
-		`{"contents":[{"role":"model","parts":[{"text":"test@example.com","thought":true,"thoughtSignature":"sig"}]}]}`,
-		`{"model":"test@example.com","messages":[{"role":"user","content":[{"type":"image","source":{"type":"base64","media_type":"image/png","data":"test@example.com"}},{"type":"image_url","image_url":{"url":"https://x/test@example.com"}}]}]}`,
-		`{"tools":[{"name":"test@example.com","input_schema":{"type":"object","properties":{"to":{"type":"string","enum":["test@example.com"]}}}}]}`,
-		`{"previous_response_id":"test@example.com","prompt_cache_key":"test@example.com"}`,
-		`{"messages":[{"role":"user","content":"data:text/plain;base64,test@example.com"}]}`,
+		`{"messages":[{"role":"assistant","content":[{"type":"thinking","thinking":"test@acme-corp.cn","signature":"sig"},{"type":"redacted_thinking","data":"test@acme-corp.cn"}]}]}`,
+		`{"input":[{"type":"reasoning","id":"r1","summary":[{"type":"summary_text","text":"test@acme-corp.cn"}],"encrypted_content":"x"}]}`,
+		`{"contents":[{"role":"model","parts":[{"text":"test@acme-corp.cn","thought":true,"thoughtSignature":"sig"}]}]}`,
+		`{"model":"test@acme-corp.cn","messages":[{"role":"user","content":[{"type":"image","source":{"type":"base64","media_type":"image/png","data":"test@acme-corp.cn"}},{"type":"image_url","image_url":{"url":"https://x/test@acme-corp.cn"}}]}]}`,
+		`{"tools":[{"name":"test@acme-corp.cn","input_schema":{"type":"object","properties":{"to":{"type":"string","enum":["test@acme-corp.cn"]}}}}]}`,
+		`{"previous_response_id":"test@acme-corp.cn","prompt_cache_key":"test@acme-corp.cn"}`,
+		`{"messages":[{"role":"user","content":"data:text/plain;base64,test@acme-corp.cn"}]}`,
 	} {
 		if got := mask(t, m, "", body); got != body {
 			t.Fatalf("changed %s\n     to %s", body, got)
@@ -95,7 +95,7 @@ func TestLeavesSealedBlocksAndIdentifiersAlone(t *testing.T) {
 
 func TestToolDescriptionsAreMasked(t *testing.T) {
 	m, _ := newMasker(t)
-	got := mask(t, m, "", `{"tools":[{"name":"send","description":"mail test@example.com","input_schema":{"properties":{"to":{"description":"defaults to test@example.com"}}}}]}`)
+	got := mask(t, m, "", `{"tools":[{"name":"send","description":"mail test@acme-corp.cn","input_schema":{"properties":{"to":{"description":"defaults to test@acme-corp.cn"}}}}]}`)
 	if strings.Contains(got, email) {
 		t.Fatalf("description kept the email: %s", got)
 	}
@@ -106,7 +106,7 @@ func TestToolDescriptionsAreMasked(t *testing.T) {
 
 func TestArgumentsStayValidJSON(t *testing.T) {
 	m, v := newMasker(t)
-	body := `{"messages":[{"role":"assistant","tool_calls":[{"function":{"name":"run","arguments":"{\"cmd\":\"mail \\\"test@example.com\\\"\",\"n\":12345678901234567890}"}}]}]}`
+	body := `{"messages":[{"role":"assistant","tool_calls":[{"function":{"name":"run","arguments":"{\"cmd\":\"mail \\\"test@acme-corp.cn\\\"\",\"n\":12345678901234567890}"}}]}]}`
 	got := mask(t, m, "", body)
 	var parsed struct {
 		Messages []struct {
@@ -127,7 +127,7 @@ func TestArgumentsStayValidJSON(t *testing.T) {
 
 func TestMaskingIsStableAndIdempotent(t *testing.T) {
 	m, _ := newMasker(t)
-	body := `{"messages":[{"role":"user","content":"mail test@example.com, call 13800138000"}]}`
+	body := `{"messages":[{"role":"user","content":"mail test@acme-corp.cn, call 13800138000"}]}`
 	first := mask(t, m, "", body)
 	if second := mask(t, m, "", body); second != first {
 		t.Fatalf("the same body masked twice differently:\n%s\n%s", first, second)
@@ -142,7 +142,7 @@ func TestMaskingIsStableAndIdempotent(t *testing.T) {
 
 func TestScopesGetDifferentPlaceholders(t *testing.T) {
 	m, _ := newMasker(t)
-	body := `{"input":"test@example.com"}`
+	body := `{"input":"test@acme-corp.cn"}`
 	if mask(t, m, "a", body) == mask(t, m, "b", body) {
 		t.Fatal("two Caller scopes got the same placeholder")
 	}
@@ -191,7 +191,7 @@ func TestSentTextKeepsItsForm(t *testing.T) {
 
 func TestReportHasPathsAndCountsOnly(t *testing.T) {
 	m, _ := newMasker(t)
-	_, report, err := m.Mask("", []byte(`{"system":"test@example.com","messages":[{"role":"user","content":"test@example.com and 13800138000"}]}`))
+	_, report, err := m.Mask("", []byte(`{"system":"test@acme-corp.cn","messages":[{"role":"user","content":"test@acme-corp.cn and 13800138000"}]}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,10 +205,10 @@ func TestReportHasPathsAndCountsOnly(t *testing.T) {
 
 func TestDuplicateKeysAndNonObjects(t *testing.T) {
 	m, _ := newMasker(t)
-	if got := mask(t, m, "", `{"input":"a test@example.com","input":"b test@example.com"}`); strings.Contains(got, email) {
+	if got := mask(t, m, "", `{"input":"a test@acme-corp.cn","input":"b test@acme-corp.cn"}`); strings.Contains(got, email) {
 		t.Fatalf("duplicate key leaked: %s", got)
 	}
-	for _, body := range []string{`["test@example.com"]`, `"test@example.com"`, `not json test@example.com`} {
+	for _, body := range []string{`["test@acme-corp.cn"]`, `"test@acme-corp.cn"`, `not json test@acme-corp.cn`} {
 		if out, _, _ := m.Mask("", []byte(body)); out != nil {
 			t.Fatalf("non-object body changed: %s", out)
 		}
@@ -218,7 +218,7 @@ func TestDuplicateKeysAndNonObjects(t *testing.T) {
 func TestActions(t *testing.T) {
 	m, _ := newMasker(t)
 	m = m.WithPolicy(m.detector, map[string]Action{"EMAIL": Warn, "PHONE": Block})
-	out, report, err := m.Mask("", []byte(`{"input":"mail test@example.com"}`))
+	out, report, err := m.Mask("", []byte(`{"input":"mail test@acme-corp.cn"}`))
 	if err != nil || out != nil {
 		t.Fatalf("warned value changed the body: %s %v", out, err)
 	}
@@ -239,9 +239,20 @@ func TestActions(t *testing.T) {
 
 func TestMalformedJSONIsAnError(t *testing.T) {
 	m, _ := newMasker(t)
-	for _, body := range []string{`{"input":"test@example.com"`, ` [1,`} {
+	for _, body := range []string{`{"input":"test@acme-corp.cn"`, ` [1,`} {
 		if _, _, err := m.Mask("", []byte(body)); err != ErrMalformed {
 			t.Fatalf("%q: err = %v", body, err)
 		}
+	}
+}
+
+func TestSecretNamedFieldsAreMaskedWhole(t *testing.T) {
+	m, _ := newMasker(t)
+	got := mask(t, m, "", `{"messages":[{"role":"assistant","content":[{"type":"tool_use","id":"t","name":"deploy","input":{"api_key":"plainwordsonly","db_pass":"another-plain-one","max_tokens":"1234567890","note":"plainwordsonly"}}]}]}`)
+	if strings.Contains(got, `"api_key":"plainwordsonly"`) || strings.Contains(got, "another-plain-one") {
+		t.Fatalf("secret-named fields kept their values: %s", got)
+	}
+	if !strings.Contains(got, `"max_tokens":"1234567890"`) || !strings.Contains(got, `"note":"{{SECRET_`) {
+		t.Fatalf("a count of tokens was masked, or a known value was missed: %s", got)
 	}
 }

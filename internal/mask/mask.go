@@ -149,8 +149,14 @@ func (m *Masker) Mask(scope string, body []byte) ([]byte, Report, error) {
 			continue
 		}
 		var hits []span
-		for _, h := range m.detector.Detect(f.Text) {
-			hits = append(hits, span{h.Start, h.End, string(h.Kind)})
+		if detect.SecretField(fieldKey(f.Path), f.Text) {
+			// A field named for a secret holds one whatever it looks like:
+			// {"api_key": "…"} with a value no rule knows.
+			hits = []span{{0, len(f.Text), string(detect.KindSecret)}}
+		} else {
+			for _, h := range m.detector.Detect(f.Text) {
+				hits = append(hits, span{h.Start, h.End, string(h.Kind)})
+			}
 		}
 		hits = outsidePlaceholders(f.Text, hits)
 		// Minting makes the value Known, so it is masked across the request.
@@ -210,6 +216,16 @@ func (m *Masker) Mask(scope string, body []byte) ([]byte, Report, error) {
 		return nil, report, nil
 	}
 	return doc.Bytes(), report, nil
+}
+
+// fieldKey is the name of the member a field is the value of, or "" for
+// an array's element.
+func fieldKey(path string) string {
+	key := path[strings.LastIndexByte(path, '.')+1:]
+	if strings.HasSuffix(key, "]") {
+		return ""
+	}
+	return key
 }
 
 func sentKey(scope, text string) [sha256.Size]byte {
