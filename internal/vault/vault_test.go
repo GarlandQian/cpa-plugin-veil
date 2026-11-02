@@ -164,3 +164,85 @@ func TestLoadOrCreateKey(t *testing.T) {
 		t.Fatal("a corrupt key file must fail rather than be replaced")
 	}
 }
+
+func TestStandIns(t *testing.T) {
+	v := New(testKey, 0)
+	user := v.Placeholder("s", "USERNAME", "garland")
+	if !regexp.MustCompile(`^[a-z]{8}$`).MatchString(user) {
+		t.Fatalf("user name stand-in %q", user)
+	}
+	ip := v.Placeholder("s", "IP", "47.100.12.34")
+	if !regexp.MustCompile(`^public-ip-[a-z]{8}$`).MatchString(ip) {
+		t.Fatalf("IP stand-in %q", ip)
+	}
+	if again := New(testKey, 0).Placeholder("s", "USERNAME", "garland"); again != user {
+		t.Fatal("a stand-in changed across a restart")
+	}
+	if other := v.Placeholder("t", "USERNAME", "garland"); other == user {
+		t.Fatal("two scopes share a stand-in")
+	}
+	if got, ok := v.Lookup("s", user); !ok || got != "garland" {
+		t.Fatalf("lookup = %q %v", got, ok)
+	}
+	if !v.IsStandIn("s", strings.ToUpper(user)) || v.IsStandIn("t", user) || !v.HasStandIns("s") || v.HasStandIns("u") {
+		t.Fatal("stand-in bookkeeping is off")
+	}
+	if !v.StandInPrefix("s", "PUBLIC-IP-"+ip[10:12]) || v.StandInPrefix("s", "zzzz") {
+		t.Fatal("prefix lookup is off")
+	}
+}
+
+// When every candidate is already another value's, the value goes as a
+// Placeholder.
+func TestStandInFallsBackToPlaceholder(t *testing.T) {
+	v := New(testKey, 0)
+	seen := map[string]bool{}
+	for i := 0; i <= standInTries; i++ {
+		got := v.Placeholder("s", "USERNAME", "garland")
+		if strings.HasPrefix(got, "{{") {
+			if i != standInTries || !regexp.MustCompile(`^\{\{USERNAME_[a-z2-7]{8}\}\}$`).MatchString(got) {
+				t.Fatalf("call %d gave %q", i, got)
+			}
+			return
+		}
+		if seen[got] || !regexp.MustCompile(`^[a-z]{8}$`).MatchString(got) {
+			t.Fatalf("call %d gave %q again or malformed", i, got)
+		}
+		seen[got] = true
+		// Another value takes this candidate, as a collision would.
+		v.mu.Lock()
+		v.entries[slot{"s", got}].value = "someone-else"
+		v.mu.Unlock()
+	}
+	t.Fatal("never fell back to a placeholder")
+}
+
+// The vault is shared by every request and stream at once.
+func TestConcurrentUse(t *testing.T) {
+	v := New(testKey, 512)
+	done := make(chan struct{})
+	for g := 0; g < 16; g++ {
+		go func(g int) {
+			defer func() { done <- struct{}{} }()
+			scope := []string{"a", "b"}[g%2]
+			for i := 0; i < 300; i++ {
+				value := "value-" + strings.Repeat("x", g%3) + string(rune('a'+i%26)) + "-long-enough"
+				kind := []string{"EMAIL", "USERNAME", "IP", "SECRET"}[i%4]
+				p := v.Placeholder(scope, kind, value)
+				if got, ok := v.Lookup(scope, p); ok && got != value {
+					t.Errorf("%s restored to %q, want %q", p, got, value)
+					return
+				}
+				v.KnownMatches(scope, "text with "+value+" in it")
+				v.IsStandIn(scope, p)
+				v.StandInPrefix(scope, "pub")
+			}
+		}(g)
+	}
+	for g := 0; g < 16; g++ {
+		<-done
+	}
+	if v.Len() > 512 {
+		t.Fatalf("vault grew past its limit: %d", v.Len())
+	}
+}

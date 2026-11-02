@@ -413,6 +413,11 @@ var openTail = regexp.MustCompile(`^\{\{?[ \t]*(?:[A-Za-z][A-Za-z0-9_]*)?[ \t]*\
 // partialTail returns where text ends in what may be the start of a
 // Placeholder, or -1.
 func (s *Stream) partialTail(text string) int {
+	if s.r.vault.HasStandIns(s.scope) {
+		if k := s.standInTail(text); k >= 0 {
+			return k
+		}
+	}
 	lo := len(text) - maxTail
 	if lo < 0 {
 		lo = 0
@@ -433,8 +438,26 @@ func (s *Stream) partialTail(text string) int {
 	if j == len(text) || (j > 0 && isWord(text[j-1])) {
 		return -1
 	}
-	if s.mayStartToken(text[j:]) {
+	if s.mayStartToken(text[j:]) || s.r.vault.StandInPrefix(s.scope, text[j:]) {
 		return j
+	}
+	return -1
+}
+
+// standInTail returns where text ends in what may be the start of a public
+// IP address's Stand-in (public-ip-…), or -1.
+func (s *Stream) standInTail(text string) int {
+	const head = "public-ip-"
+	for k := max(0, len(text)-len(head)-8); k < len(text); k++ {
+		if k > 0 && (isWord(text[k-1]) || text[k-1] == '-') {
+			continue
+		}
+		// A whole Stand-in at the end is held too: a letter after it would
+		// make it part of a longer word.
+		t := strings.ToLower(text[k:])
+		if (strings.HasPrefix(head, t) || strings.HasPrefix(t, head) && len(t) <= len(head)+8) && s.r.vault.StandInPrefix(s.scope, t) {
+			return k
+		}
 	}
 	return -1
 }

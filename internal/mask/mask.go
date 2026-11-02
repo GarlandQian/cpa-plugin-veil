@@ -159,6 +159,7 @@ func (m *Masker) Mask(scope string, body []byte) ([]byte, Report, error) {
 			}
 		}
 		hits = outsidePlaceholders(f.Text, hits)
+		hits = m.notStandIns(scope, f.Text, hits)
 		// Minting makes the value Known, so it is masked across the request.
 		for _, h := range hits {
 			if m.action(h.kind) == Mask {
@@ -216,6 +217,21 @@ func (m *Masker) Mask(scope string, body []byte) ([]byte, Report, error) {
 		return nil, report, nil
 	}
 	return doc.Bytes(), report, nil
+}
+
+// notStandIns drops the hits that are a Stand-in already: a home folder
+// masked once reads /Users/qmzvkrta, which the home rule finds again.
+func (m *Masker) notStandIns(scope, text string, hits []span) []span {
+	if !m.vault.HasStandIns(scope) {
+		return hits
+	}
+	out := hits[:0]
+	for _, h := range hits {
+		if !m.vault.IsStandIn(scope, text[h.start:h.end]) {
+			out = append(out, h)
+		}
+	}
+	return out
 }
 
 // fieldKey is the name of the member a field is the value of, or "" for

@@ -28,6 +28,10 @@ func New(v *vault.Vault) *Restorer {
 // restored, so ordinary text that merely looks like one is left alone.
 var token = regexp.MustCompile(`(?:\{\{?[ \t]*)?([A-Za-z][A-Za-z0-9_]*)_([A-Za-z2-7]{8,52})(?:[ \t]*\}\}?)?`)
 
+// standInWord matches what may be a Stand-in, as a whole word: a public
+// IP address's or a user name's, in any case.
+var standInWord = regexp.MustCompile(`(?i)\bpublic-ip-[a-z]{8}\b|\b[a-z]{8}\b`)
+
 func isWord(b byte) bool {
 	return b == '_' || (b >= '0' && b <= '9') || (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')
 }
@@ -40,6 +44,35 @@ func (r *Restorer) Text(scope, text string) (string, bool) {
 // replace restores text; escape writes each value as it must appear inside a
 // JSON string.
 func (r *Restorer) replace(scope, text string, escape bool) (string, bool) {
+	out, placeholders := r.placeholders(scope, text, escape)
+	out, standIns := r.standIns(scope, out, escape)
+	return out, placeholders || standIns
+}
+
+// standIns restores the Stand-ins of scope in text, in any case and only as
+// whole words.
+func (r *Restorer) standIns(scope, text string, escape bool) (string, bool) {
+	if len(text) < 8 || !r.vault.HasStandIns(scope) {
+		return text, false
+	}
+	changed := false
+	out := standInWord.ReplaceAllStringFunc(text, func(word string) string {
+		value, ok := r.vault.Lookup(scope, strings.ToLower(word))
+		if !ok || !r.vault.IsStandIn(scope, word) {
+			return word
+		}
+		changed = true
+		if escape {
+			quoted := jsontree.AppendString(nil, value)
+			return string(quoted[1 : len(quoted)-1])
+		}
+		return value
+	})
+	return out, changed
+}
+
+// placeholders restores the Placeholders of scope in text.
+func (r *Restorer) placeholders(scope, text string, escape bool) (string, bool) {
 	if !strings.Contains(text, "_") {
 		return text, false
 	}
