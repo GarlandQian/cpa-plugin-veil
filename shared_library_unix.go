@@ -13,11 +13,11 @@ typedef struct {
 	size_t len;
 } cliproxy_buffer;
 
-extern int PrivacyFilterPluginCall(char*, uint8_t*, size_t, cliproxy_buffer*);
+extern int VeilPluginCall(char*, uint8_t*, size_t, cliproxy_buffer*);
 
-static const char* privacyfilter_shared_object_path() {
+static const char* veil_shared_object_path() {
 	Dl_info info;
-	if (dladdr((void*)&PrivacyFilterPluginCall, &info) == 0 || info.dli_fname == NULL) {
+	if (dladdr((void*)&VeilPluginCall, &info) == 0 || info.dli_fname == NULL) {
 		return NULL;
 	}
 	return info.dli_fname;
@@ -26,7 +26,7 @@ static const char* privacyfilter_shared_object_path() {
 import "C"
 
 func sharedLibraryPath() string {
-	sharedObjectPath := C.privacyfilter_shared_object_path()
+	sharedObjectPath := C.veil_shared_object_path()
 	if sharedObjectPath == nil {
 		return ""
 	}

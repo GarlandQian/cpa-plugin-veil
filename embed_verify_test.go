@@ -23,7 +23,7 @@ func TestNewFilter_UsesEmbeddedRules(t *testing.T) {
 	t.Logf("loaded %d embedded rules without sidecar file", rules)
 
 	// Temp files written during materialization must be cleaned up.
-	matches, err := filepath.Glob(filepath.Join(os.TempDir(), "privacyfilter-gitleaks-*.toml"))
+	matches, err := filepath.Glob(filepath.Join(os.TempDir(), "veil-gitleaks-*.toml"))
 	if err != nil {
 		t.Fatalf("glob temp rules: %v", err)
 	}

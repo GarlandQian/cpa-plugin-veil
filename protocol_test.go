@@ -14,7 +14,7 @@ import (
 )
 
 func TestRedactionCoversClientFormats(t *testing.T) {
-	interceptor := newConfiguredInterceptor(t, "replacement_labels:\n  email: '[EMAIL]'")
+	interceptor := newConfiguredInterceptor(t, "")
 	cases := []struct {
 		name string
 		body string
@@ -142,14 +142,14 @@ func TestHostCallbackIDContext(t *testing.T) {
 }
 
 func TestPluginLogFallsBackWithoutHost(t *testing.T) {
-	privacyFilterABIState.Lock()
-	previous := privacyFilterABIState.host
-	privacyFilterABIState.host = nil
-	privacyFilterABIState.Unlock()
+	veilABIState.Lock()
+	previous := veilABIState.host
+	veilABIState.host = nil
+	veilABIState.Unlock()
 	t.Cleanup(func() {
-		privacyFilterABIState.Lock()
-		privacyFilterABIState.host = previous
-		privacyFilterABIState.Unlock()
+		veilABIState.Lock()
+		veilABIState.host = previous
+		veilABIState.Unlock()
 	})
 	if hostLog("", logLevelInfo, "message", nil) {
 		t.Fatal("hostLog must report failure without an attached host")
@@ -172,11 +172,11 @@ func TestNewFilterErrorNamesRulesSource(t *testing.T) {
 
 	cases := []struct {
 		name string
-		cfg  privacyFilterConfig
+		cfg  veilConfig
 		want string
 	}{
-		{"sidecar", privacyFilterConfig{}, "sidecar rules file"},
-		{"configured", privacyFilterConfig{GitleaksTOML: "custom.toml"}, "gitleaks_toml"},
+		{"sidecar", veilConfig{}, "sidecar rules file"},
+		{"configured", veilConfig{GitleaksTOML: "custom.toml"}, "gitleaks_toml"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -220,14 +220,14 @@ func decodeRegistration(t *testing.T, raw []byte) abiRegistration {
 }
 
 func TestReconfigureKeepsPreviousConfigOnInvalidConfig(t *testing.T) {
-	privacyFilterABIState.Lock()
-	previous := privacyFilterABIState.plugin
-	privacyFilterABIState.plugin = nil
-	privacyFilterABIState.Unlock()
+	veilABIState.Lock()
+	previous := veilABIState.plugin
+	veilABIState.plugin = nil
+	veilABIState.Unlock()
 	t.Cleanup(func() {
-		privacyFilterABIState.Lock()
-		privacyFilterABIState.plugin = previous
-		privacyFilterABIState.Unlock()
+		veilABIState.Lock()
+		veilABIState.plugin = previous
+		veilABIState.Unlock()
 	})
 
 	dir := t.TempDir()
@@ -236,11 +236,11 @@ func TestReconfigureKeepsPreviousConfigOnInvalidConfig(t *testing.T) {
 	}
 	ctx := context.Background()
 
-	if _, err := handlePrivacyFilterRegister(ctx, pluginabi.MethodPluginRegister, registerRequest(t, dir, "gitleaks_toml: rules.toml\nreplacement: 123")); err == nil {
+	if _, err := handleVeilRegister(ctx, pluginabi.MethodPluginRegister, registerRequest(t, dir, "gitleaks_toml: rules.toml\nskip_models: 123")); err == nil {
 		t.Fatal("initial register must reject invalid config")
 	}
 
-	raw, err := handlePrivacyFilterRegister(ctx, pluginabi.MethodPluginRegister, registerRequest(t, dir, "gitleaks_toml: rules.toml\nreplacement: '[HIDDEN]'"))
+	raw, err := handleVeilRegister(ctx, pluginabi.MethodPluginRegister, registerRequest(t, dir, "gitleaks_toml: rules.toml\nskip_models: [first]"))
 	if err != nil {
 		t.Fatalf("register error = %v", err)
 	}
@@ -248,11 +248,11 @@ func TestReconfigureKeepsPreviousConfigOnInvalidConfig(t *testing.T) {
 	if !registration.Capabilities.RequestInterceptor || registration.Metadata.Name != pluginName {
 		t.Fatalf("unexpected registration %+v", registration)
 	}
-	privacyFilterABIState.RLock()
-	valid := privacyFilterABIState.plugin
-	privacyFilterABIState.RUnlock()
+	veilABIState.RLock()
+	valid := veilABIState.plugin
+	veilABIState.RUnlock()
 
-	raw, err = handlePrivacyFilterRegister(ctx, pluginabi.MethodPluginReconfigure, registerRequest(t, dir, "gitleaks_toml: rules.toml\nreplacement: true"))
+	raw, err = handleVeilRegister(ctx, pluginabi.MethodPluginReconfigure, registerRequest(t, dir, "gitleaks_toml: rules.toml\nskip_formats: true"))
 	if err != nil {
 		t.Fatalf("reconfigure with invalid config must keep serving, got %v", err)
 	}
@@ -260,9 +260,9 @@ func TestReconfigureKeepsPreviousConfigOnInvalidConfig(t *testing.T) {
 	if !registration.Capabilities.RequestInterceptor || registration.Metadata.Version != pluginVersion {
 		t.Fatalf("unexpected registration %+v", registration)
 	}
-	privacyFilterABIState.RLock()
-	current := privacyFilterABIState.plugin
-	privacyFilterABIState.RUnlock()
+	veilABIState.RLock()
+	current := veilABIState.plugin
+	veilABIState.RUnlock()
 	if current != valid {
 		t.Fatal("invalid reconfigure must keep the previous plugin instance")
 	}
@@ -270,14 +270,14 @@ func TestReconfigureKeepsPreviousConfigOnInvalidConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertJSONBody(t, resp.Body, `{"input":"[HIDDEN]"}`)
+	assertJSONBody(t, resp.Body, `{"input":"[EMAIL]"}`)
 
-	if _, err = handlePrivacyFilterRegister(ctx, pluginabi.MethodPluginReconfigure, registerRequest(t, dir, "gitleaks_toml: rules.toml\nreplacement: '[NEW]'")); err != nil {
+	if _, err = handleVeilRegister(ctx, pluginabi.MethodPluginReconfigure, registerRequest(t, dir, "gitleaks_toml: rules.toml\nskip_models: [second]")); err != nil {
 		t.Fatalf("valid reconfigure error = %v", err)
 	}
-	privacyFilterABIState.RLock()
-	current = privacyFilterABIState.plugin
-	privacyFilterABIState.RUnlock()
+	veilABIState.RLock()
+	current = veilABIState.plugin
+	veilABIState.RUnlock()
 	if current == valid {
 		t.Fatal("valid reconfigure must replace the plugin instance")
 	}

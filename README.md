@@ -1,9 +1,12 @@
-# CPA Plugin Privacy Filter
+# Veil
 
 English | [简体中文](README.zh-CN.md)
 
-A native privacy filter plugin for CLIProxyAPI. It intercepts model requests, detects sensitive text, and redacts it
+Veil is a native privacy plugin for CLIProxyAPI. It intercepts model requests, detects sensitive text, and redacts it
 before the request is forwarded to an upstream provider.
+
+Veil started as a fork of [rheodev/cpa-plugin-privacyfilter](https://github.com/rheodev/cpa-plugin-privacyfilter).
+Coming from `privacyfilter`? See [Migrating from privacyfilter](#migrating-from-privacyfilter).
 
 AI learners and builders can join the Linux.do community: [linux.do](https://linux.do/).
 
@@ -43,17 +46,17 @@ Typical use cases:
 Clone and build the plugin:
 
 ```bash
-git clone https://github.com/rheodev/cpa-plugin-privacyfilter.git
-cd cpa-plugin-privacyfilter
+git clone https://github.com/GarlandQian/cpa-plugin-veil.git
+cd cpa-plugin-veil
 
 make build
 ```
 
 The default build writes the shared library to the repository root:
 
-- Linux: `privacyfilter.so`
-- macOS: `privacyfilter.dylib`
-- Windows: `privacyfilter.dll`
+- Linux: `veil.so`
+- macOS: `veil.dylib`
+- Windows: `veil.dll`
 
 Build for a specific platform:
 
@@ -75,17 +78,17 @@ Place the shared library in your CLIProxyAPI plugin directory. The gitleaks
 rules are embedded in the binary, so no extra files are required:
 
 ```text
-privacyfilter/
-└── privacyfilter.so        # or privacyfilter.dylib / privacyfilter.dll
+veil/
+└── veil.so        # or veil.dylib / veil.dll
 ```
 
-Then enable the `privacyfilter` plugin in CLIProxyAPI.
+Then enable the `veil` plugin in CLIProxyAPI.
 
 Plugin metadata:
 
-- Name: `privacyfilter`
+- Name: `veil`
 - Capability: `RequestInterceptor`
-- Author: `rheodev`
+- Author: `GarlandQian`
 
 ## Configuration
 
@@ -101,7 +104,7 @@ plugins:
   enabled: true
   dir: "plugins"
   configs:
-    privacyfilter:
+    veil:
       enabled: true
 ```
 
@@ -112,7 +115,7 @@ plugins:
   enabled: true
   dir: "plugins"
   configs:
-    privacyfilter:
+    veil:
       enabled: true
       gitleaks_toml: ""        # Empty uses embedded rules (or rules/gitleaks.toml sidecar)
       skip_models:
@@ -138,14 +141,14 @@ the plugin uses the rules embedded in the binary at build time.
   plugin is not enabled, so check `GET /v0/management/plugins` for `effective_enabled: true`.
 - On a hot reload (`plugin.reconfigure`), an invalid config is rejected and the plugin **keeps redacting with the
   previous valid config**, so a typo cannot silently turn filtering off. The host log shows an error such as
-  `privacy filter rejected new config, still using the previous valid config: ...` naming the bad field. Fix the
+  `veil rejected new config, still using the previous valid config: ...` naming the bad field. Fix the
   config and save again to apply it.
 
 ### Logging
 
 Plugin logs go through the host's `host.log` callback, so they follow CLIProxyAPI's log level, format, and output and
 carry the request ID. Each interception pass that redacts something produces one line listing the JSON paths of the redacted fields, for
-example `privacy filter redacted 2 field(s): messages[0].content, system`. Request text is never logged.
+example `veil redacted 2 field(s): messages[0].content, system`. Request text is never logged.
 
 ## How It Works
 
@@ -231,6 +234,15 @@ gitleaks_toml: custom/gitleaks.toml
 ```
 
 Relative paths are resolved from the plugin directory.
+
+## Migrating from privacyfilter
+
+1. Replace the `privacyfilter` shared library with `veil.so` / `veil.dylib` / `veil.dll` in its own `veil/` plugin
+   directory.
+2. Rename the config key from `plugins.configs.privacyfilter` to `plugins.configs.veil`. `gitleaks_toml`,
+   `skip_models` and `skip_formats` keep their meaning.
+3. Delete `replacement` and `replacement_labels`. Veil ignores them and logs
+   `veil ignores removed config field(s): ...` at startup until they are gone.
 
 ## Development
 

@@ -1,4 +1,4 @@
-module github.com/rheodev/cpa-plugin-privacyfilter
+module github.com/GarlandQian/cpa-plugin-veil
 
 go 1.26.0
 

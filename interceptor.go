@@ -11,19 +11,19 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginapi"
 )
 
-type privacyFilterPlugin struct {
-	cfg       privacyFilterConfig
+type veilPlugin struct {
+	cfg       veilConfig
 	pluginDir string
 	filter    *filter.Filter
 }
 
-var _ pluginapi.RequestInterceptor = (*privacyFilterPlugin)(nil)
+var _ pluginapi.RequestInterceptor = (*veilPlugin)(nil)
 
-func (p *privacyFilterPlugin) Identifier() string {
-	return privacyFilterProvider
+func (p *veilPlugin) Identifier() string {
+	return veilProvider
 }
 
-func (p *privacyFilterPlugin) InterceptRequestBeforeAuth(ctx context.Context, req pluginapi.RequestInterceptRequest) (pluginapi.RequestInterceptResponse, error) {
+func (p *veilPlugin) InterceptRequestBeforeAuth(ctx context.Context, req pluginapi.RequestInterceptRequest) (pluginapi.RequestInterceptResponse, error) {
 	return p.interceptRequest(ctx, req)
 }
 
@@ -31,11 +31,11 @@ func (p *privacyFilterPlugin) InterceptRequestBeforeAuth(ctx context.Context, re
 // after the before-auth pass: lower-priority before-auth interceptors and
 // higher-priority after-auth interceptors both run later in the chain.
 // Redaction is idempotent, so already-clean text produces no hits.
-func (p *privacyFilterPlugin) InterceptRequestAfterAuth(ctx context.Context, req pluginapi.RequestInterceptRequest) (pluginapi.RequestInterceptResponse, error) {
+func (p *veilPlugin) InterceptRequestAfterAuth(ctx context.Context, req pluginapi.RequestInterceptRequest) (pluginapi.RequestInterceptResponse, error) {
 	return p.interceptRequest(ctx, req)
 }
 
-func (p *privacyFilterPlugin) interceptRequest(ctx context.Context, req pluginapi.RequestInterceptRequest) (pluginapi.RequestInterceptResponse, error) {
+func (p *veilPlugin) interceptRequest(ctx context.Context, req pluginapi.RequestInterceptRequest) (pluginapi.RequestInterceptResponse, error) {
 	resp := pluginapi.RequestInterceptResponse{}
 
 	if p.cfg.shouldSkip(req.Model, req.RequestedModel, req.SourceFormat) {
@@ -47,7 +47,7 @@ func (p *privacyFilterPlugin) interceptRequest(ctx context.Context, req pluginap
 
 	modified, hits, err := p.redactPayload(req.Body)
 	if err != nil {
-		pluginLog(ctx, logLevelWarn, "privacy filter failed to process request body: "+err.Error(), map[string]any{
+		pluginLog(ctx, logLevelWarn, "veil failed to process request body: "+err.Error(), map[string]any{
 			"error": err.Error(),
 		})
 		return resp, nil
@@ -58,7 +58,7 @@ func (p *privacyFilterPlugin) interceptRequest(ctx context.Context, req pluginap
 
 	// The host text formatter only prints a fixed set of field names, so the
 	// summary is repeated in the message.
-	message := fmt.Sprintf("privacy filter redacted %d field(s): %s", len(hits), strings.Join(hits, ", "))
+	message := fmt.Sprintf("veil redacted %d field(s): %s", len(hits), strings.Join(hits, ", "))
 	pluginLog(ctx, logLevelInfo, message, map[string]any{
 		"model":           req.Model,
 		"source_format":   req.SourceFormat,
@@ -71,7 +71,7 @@ func (p *privacyFilterPlugin) interceptRequest(ctx context.Context, req pluginap
 
 // redactPayload returns the rewritten body (nil when nothing changed) and the
 // JSON paths of the redacted fields. Non-JSON bodies pass through untouched.
-func (p *privacyFilterPlugin) redactPayload(body []byte) ([]byte, []string, error) {
+func (p *veilPlugin) redactPayload(body []byte) ([]byte, []string, error) {
 	var payload map[string]any
 	if err := json.Unmarshal(body, &payload); err != nil {
 		return nil, nil, nil

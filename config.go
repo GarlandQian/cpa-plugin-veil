@@ -12,102 +12,51 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const privacyFilterProvider = "privacyfilter"
-const pluginName = "privacyfilter"
+const veilProvider = "veil"
+const pluginName = "veil"
 
-type privacyFilterConfig struct {
-	GitleaksTOML      string            `yaml:"gitleaks_toml"`
-	SkipModels        []string          `yaml:"skip_models"`
-	SkipFormats       []string          `yaml:"skip_formats"`
-	Replacement       string            `yaml:"replacement"`
-	ReplacementLabels map[string]string `yaml:"replacement_labels"`
+type veilConfig struct {
+	GitleaksTOML string   `yaml:"gitleaks_toml"`
+	SkipModels   []string `yaml:"skip_models"`
+	SkipFormats  []string `yaml:"skip_formats"`
 }
 
-// replacementLabel prevents YAML's string decoder from coercing booleans and
-// numbers into labels. A null field is left unset by the YAML decoder.
-type replacementLabel string
+// removedConfigKeys are fields earlier releases accepted that no longer do
+// anything. They are reported at startup rather than rejected, so an old
+// config keeps loading while the operator is told what to delete.
+var removedConfigKeys = []string{"replacement", "replacement_labels"}
 
-func (label *replacementLabel) UnmarshalYAML(node *yaml.Node) error {
-	if node.Kind != yaml.ScalarNode || node.Tag != "!!str" {
-		return fmt.Errorf("replacement label must be a string")
-	}
-	if strings.TrimSpace(node.Value) == "" {
-		return fmt.Errorf("replacement label must not be empty or whitespace-only")
-	}
-	*label = replacementLabel(node.Value)
-	return nil
+func defaultConfig() veilConfig {
+	return veilConfig{}
 }
 
-type replacementLabels map[string]string
-
-func (labels *replacementLabels) UnmarshalYAML(node *yaml.Node) error {
-	if node.Kind != yaml.MappingNode {
-		return fmt.Errorf("replacement_labels must be a mapping")
-	}
-	if len(node.Content) == 0 {
-		return nil
-	}
-	values := make(map[string]string, len(node.Content)/2)
-	for i := 0; i < len(node.Content); i += 2 {
-		key, value := node.Content[i], node.Content[i+1]
-		if key.Kind != yaml.ScalarNode || key.Tag != "!!str" {
-			return fmt.Errorf("replacement_labels keys must be strings")
-		}
-		if key.Value == "" || strings.TrimSpace(key.Value) != key.Value {
-			return fmt.Errorf("replacement_labels key %q must be nonempty without edge whitespace", key.Value)
-		}
-		if _, exists := values[key.Value]; exists {
-			return fmt.Errorf("duplicate replacement_labels key %q", key.Value)
-		}
-		var label replacementLabel
-		if err := label.UnmarshalYAML(value); err != nil {
-			return fmt.Errorf("replacement_labels[%q]: %w", key.Value, err)
-		}
-		values[key.Value] = string(label)
-	}
-	*labels = values
-	return nil
-}
-
-func (cfg *privacyFilterConfig) UnmarshalYAML(node *yaml.Node) error {
-	var values struct {
-		GitleaksTOML      string            `yaml:"gitleaks_toml"`
-		SkipModels        []string          `yaml:"skip_models"`
-		SkipFormats       []string          `yaml:"skip_formats"`
-		Replacement       replacementLabel  `yaml:"replacement"`
-		ReplacementLabels replacementLabels `yaml:"replacement_labels"`
-	}
-	if err := node.Decode(&values); err != nil {
-		return err
-	}
-	*cfg = privacyFilterConfig{
-		GitleaksTOML:      values.GitleaksTOML,
-		SkipModels:        values.SkipModels,
-		SkipFormats:       values.SkipFormats,
-		Replacement:       string(values.Replacement),
-		ReplacementLabels: map[string]string(values.ReplacementLabels),
-	}
-	return nil
-}
-
-func defaultConfig() privacyFilterConfig {
-	return privacyFilterConfig{}
-}
-
-func parseConfig(raw []byte) (privacyFilterConfig, error) {
+// parseConfig decodes the plugin config and lists the removed fields it still
+// sets.
+func parseConfig(raw []byte) (veilConfig, []string, error) {
 	cfg := defaultConfig()
-	if len(strings.TrimSpace(string(raw))) > 0 {
-		if err := yaml.Unmarshal(raw, &cfg); err != nil {
-			return cfg, fmt.Errorf("invalid privacyfilter config: %w", err)
+	if len(strings.TrimSpace(string(raw))) == 0 {
+		return cfg, nil, nil
+	}
+	if err := yaml.Unmarshal(raw, &cfg); err != nil {
+		return cfg, nil, fmt.Errorf("invalid veil config: %w", err)
+	}
+	var fields map[string]yaml.Node
+	if err := yaml.Unmarshal(raw, &fields); err != nil {
+		return cfg, nil, fmt.Errorf("invalid veil config: %w", err)
+	}
+	var removed []string
+	for _, key := range removedConfigKeys {
+		if _, ok := fields[key]; ok {
+			removed = append(removed, key)
 		}
 	}
-	return cfg, nil
+	return cfg, removed, nil
 }
 
 // resolveGitleaksPath resolves the configured gitleaks rule file. The return is
 // split into a path (may be empty) and an embedded flag: when the path is empty
 // and embedded is true, the caller should load the rules baked into the binary.
-func (cfg *privacyFilterConfig) resolveGitleaksPath(pluginDir string) (path string, embedded bool) {
+func (cfg *veilConfig) resolveGitleaksPath(pluginDir string) (path string, embedded bool) {
 	if cfg.GitleaksTOML == "" {
 		builtin := filepath.Join(pluginDir, "rules", "gitleaks.toml")
 		if _, err := os.Stat(builtin); err == nil {
@@ -122,7 +71,7 @@ func (cfg *privacyFilterConfig) resolveGitleaksPath(pluginDir string) (path stri
 	return filepath.Join(pluginDir, cfg.GitleaksTOML), false
 }
 
-func (cfg *privacyFilterConfig) shouldSkip(model, requestedModel, format string) bool {
+func (cfg *veilConfig) shouldSkip(model, requestedModel, format string) bool {
 	for _, m := range cfg.SkipModels {
 		trimmed := strings.TrimSpace(m)
 		if strings.EqualFold(trimmed, model) || strings.EqualFold(trimmed, requestedModel) {
@@ -137,7 +86,7 @@ func (cfg *privacyFilterConfig) shouldSkip(model, requestedModel, format string)
 	return false
 }
 
-func newFilter(pluginDir string, cfg privacyFilterConfig) (*filter.Filter, error) {
+func newFilter(pluginDir string, cfg veilConfig) (*filter.Filter, error) {
 	tomlPath, embedded := cfg.resolveGitleaksPath(pluginDir)
 
 	// The filter loads its rules from a file path. When no sidecar file is
@@ -145,7 +94,7 @@ func newFilter(pluginDir string, cfg privacyFilterConfig) (*filter.Filter, error
 	// rules into a temporary file. Compiled rules live in memory, so the temp
 	// file is removed right after the filter is constructed.
 	if embedded {
-		tmp, errTmp := os.CreateTemp("", "privacyfilter-gitleaks-*.toml")
+		tmp, errTmp := os.CreateTemp("", "veil-gitleaks-*.toml")
 		if errTmp != nil {
 			return nil, fmt.Errorf("create temp rules file: %w", errTmp)
 		}
@@ -163,10 +112,7 @@ func newFilter(pluginDir string, cfg privacyFilterConfig) (*filter.Filter, error
 		tomlPath = tmpPath
 	}
 
-	f, err := filter.New(tomlPath, filter.Config{
-		Replacement:       cfg.Replacement,
-		ReplacementLabels: cfg.ReplacementLabels,
-	})
+	f, err := filter.New(tomlPath, filter.Config{})
 	if err != nil {
 		var source string
 		switch {
@@ -177,10 +123,10 @@ func newFilter(pluginDir string, cfg privacyFilterConfig) (*filter.Filter, error
 		default:
 			source = fmt.Sprintf("sidecar rules file %q", tomlPath)
 		}
-		return nil, fmt.Errorf("failed to create privacy filter from %s: %w", source, err)
+		return nil, fmt.Errorf("failed to create the detector from %s: %w", source, err)
 	}
 	rules, skipped := f.Stats()
-	pluginLog(context.Background(), logLevelInfo, fmt.Sprintf("privacy filter loaded: %d rules, %d skipped", rules, skipped), map[string]any{
+	pluginLog(context.Background(), logLevelInfo, fmt.Sprintf("veil loaded %d rules, %d skipped", rules, skipped), map[string]any{
 		"rules":         rules,
 		"skipped_rules": skipped,
 	})
