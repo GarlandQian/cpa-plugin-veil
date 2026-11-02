@@ -12,14 +12,14 @@ typedef struct {
 	size_t len;
 } cliproxy_buffer;
 
-extern int PrivacyFilterPluginCall(char*, uint8_t*, size_t, cliproxy_buffer*);
+extern int VeilPluginCall(char*, uint8_t*, size_t, cliproxy_buffer*);
 
-static wchar_t* privacyfilter_shared_object_path() {
+static wchar_t* veil_shared_object_path() {
 	HMODULE module = NULL;
 	DWORD size = MAX_PATH;
 	if (!GetModuleHandleExW(
 		GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-		(LPCWSTR)(void*)&PrivacyFilterPluginCall,
+		(LPCWSTR)(void*)&VeilPluginCall,
 		&module
 	)) {
 		return NULL;
@@ -54,7 +54,7 @@ import (
 )
 
 func sharedLibraryPath() string {
-	sharedObjectPath := C.privacyfilter_shared_object_path()
+	sharedObjectPath := C.veil_shared_object_path()
 	if sharedObjectPath == nil {
 		return ""
 	}

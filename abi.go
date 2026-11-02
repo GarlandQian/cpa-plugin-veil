@@ -30,15 +30,15 @@ typedef struct {
 	cliproxy_plugin_shutdown_fn shutdown;
 } cliproxy_plugin_api;
 
-extern int PrivacyFilterPluginCall(char*, uint8_t*, size_t, cliproxy_buffer*);
-extern void PrivacyFilterPluginFree(void*, size_t);
-extern void PrivacyFilterPluginShutdown(void);
+extern int VeilPluginCall(char*, uint8_t*, size_t, cliproxy_buffer*);
+extern void VeilPluginFree(void*, size_t);
+extern void VeilPluginShutdown(void);
 
-static int privacyfilter_call_host(cliproxy_host_api* api, const char* method, const uint8_t* request, size_t request_len, cliproxy_buffer* response) {
+static int veil_call_host(cliproxy_host_api* api, const char* method, const uint8_t* request, size_t request_len, cliproxy_buffer* response) {
 	return api->call(api->host_ctx, method, request, request_len, response);
 }
 
-static void privacyfilter_free_host_buffer(cliproxy_host_api* api, void* ptr, size_t len) {
+static void veil_free_host_buffer(cliproxy_host_api* api, void* ptr, size_t len) {
 	api->free_buffer(ptr, len);
 }
 */
@@ -58,10 +58,10 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-var privacyFilterABIState = struct {
+var veilABIState = struct {
 	sync.RWMutex
 	host         *C.cliproxy_host_api
-	plugin       *privacyFilterPlugin
+	plugin       *veilPlugin
 	shuttingDown bool
 	inFlight     sync.WaitGroup
 }{}
@@ -154,9 +154,9 @@ func pluginLog(ctx context.Context, level, message string, fields map[string]any
 }
 
 func hostLog(callbackID, level, message string, fields map[string]any) bool {
-	privacyFilterABIState.RLock()
-	host := privacyFilterABIState.host
-	privacyFilterABIState.RUnlock()
+	veilABIState.RLock()
+	host := veilABIState.host
+	veilABIState.RUnlock()
 	if host == nil || host.call == nil {
 		return false
 	}
@@ -176,9 +176,9 @@ func hostLog(callbackID, level, message string, fields map[string]any) bool {
 	defer C.free(request)
 
 	var response C.cliproxy_buffer
-	status := C.privacyfilter_call_host(host, method, (*C.uint8_t)(request), C.size_t(len(raw)), &response)
+	status := C.veil_call_host(host, method, (*C.uint8_t)(request), C.size_t(len(raw)), &response)
 	if response.ptr != nil && host.free_buffer != nil {
-		defer C.privacyfilter_free_host_buffer(host, response.ptr, response.len)
+		defer C.veil_free_host_buffer(host, response.ptr, response.len)
 	}
 	if status != 0 {
 		return false
@@ -208,20 +208,20 @@ func cliproxy_plugin_init(host *C.cliproxy_host_api, plugin *C.cliproxy_plugin_a
 	if host == nil || plugin == nil {
 		return 1
 	}
-	privacyFilterABIState.Lock()
-	privacyFilterABIState.host = host
-	privacyFilterABIState.shuttingDown = false
-	privacyFilterABIState.Unlock()
+	veilABIState.Lock()
+	veilABIState.host = host
+	veilABIState.shuttingDown = false
+	veilABIState.Unlock()
 
 	plugin.abi_version = C.uint32_t(pluginabi.ABIVersion)
-	plugin.call = C.cliproxy_plugin_call_fn(C.PrivacyFilterPluginCall)
-	plugin.free_buffer = C.cliproxy_plugin_free_fn(C.PrivacyFilterPluginFree)
-	plugin.shutdown = C.cliproxy_plugin_shutdown_fn(C.PrivacyFilterPluginShutdown)
+	plugin.call = C.cliproxy_plugin_call_fn(C.VeilPluginCall)
+	plugin.free_buffer = C.cliproxy_plugin_free_fn(C.VeilPluginFree)
+	plugin.shutdown = C.cliproxy_plugin_shutdown_fn(C.VeilPluginShutdown)
 	return 0
 }
 
-//export PrivacyFilterPluginCall
-func PrivacyFilterPluginCall(method *C.char, request *C.uint8_t, requestLen C.size_t, response *C.cliproxy_buffer) C.int {
+//export VeilPluginCall
+func VeilPluginCall(method *C.char, request *C.uint8_t, requestLen C.size_t, response *C.cliproxy_buffer) C.int {
 	if response != nil {
 		response.ptr = nil
 		response.len = 0
@@ -238,7 +238,7 @@ func PrivacyFilterPluginCall(method *C.char, request *C.uint8_t, requestLen C.si
 		}
 		requestBytes = C.GoBytes(unsafe.Pointer(request), C.int(requestLen))
 	}
-	raw, errHandle := handlePrivacyFilterABIMethod(context.Background(), C.GoString(method), requestBytes)
+	raw, errHandle := handleVeilABIMethod(context.Background(), C.GoString(method), requestBytes)
 	if errHandle != nil {
 		writeABIResponse(response, abiErrorEnvelope("plugin_error", errHandle.Error()))
 		return 0
@@ -247,30 +247,30 @@ func PrivacyFilterPluginCall(method *C.char, request *C.uint8_t, requestLen C.si
 	return 0
 }
 
-//export PrivacyFilterPluginFree
-func PrivacyFilterPluginFree(ptr unsafe.Pointer, _ C.size_t) {
+//export VeilPluginFree
+func VeilPluginFree(ptr unsafe.Pointer, _ C.size_t) {
 	if ptr != nil {
 		C.free(ptr)
 	}
 }
 
-//export PrivacyFilterPluginShutdown
-func PrivacyFilterPluginShutdown() {
-	privacyFilterABIState.Lock()
-	privacyFilterABIState.shuttingDown = true
-	privacyFilterABIState.plugin = nil
-	privacyFilterABIState.host = nil
-	privacyFilterABIState.Unlock()
-	privacyFilterABIState.inFlight.Wait()
+//export VeilPluginShutdown
+func VeilPluginShutdown() {
+	veilABIState.Lock()
+	veilABIState.shuttingDown = true
+	veilABIState.plugin = nil
+	veilABIState.host = nil
+	veilABIState.Unlock()
+	veilABIState.inFlight.Wait()
 }
 
-func handlePrivacyFilterABIMethod(ctx context.Context, method string, request []byte) ([]byte, error) {
+func handleVeilABIMethod(ctx context.Context, method string, request []byte) ([]byte, error) {
 	switch method {
 	case pluginabi.MethodPluginRegister, pluginabi.MethodPluginReconfigure:
-		return handlePrivacyFilterRegister(ctx, method, request)
+		return handleVeilRegister(ctx, method, request)
 	}
 
-	p, done, errPlugin := beginPrivacyFilterPluginCall()
+	p, done, errPlugin := beginVeilPluginCall()
 	if errPlugin != nil {
 		return nil, errPlugin
 	}
@@ -296,35 +296,35 @@ func handlePrivacyFilterABIMethod(ctx context.Context, method string, request []
 	}
 }
 
-func handlePrivacyFilterRegister(ctx context.Context, method string, request []byte) ([]byte, error) {
+func handleVeilRegister(ctx context.Context, method string, request []byte) ([]byte, error) {
 	var req abiLifecycleRequest
 	if errDecode := json.Unmarshal(request, &req); errDecode != nil {
 		return nil, errDecode
 	}
 	plugin, errBuild := buildPlugin(req.ConfigYAML, req.PluginDir)
 	if errBuild != nil {
-		privacyFilterABIState.RLock()
-		hasPrevious := privacyFilterABIState.plugin != nil
-		privacyFilterABIState.RUnlock()
+		veilABIState.RLock()
+		hasPrevious := veilABIState.plugin != nil
+		veilABIState.RUnlock()
 		// The host drops a plugin whose reconfigure fails, which would silently
 		// stop redaction. Keep filtering with the last valid config instead and
 		// report the rejected config loudly.
 		if method == pluginabi.MethodPluginReconfigure && hasPrevious {
-			pluginLog(ctx, logLevelError, "privacy filter rejected new config, still using the previous valid config: "+errBuild.Error(), map[string]any{
+			pluginLog(ctx, logLevelError, "veil rejected new config, still using the previous valid config: "+errBuild.Error(), map[string]any{
 				"error": errBuild.Error(),
 			})
 			return abiOKEnvelope(newABIRegistration(pluginMetadata()))
 		}
 		return nil, errBuild
 	}
-	p, ok := plugin.Capabilities.RequestInterceptor.(*privacyFilterPlugin)
+	p, ok := plugin.Capabilities.RequestInterceptor.(*veilPlugin)
 	if !ok || p == nil {
-		return nil, fmt.Errorf("privacyfilter plugin registration returned invalid interceptor")
+		return nil, fmt.Errorf("veil plugin registration returned invalid interceptor")
 	}
-	privacyFilterABIState.Lock()
-	privacyFilterABIState.plugin = p
-	privacyFilterABIState.shuttingDown = false
-	privacyFilterABIState.Unlock()
+	veilABIState.Lock()
+	veilABIState.plugin = p
+	veilABIState.shuttingDown = false
+	veilABIState.Unlock()
 	return abiOKEnvelope(newABIRegistration(plugin.Metadata))
 }
 
@@ -336,17 +336,17 @@ func newABIRegistration(metadata pluginapi.Metadata) abiRegistration {
 	}
 }
 
-func beginPrivacyFilterPluginCall() (*privacyFilterPlugin, func(), error) {
-	privacyFilterABIState.Lock()
-	defer privacyFilterABIState.Unlock()
-	if privacyFilterABIState.shuttingDown {
-		return nil, nil, fmt.Errorf("privacyfilter plugin is shutting down")
+func beginVeilPluginCall() (*veilPlugin, func(), error) {
+	veilABIState.Lock()
+	defer veilABIState.Unlock()
+	if veilABIState.shuttingDown {
+		return nil, nil, fmt.Errorf("veil plugin is shutting down")
 	}
-	if privacyFilterABIState.plugin == nil {
-		return nil, nil, fmt.Errorf("privacyfilter plugin is not registered")
+	if veilABIState.plugin == nil {
+		return nil, nil, fmt.Errorf("veil plugin is not registered")
 	}
-	privacyFilterABIState.inFlight.Add(1)
-	return privacyFilterABIState.plugin, privacyFilterABIState.inFlight.Done, nil
+	veilABIState.inFlight.Add(1)
+	return veilABIState.plugin, veilABIState.inFlight.Done, nil
 }
 
 func abiOKEnvelopeWithError(v any, err error) ([]byte, error) {

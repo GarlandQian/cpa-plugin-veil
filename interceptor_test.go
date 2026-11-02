@@ -14,13 +14,13 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginapi"
 )
 
-func newTestPlugin(t *testing.T) *privacyFilterPlugin {
+func newTestPlugin(t *testing.T) *veilPlugin {
 	t.Helper()
 	f, err := filter.New("", filter.Config{})
 	if err != nil {
 		t.Fatalf("filter.New() error = %v", err)
 	}
-	return &privacyFilterPlugin{
+	return &veilPlugin{
 		cfg:    defaultConfig(),
 		filter: f,
 	}
@@ -231,7 +231,7 @@ func TestRedactRequestBody_InvalidJSON(t *testing.T) {
 }
 
 func TestConfigShouldSkip(t *testing.T) {
-	cfg := privacyFilterConfig{
+	cfg := veilConfig{
 		SkipModels:  []string{"gpt-4", "claude-3"},
 		SkipFormats: []string{"openai"},
 	}
@@ -256,13 +256,38 @@ skip_models:
 skip_formats:
   - openai
 `
-	cfg, err := parseConfig([]byte(raw))
+	cfg, removed, err := parseConfig([]byte(raw))
 	if err != nil {
 		t.Fatalf("parseConfig() error = %v", err)
 	}
 	if len(cfg.SkipModels) != 1 || cfg.SkipModels[0] != "gpt-4" {
 		t.Fatalf("skip_models = %v, want [gpt-4]", cfg.SkipModels)
 	}
+	if len(removed) != 0 {
+		t.Fatalf("removed = %v, want none", removed)
+	}
+}
+
+// Configs written for privacyfilter still load; the removed label fields are
+// reported instead of failing registration.
+func TestConfigParseReportsRemovedFields(t *testing.T) {
+	raw := "replacement: '[HIDDEN]'\nreplacement_labels:\n  email: '<MAIL>'\nskip_models: [gpt-4]\n"
+	cfg, removed, err := parseConfig([]byte(raw))
+	if err != nil {
+		t.Fatalf("parseConfig() error = %v", err)
+	}
+	if !reflect.DeepEqual(removed, []string{"replacement", "replacement_labels"}) {
+		t.Fatalf("removed = %v", removed)
+	}
+	if len(cfg.SkipModels) != 1 {
+		t.Fatalf("skip_models = %v, want [gpt-4]", cfg.SkipModels)
+	}
+	interceptor := newConfiguredInterceptor(t, raw)
+	resp, err := interceptor.InterceptRequestBeforeAuth(context.Background(), pluginapi.RequestInterceptRequest{Body: []byte(`{"input":"test@example.com"}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertJSONBody(t, resp.Body, `{"input":"[EMAIL]"}`)
 }
 
 func TestRegistrationCapabilityJSON(t *testing.T) {
@@ -305,84 +330,8 @@ func assertJSONBody(t *testing.T, body []byte, expected string) {
 	}
 }
 
-func TestBuildPluginRejectsInvalidReplacementConfig(t *testing.T) {
-	cases := []struct {
-		name string
-		yaml string
-	}{
-		{"global empty", `replacement: ""`},
-		{"global whitespace", `replacement: " \t "`},
-		{"global boolean", `replacement: true`},
-		{"global integer", `replacement: 123`},
-		{"global float", `replacement: 1.25`},
-		{"global timestamp", `replacement: 2026-10-07`},
-		{"global sequence", `replacement: [hidden]`},
-		{"global mapping", `replacement: {label: hidden}`},
-		{"labels scalar", `replacement_labels: hidden`},
-		{"labels boolean", `replacement_labels: false`},
-		{"labels sequence", `replacement_labels: [hidden]`},
-		{"label empty", `replacement_labels: {email: ""}`},
-		{"label whitespace", `replacement_labels: {email: " \t "}`},
-		{"label boolean", `replacement_labels: {email: true}`},
-		{"label integer", `replacement_labels: {email: 123}`},
-		{"label float", `replacement_labels: {email: 1.25}`},
-		{"label timestamp", `replacement_labels: {email: 2026-10-07}`},
-		{"label null", `replacement_labels: {email: null}`},
-		{"label sequence", `replacement_labels: {email: [hidden]}`},
-		{"label mapping", `replacement_labels: {email: {label: hidden}}`},
-		{"key empty", `replacement_labels: {"": hidden}`},
-		{"key leading whitespace", `replacement_labels: {" email": hidden}`},
-		{"key trailing whitespace", `replacement_labels: {"email ": hidden}`},
-		{"key tab", `replacement_labels: {"email\t": hidden}`},
-		{"key number", `replacement_labels: {123: hidden}`},
-		{"key boolean", `replacement_labels: {true: hidden}`},
-		{"key null", `replacement_labels: {null: hidden}`},
-		{"key sequence", "replacement_labels:\n  ? [email]\n  : hidden"},
-		{"duplicate type key", "replacement_labels:\n  email: first\n  email: second"},
-		{"duplicate global field", "replacement: first\nreplacement: second"},
-		{"duplicate labels field", "replacement_labels: {}\nreplacement_labels: {}"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if _, err := buildPlugin([]byte(tc.yaml), t.TempDir()); err == nil {
-				t.Fatalf("buildPlugin accepted invalid config: %s", tc.yaml)
-			}
-		})
-	}
-}
-
-func TestConfiguredReplacementPriority(t *testing.T) {
-	const input = `{"input":"raw [邮箱]; test@example.com; 13800138000"}`
-	cases := []struct {
-		name string
-		yaml string
-		want string
-	}{
-		{"defaults", "", `{"input":"raw [邮箱]; [EMAIL]; [PHONE]"}`},
-		{"null unset", "replacement: null\nreplacement_labels: null", `{"input":"raw [邮箱]; [EMAIL]; [PHONE]"}`},
-		{"empty mapping", "replacement_labels: {}", `{"input":"raw [邮箱]; [EMAIL]; [PHONE]"}`},
-		{"global", "replacement: '[REDACTED]'", `{"input":"raw [邮箱]; [REDACTED]; [REDACTED]"}`},
-		{"type before global", "replacement: '[REDACTED]'\nreplacement_labels:\n  email: '<MAIL>'", `{"input":"raw [邮箱]; <MAIL>; [REDACTED]"}`},
-		{"type before default", "replacement_labels:\n  email: '<MAIL>'", `{"input":"raw [邮箱]; <MAIL>; [PHONE]"}`},
-		{"future type accepted", "replacement_labels:\n  future_entity: '[FUTURE]'", `{"input":"raw [邮箱]; [EMAIL]; [PHONE]"}`},
-		{"quoted numeric label", "replacement: '123'", `{"input":"raw [邮箱]; 123; 123"}`},
-		{"quoted boolean label", "replacement: 'true'", `{"input":"raw [邮箱]; true; true"}`},
-		{"label whitespace preserved", "replacement_labels:\n  email: ' [EMAIL] '", `{"input":"raw [邮箱];  [EMAIL] ; [PHONE]"}`},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			interceptor := newConfiguredInterceptor(t, tc.yaml)
-			resp, err := interceptor.InterceptRequestBeforeAuth(nil, pluginapi.RequestInterceptRequest{Body: []byte(input)})
-			if err != nil {
-				t.Fatal(err)
-			}
-			assertJSONBody(t, resp.Body, tc.want)
-		})
-	}
-}
-
-func TestConfiguredReplacementRequestStructures(t *testing.T) {
-	interceptor := newConfiguredInterceptor(t, "replacement: '[REDACTED]'\nreplacement_labels:\n  email: '[EMAIL]'")
+func TestRedactionRequestStructures(t *testing.T) {
+	interceptor := newConfiguredInterceptor(t, "")
 	cases := []struct {
 		name string
 		body string
@@ -391,7 +340,7 @@ func TestConfiguredReplacementRequestStructures(t *testing.T) {
 		{
 			"messages string content",
 			`{"model":"gpt-4","messages":[{"role":"system","content":"raw [邮箱]"},{"role":"user","content":"test@example.com / 13800138000"}],"temperature":0.5}`,
-			`{"model":"gpt-4","messages":[{"role":"system","content":"raw [邮箱]"},{"role":"user","content":"[EMAIL] / [REDACTED]"}],"temperature":0.5}`,
+			`{"model":"gpt-4","messages":[{"role":"system","content":"raw [邮箱]"},{"role":"user","content":"[EMAIL] / [PHONE]"}],"temperature":0.5}`,
 		},
 		{
 			"messages multipart content",
@@ -401,7 +350,7 @@ func TestConfiguredReplacementRequestStructures(t *testing.T) {
 		{
 			"input string",
 			`{"input":"raw [邮箱] test@example.com 13800138000","metadata":{"email":"test@example.com"}}`,
-			`{"input":"raw [邮箱] [EMAIL] [REDACTED]","metadata":{"email":"test@example.com"}}`,
+			`{"input":"raw [邮箱] [EMAIL] [PHONE]","metadata":{"email":"test@example.com"}}`,
 		},
 		{
 			"input string content",
@@ -445,8 +394,8 @@ func TestConfiguredReplacementRequestStructures(t *testing.T) {
 	}
 }
 
-func TestConfiguredReplacementPassesNontextAndNoHitsThrough(t *testing.T) {
-	interceptor := newConfiguredInterceptor(t, "replacement: '[REDACTED]'")
+func TestRedactionPassesNontextAndNoHitsThrough(t *testing.T) {
+	interceptor := newConfiguredInterceptor(t, "")
 	for _, body := range []string{
 		`{"input":"raw [邮箱] ordinary text"}`,
 		`{"messages":[{"content":[{"type":"image_url","image_url":{"url":"https://example.com/test@example.com"}}]}]}`,
@@ -468,17 +417,8 @@ func TestConfiguredReplacementPassesNontextAndNoHitsThrough(t *testing.T) {
 	}
 }
 
-func TestConfiguredReplacementBothHooksRemainStable(t *testing.T) {
-	interceptor := newConfiguredInterceptor(t, `
-replacement: '[REDACTED]'
-replacement_labels:
-  email: '[EMAIL]'
-  secret: '[SECRET]'
-  phone: '[PHONE]'
-  id: '[ID]'
-  bank_card: '[BANK_CARD]'
-  ip: '[IP]'
-`)
+func TestRedactionBothHooksRemainStable(t *testing.T) {
+	interceptor := newConfiguredInterceptor(t, "")
 	body := []byte(`{"input":"raw [邮箱]; test@example.com; 13800138000; 11010519900307743X; 4111111111111111; 192.168.1.1; AKIAIOSFODNN7EXAMPLE"}`)
 	req := pluginapi.RequestInterceptRequest{Body: body}
 	before, err := interceptor.InterceptRequestBeforeAuth(nil, req)
@@ -492,12 +432,12 @@ replacement_labels:
 		t.Fatal(err)
 	}
 	if after.Body != nil {
-		t.Fatalf("recommended labels must pass through the second hook, got %s", after.Body)
+		t.Fatalf("redacted labels must pass through the second hook, got %s", after.Body)
 	}
 }
 
-func TestConfiguredReplacementPreservesSkipConfig(t *testing.T) {
-	interceptor := newConfiguredInterceptor(t, "replacement: '[REDACTED]'\nskip_models: [' GPT-4 ']\nskip_formats: [' OPENAI ']")
+func TestRedactionPreservesSkipConfig(t *testing.T) {
+	interceptor := newConfiguredInterceptor(t, "skip_models: [' GPT-4 ']\nskip_formats: [' OPENAI ']")
 	body := []byte(`{"input":"test@example.com"}`)
 	for _, req := range []pluginapi.RequestInterceptRequest{
 		{Model: "gpt-4", Body: body},

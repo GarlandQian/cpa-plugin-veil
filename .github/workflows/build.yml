@@ -11,7 +11,7 @@ permissions:
   contents: write
 
 env:
-  PLUGIN_ID: privacyfilter
+  PLUGIN_ID: veil
 
 jobs:
   test:

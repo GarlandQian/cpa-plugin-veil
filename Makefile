@@ -1,4 +1,4 @@
-PLUGIN_NAME ?= privacyfilter
+PLUGIN_NAME ?= veil
 VERSION ?= 0.3.0
 BUILD_DIR ?= .
 GOOS ?= $(shell go env GOOS)

@@ -1,8 +1,11 @@
-# CPA Plugin Privacy Filter
+# Veil
 
 [English](README.md) | 简体中文
 
-CLIProxyAPI 的隐私过滤插件，用于在请求发送给模型前自动识别并脱敏敏感信息。
+Veil 是 CLIProxyAPI 的隐私插件，用于在请求发送给模型前自动识别并脱敏敏感信息。
+
+Veil 源自 [rheodev/cpa-plugin-privacyfilter](https://github.com/rheodev/cpa-plugin-privacyfilter) 的分支。
+从 `privacyfilter` 迁移过来？请看[从 privacyfilter 迁移](#从-privacyfilter-迁移)。
 
 学 AI 就上 L 站：[linux.do](https://linux.do/)。
 
@@ -41,17 +44,17 @@ CLIProxyAPI 的隐私过滤插件，用于在请求发送给模型前自动识�
 克隆并构建插件：
 
 ```bash
-git clone https://github.com/rheodev/cpa-plugin-privacyfilter.git
-cd cpa-plugin-privacyfilter
+git clone https://github.com/GarlandQian/cpa-plugin-veil.git
+cd cpa-plugin-veil
 
 make build
 ```
 
 默认会在仓库根目录生成共享库：
 
-- Linux: `privacyfilter.so`
-- macOS: `privacyfilter.dylib`
-- Windows: `privacyfilter.dll`
+- Linux: `veil.so`
+- macOS: `veil.dylib`
+- Windows: `veil.dll`
 
 指定平台构建：
 
@@ -72,17 +75,17 @@ BUILD_DIR=dist make build
 将共享库放入 CLIProxyAPI 的插件目录即可。Gitleaks 规则已内嵌到二进制中，无需额外文件：
 
 ```text
-privacyfilter/
-└── privacyfilter.so        # 或 privacyfilter.dylib / privacyfilter.dll
+veil/
+└── veil.so        # 或 veil.dylib / veil.dll
 ```
 
-然后在 CLIProxyAPI 中启用 `privacyfilter` 插件。
+然后在 CLIProxyAPI 中启用 `veil` 插件。
 
 插件注册信息：
 
-- 名称：`privacyfilter`
+- 名称：`veil`
 - 能力：`RequestInterceptor`
-- 作者：`rheodev`
+- 作者：`GarlandQian`
 
 ## 配置
 
@@ -96,7 +99,7 @@ plugins:
   enabled: true
   dir: "plugins"
   configs:
-    privacyfilter:
+    veil:
       enabled: true
 ```
 
@@ -107,7 +110,7 @@ plugins:
   enabled: true
   dir: "plugins"
   configs:
-    privacyfilter:
+    veil:
       enabled: true
       gitleaks_toml: ""        # 为空时使用内嵌规则（或共享库旁的 rules/gitleaks.toml）
       skip_models:
@@ -131,13 +134,13 @@ plugins:
 - 启动时（`plugin.register`）配置无效会导致注册失败。CLIProxyAPI 会在日志中给出原因，插件不会启用，
   可通过 `GET /v0/management/plugins` 确认 `effective_enabled: true`。
 - 热更新时（`plugin.reconfigure`）配置无效会被拒绝，插件**继续使用上一份有效配置脱敏**，不会因为一处笔误静默停止过滤。
-  宿主日志会输出类似 `privacy filter rejected new config, still using the previous valid config: ...` 的错误，并指出出错字段。
+  宿主日志会输出类似 `veil rejected new config, still using the previous valid config: ...` 的错误，并指出出错字段。
   修正配置后再次保存即可生效。
 
 ### 日志
 
 插件日志通过宿主的 `host.log` 回调输出，遵循 CLIProxyAPI 的日志级别、格式和输出位置，并带上请求 ID。
-每次拦截只要有脱敏就输出一行，列出被脱敏字段的 JSON 路径，例如 `privacy filter redacted 2 field(s): messages[0].content, system`。
+每次拦截只要有脱敏就输出一行，列出被脱敏字段的 JSON 路径，例如 `veil redacted 2 field(s): messages[0].content, system`。
 不会记录请求原文。
 
 ## 工作方式
@@ -218,6 +221,13 @@ gitleaks_toml: custom/gitleaks.toml
 ```
 
 相对路径会基于插件目录解析。
+
+## 从 privacyfilter 迁移
+
+1. 把 `privacyfilter` 共享库换成 `veil.so` / `veil.dylib` / `veil.dll`，放进单独的 `veil/` 插件目录。
+2. 配置键从 `plugins.configs.privacyfilter` 改为 `plugins.configs.veil`。`gitleaks_toml`、`skip_models`、`skip_formats` 含义不变。
+3. 删除 `replacement` 和 `replacement_labels`。Veil 会忽略这两项，并在启动时输出
+   `veil ignores removed config field(s): ...`，直到删掉为止。
 
 ## 开发
 
