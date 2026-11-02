@@ -32,7 +32,7 @@ allow: [ALICE@acme-corp.cn]
 	body := string(intercept(t, plugin.Capabilities.RequestInterceptor, pluginapi.RequestInterceptRequest{
 		Body: []byte(`{"input":"烛龙 PHOENIX TKT-123456 server 47.100.12.34, mail alice@acme-corp.cn, call 13800138000"}`),
 	}))
-	for _, want := range []string{"{{TERM_", "{{TICKET_", "{{IP_", "alice@acme-corp.cn", "13800138000"} {
+	for _, want := range []string{"{{TERM_", "{{TICKET_", "public-ip-", "alice@acme-corp.cn", "13800138000"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("missing %q in %s", want, body)
 		}

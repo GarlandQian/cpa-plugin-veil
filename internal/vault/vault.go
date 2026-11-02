@@ -57,11 +57,12 @@ type Vault struct {
 	limit int
 	clock atomic.Uint64
 
-	mu      sync.RWMutex
-	entries map[slot]*entry
-	known   map[string]*knownIndex
-	scopes  map[string]int
-	kinds   map[string]bool
+	mu       sync.RWMutex
+	entries  map[slot]*entry
+	known    map[string]*knownIndex
+	scopes   map[string]int
+	kinds    map[string]bool
+	standIns map[string]map[string]bool // per scope, the Stand-ins minted
 }
 
 // New returns an empty vault minting Placeholders under key.
@@ -70,18 +71,108 @@ func New(key []byte, limit int) *Vault {
 		limit = DefaultLimit
 	}
 	return &Vault{
-		key:     append([]byte(nil), key...),
-		limit:   limit,
-		entries: make(map[slot]*entry),
-		known:   make(map[string]*knownIndex),
-		scopes:  make(map[string]int),
-		kinds:   make(map[string]bool),
+		key:      append([]byte(nil), key...),
+		limit:    limit,
+		entries:  make(map[slot]*entry),
+		known:    make(map[string]*knownIndex),
+		scopes:   make(map[string]int),
+		kinds:    make(map[string]bool),
+		standIns: make(map[string]map[string]bool),
 	}
 }
 
-// Placeholder returns the Placeholder for value in scope, recording it so it
-// restores.
+// standInKinds are the Kinds that go upstream as a Stand-in, with what each
+// Stand-in starts with: a user name as eight made-up letters, a public IP
+// address as public-ip- and eight (ADR-0004).
+var standInKinds = map[string]string{"USERNAME": "", "IP": "public-ip-"}
+
+// standInTries is how many Stand-ins a value may take before it falls back
+// to a Placeholder, when each is already another value's.
+const standInTries = 8
+
+// Placeholder returns what value goes upstream as in scope, recording it so
+// it restores: a Stand-in for a user name or a public IP address, a
+// Placeholder for any other Kind.
 func (v *Vault) Placeholder(scope, kind, value string) string {
+	if head, ok := standInKinds[kind]; ok {
+		if s, ok := v.standIn(scope, kind, value, head); ok {
+			return s
+		}
+	}
+	return v.placeholder(scope, kind, value)
+}
+
+// standIn returns value's Stand-in, made from the same key and scope as a
+// Placeholder, or false when every candidate is another value's.
+func (v *Vault) standIn(scope, kind, value, head string) (string, bool) {
+	for i := 0; i < standInTries; i++ {
+		mac := hmac.New(sha256.New, v.key)
+		mac.Write([]byte(scope))
+		mac.Write([]byte{0})
+		mac.Write([]byte("stand-in"))
+		mac.Write([]byte{0})
+		mac.Write([]byte(kind))
+		mac.Write([]byte{0})
+		mac.Write([]byte(value))
+		mac.Write([]byte{byte(i)})
+		sum := mac.Sum(nil)
+		letters := make([]byte, 8)
+		for j := range letters {
+			letters[j] = 'a' + sum[j]%26
+		}
+		candidate := head + string(letters)
+
+		v.mu.Lock()
+		e, taken := v.entries[slot{scope, candidate}]
+		switch {
+		case !taken:
+			v.add(scope, candidate, kind, value)
+			if v.standIns[scope] == nil {
+				v.standIns[scope] = map[string]bool{}
+			}
+			v.standIns[scope][candidate] = true
+			v.mu.Unlock()
+			return candidate, true
+		case e.kind == kind && e.value == value:
+			e.used.Store(v.clock.Add(1))
+			v.mu.Unlock()
+			return candidate, true
+		}
+		v.mu.Unlock()
+	}
+	return "", false
+}
+
+// IsStandIn reports whether text is a Stand-in of scope, so a detection
+// that finds one does not mask it again.
+func (v *Vault) IsStandIn(scope, text string) bool {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+	return v.standIns[scope][strings.ToLower(text)]
+}
+
+// HasStandIns reports whether scope has any Stand-in to restore.
+func (v *Vault) HasStandIns(scope string) bool {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+	return len(v.standIns[scope]) > 0
+}
+
+// StandInPrefix reports whether prefix, in any case, starts a Stand-in of
+// scope, for a stream that may have cut one in two.
+func (v *Vault) StandInPrefix(scope, prefix string) bool {
+	prefix = strings.ToLower(prefix)
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+	for s := range v.standIns[scope] {
+		if strings.HasPrefix(s, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func (v *Vault) placeholder(scope, kind, value string) string {
 	mac := hmac.New(sha256.New, v.key)
 	mac.Write([]byte(scope))
 	mac.Write([]byte{0})
@@ -183,6 +274,7 @@ func (v *Vault) evict() {
 		if v.scopes[a.slot.scope]--; v.scopes[a.slot.scope] == 0 {
 			delete(v.scopes, a.slot.scope)
 		}
+		delete(v.standIns[a.slot.scope], a.slot.placeholder)
 	}
 	v.known = make(map[string]*knownIndex)
 	for s, e := range v.entries {

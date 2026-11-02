@@ -240,6 +240,16 @@ includes Gemini clients passing their key as the `?key=` query parameter, which 
 
 The mapping from placeholders back to values lives only in memory and holds the 200,000 most recently used values.
 
+### Stand-ins for user names and public IP addresses
+
+When the `home`, `userhost` or `ip` category is on, a user name goes upstream as eight made-up lowercase letters
+(`/Users/qmzvkrta/project`) and a public IP address as `public-ip-` and eight letters (`ssh root@public-ip-kvxqmrtz`)
+instead of a `{{KIND_…}}` placeholder. Models read `/Users/{{USERNAME_…}}` as a template or a temporary folder, and
+asked for the real address of `{{IP_…}}` instead of using it; a home folder that still looks like one, and a host
+name that reaches no one, they use as they are, and the value comes back restored in the tool call. Stand-ins are as
+stable as placeholders, kept apart per client, restored in any case and only as whole words, and a value whose
+stand-ins are all taken by other values goes as a placeholder. Host names and buckets use placeholders.
+
 ### Restoring responses
 
 Before a response reaches the client, Veil puts the original values back wherever the model wrote a placeholder of
