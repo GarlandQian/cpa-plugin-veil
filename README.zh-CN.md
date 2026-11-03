@@ -29,6 +29,7 @@ Veil 源自 [rheodev/cpa-plugin-privacyfilter](https://github.com/rheodev/cpa-pl
 - CLIProxyAPI 插件运行时的请求拦截器
 - 用稳定的占位符掩码邮箱、手机号、密钥、连接串、证书等敏感内容，不同客户端 API key 之间相互隔离
 - 把模型回复（包括工具调用）里的占位符还原成原值，客户端看到和执行的都是真实值
+- 在管理面板的“脱敏记录”菜单里查看每个请求换掉了什么，从不显示原值，兼容 CPA-Manager-Plus
 - 使用内置 Gitleaks 规则 `rules/gitleaks.toml`
 - 支持自定义 Gitleaks 规则文件
 - 支持 OpenAI Chat / Completions、OpenAI Responses、Claude、Gemini 和 Gemini CLI 请求体
@@ -100,7 +101,7 @@ curl -X POST "http://127.0.0.1:8317/v0/management/plugin-store/veil/install" \
 ### 手动安装
 
 1. 从 [Releases](https://github.com/GarlandQian/cpa-plugin-veil/releases) 下载对应平台的 `veil_<版本>_<系统>_<架构>.zip`，
-   例如 Apple 芯片的 Mac 用 `veil_0.4.2_darwin_arm64.zip`。可以用同一页的 `checksums.txt` 校验：
+   例如 Apple 芯片的 Mac 用 `veil_0.5.0_darwin_arm64.zip`。可以用同一页的 `checksums.txt` 校验：
 
    ```bash
    shasum -a 256 -c checksums.txt --ignore-missing   # Linux 上用 sha256sum
@@ -365,6 +366,50 @@ ping 事件可以越过被扣住的事件先发出；其他事件到来时，被
   "input": "My GitHub token is ghp_xxx"
 }
 ```
+
+## 脱敏记录
+
+Veil 会为每个有值被掩码、告警或拦截的请求，以及每个被拦请求，保留一条脱敏记录。支持插件菜单的管理面板（例如 CPA-Manager-Plus）里会出现“脱敏记录”菜单，也可以直接打开下文的页面地址。页面里有：
+
+- **总览**：请求数、掩码次数、不同的值、告警放行、被拦请求、回复中已还原的次数和还原不了的占位符；每天的请求数；按类型、调用方、模型、规则的统计；掩码最多的值。
+- **记录**：按时间倒序列出，可以按类型、调用方、模型、动作筛选，或只看被拦请求。
+- **详情**：每个值的占位符或替身、类型、找到它的规则、提示（第一个字符，或密钥的前缀）、长度、次数、动作、字段路径、是否第一次出现；上游看到的上下文；回复里还原了几处、哪些占位符还原不了。
+- **清空记录**：只删除记录，不影响正在进行的对话。
+- **预览**：输入一段文字，看按当前配置会怎么掩码；结果不保存，也不影响任何对话。
+
+记录和页面**从不包含原值**，也没有查看原值的入口（见 ADR-0005）：拿到管理密钥的人不应因此看到所有调用方的密钥和个人信息。
+
+调用方按客户端 API key 区分：页面优先显示 CPA-Manager-Plus 里给这个 key 起的别名，其次显示 key 的末 4 位，没带 key 的请求显示“未识别调用方”。Veil 自己不保存任何 key。
+
+### 存储
+
+- 内存里保留最近 1000 条记录；其中最近 400 条带上下文（每个占位符前后各 40 个字符，即上游看到的已掩码文本），上下文只在内存里。
+- 有持久目录时，记录还会按天写入 `veil-records/` 下的文件（权限 0600），保留 30 天、总共最多 100 MB，文件里不含上下文。持久目录是 `base_dir`；CPA v7 下没配 `base_dir` 时是插件库文件所在的目录。CPA v8 没配 `base_dir` 时记录只在内存里，重启后清空。
+- 记录在后台写入，绝不让请求等待；写入队列满时丢弃新记录，页面上会显示丢弃了多少条。
+- “新出现”按内存里的映射判断，CPA 重启后重新计算。
+
+不需要记录时，设置 `records: false`：
+
+```yaml
+plugins:
+  configs:
+    veil:
+      records: false
+```
+
+### 页面和接口
+
+页面地址是 `/v0/resource/plugins/veil/index.html`。CLIProxyAPI 不对插件页面做认证，所以页面本身不带任何数据，记录都从需要管理密钥的接口读取：
+
+| 接口 | 作用 |
+|---|---|
+| `GET /v0/management/plugins/veil/summary?days=7` | 最近若干天（1 到 30）的汇总 |
+| `GET /v0/management/plugins/veil/records` | 记录列表，参数 `before`、`limit`、`kind`、`caller`、`model`、`action`、`stopped=1` |
+| `GET /v0/management/plugins/veil/record?key=` | 一条记录，带上下文和还原情况 |
+| `POST /v0/management/plugins/veil/clear` | 清空记录 |
+| `POST /v0/management/plugins/veil/preview` | 预览 `{"text": "..."}`，最多 64 KB |
+
+在 CPA-Manager-Plus 里打开时，页面会读取面板保存的管理密钥（需要勾选“记住密码”），并跟随面板的主题和语言；读不到密钥时会请你输入一次，只保存在当前标签页里。
 
 ## 规则
 
