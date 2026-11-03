@@ -229,7 +229,15 @@ func (p *veilPlugin) InterceptResponse(ctx context.Context, req pluginapi.Respon
 // InterceptStreamChunk restores the Placeholders of a streamed response. The
 // header-only call that opens a stream registers it; each chunk then goes
 // through that stream's Held tail state.
-func (p *veilPlugin) InterceptStreamChunk(ctx context.Context, req pluginapi.StreamChunkInterceptRequest) (resp pluginapi.StreamChunkInterceptResponse, _ error) {
+func (p *veilPlugin) InterceptStreamChunk(ctx context.Context, req pluginapi.StreamChunkInterceptRequest) (pluginapi.StreamChunkInterceptResponse, error) {
+	return p.interceptStreamChunk(ctx, req, "")
+}
+
+// interceptStreamChunk restores a chunk of the stream of the request the
+// host knows by requestID, or, where it gives none (CPA v7), by its body.
+// Only the header-init call is sure to have the request bodies: on CPA v8
+// the payload chunks come without them.
+func (p *veilPlugin) interceptStreamChunk(ctx context.Context, req pluginapi.StreamChunkInterceptRequest, requestID string) (resp pluginapi.StreamChunkInterceptResponse, _ error) {
 	defer func() {
 		if r := recover(); r != nil {
 			resp = pluginapi.StreamChunkInterceptResponse{}
@@ -237,14 +245,14 @@ func (p *veilPlugin) InterceptStreamChunk(ctx context.Context, req pluginapi.Str
 		}
 	}()
 	scope := vault.ScopeOf(req.RequestHeaders)
-	key := bodySum(scope, req.RequestBody)
+	key, unique := streamKey(scope, requestID, req.RequestBody)
 	if req.ChunkIndex == pluginapi.StreamChunkHeaderInitIndex {
 		if p.vault.HasScope(scope) {
 			var finish func(*restore.Stream)
 			if record, ok := p.recordOf(scope, req.OriginalRequest, req.RequestBody); ok {
 				finish = func(s *restore.Stream) { p.restored(record, s.Tally()) }
 			}
-			p.streams.start(key, func(hold bool) *restore.Stream { return p.restorer.NewStream(scope, hold) }, finish)
+			p.streams.start(key, unique, func(hold bool) *restore.Stream { return p.restorer.NewStream(scope, hold) }, finish)
 		}
 		return resp, nil
 	}
@@ -298,6 +306,22 @@ func kindSummary(counts map[string]int) string {
 		parts[i] = fmt.Sprintf("%s=%d", kind, counts[kind])
 	}
 	return strings.Join(parts, ", ")
+}
+
+// streamKey is what the chunks of a stream are known by: the ID of its
+// request, which CPA v8 gives every chunk and no other request shares, or
+// else its Caller scope and request body, which identical requests share.
+func streamKey(scope, requestID string, body []byte) (key [sha256.Size]byte, unique bool) {
+	if requestID == "" {
+		return bodySum(scope, body), false
+	}
+	h := sha256.New()
+	h.Write([]byte("request\x00"))
+	h.Write([]byte(scope))
+	h.Write([]byte{0})
+	h.Write([]byte(requestID))
+	h.Sum(key[:0])
+	return key, true
 }
 
 func bodySum(scope string, body []byte) [sha256.Size]byte {

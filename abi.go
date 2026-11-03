@@ -82,6 +82,8 @@ type abiError struct {
 type abiLifecycleRequest struct {
 	ConfigYAML []byte `json:"config_yaml"`
 	PluginDir  string `json:"plugin_dir,omitempty"`
+	// SchemaVersion is the host's; CPA v7 sends none.
+	SchemaVersion uint32 `json:"schema_version,omitempty"`
 }
 
 type abiRequestInterceptRequest struct {
@@ -96,6 +98,9 @@ type abiResponseInterceptRequest struct {
 
 type abiStreamChunkInterceptRequest struct {
 	pluginapi.StreamChunkInterceptRequest
+	// RequestID is the request's own ID, which CPA v8 gives every chunk of
+	// its stream; the SDK Veil builds with predates it.
+	RequestID      string `json:"RequestID,omitempty"`
 	HostCallbackID string `json:"host_callback_id,omitempty"`
 }
 
@@ -323,7 +328,7 @@ func handleVeilABIMethod(ctx context.Context, method string, request []byte) (ou
 		if errDecode := json.Unmarshal(request, &req); errDecode != nil {
 			return nil, errDecode
 		}
-		resp, errCall := p.InterceptStreamChunk(withHostCallbackID(ctx, req.HostCallbackID), req.StreamChunkInterceptRequest)
+		resp, errCall := p.interceptStreamChunk(withHostCallbackID(ctx, req.HostCallbackID), req.StreamChunkInterceptRequest, req.RequestID)
 		return abiOKEnvelopeWithError(resp, errCall)
 	case pluginabi.MethodManagementRegister:
 		var req pluginapi.ManagementRegistrationRequest
@@ -359,7 +364,7 @@ func handleVeilRegister(ctx context.Context, method string, request []byte) ([]b
 			pluginLog(ctx, logLevelError, "veil rejected new config, still using the previous valid config: "+errBuild.Error(), map[string]any{
 				"error": errBuild.Error(),
 			})
-			return abiOKEnvelope(newABIRegistration(pluginMetadata()))
+			return abiOKEnvelope(newABIRegistration(pluginMetadata(), req.SchemaVersion))
 		}
 		return nil, errBuild
 	}
@@ -371,12 +376,34 @@ func handleVeilRegister(ctx context.Context, method string, request []byte) ([]b
 	veilABIState.plugin = p
 	veilABIState.shuttingDown = false
 	veilABIState.Unlock()
-	return abiOKEnvelope(newABIRegistration(plugin.Metadata))
+	return abiOKEnvelope(newABIRegistration(plugin.Metadata, req.SchemaVersion))
 }
 
-func newABIRegistration(metadata pluginapi.Metadata) abiRegistration {
+// veilSchemaVersion is the plugin schema Veil speaks where the host does
+// too. From 3 on, a stream's payload chunks come without the request bodies
+// and from 5 on without the chunks before them, which a host otherwise
+// copies and encodes into every chunk, megabytes each for an agent's long
+// history; Veil knows a stream by its request ID instead. From 6 on CPA
+// would stop escaping management answers, which the records page undoes.
+const veilSchemaVersion = 5
+
+// schemaOmittingStreamBodies is the first schema whose payload chunks come
+// without the request bodies.
+const schemaOmittingStreamBodies = 3
+
+// schemaFor is the schema Veil registers with on a host that offers host:
+// the original one on a host that offers none (CPA v7) or one that still
+// sends every chunk its request bodies.
+func schemaFor(host uint32) uint32 {
+	if host < schemaOmittingStreamBodies {
+		return pluginabi.SchemaVersion
+	}
+	return min(host, veilSchemaVersion)
+}
+
+func newABIRegistration(metadata pluginapi.Metadata, hostSchema uint32) abiRegistration {
 	return abiRegistration{
-		SchemaVersion: pluginabi.SchemaVersion,
+		SchemaVersion: schemaFor(hostSchema),
 		Metadata:      metadata,
 		Capabilities:  abiCapabilities{RequestInterceptor: true, ResponseInterceptor: true, StreamChunkInterceptor: true, ManagementAPI: true},
 	}

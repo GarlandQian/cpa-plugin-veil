@@ -18,7 +18,7 @@ var emailPlaceholder = regexp.MustCompile(`\{\{EMAIL_[a-z2-7]{8}\}\}`)
 
 // resetMasking forgets the process-wide Vault, as a restart does, and
 // restores it when the test ends.
-func resetMasking(t *testing.T) {
+func resetMasking(t testing.TB) {
 	t.Helper()
 	masking.Lock()
 	dir, v, m, st := masking.dir, masking.vault, masking.masker, masking.streams
@@ -36,13 +36,13 @@ func resetMasking(t *testing.T) {
 
 // Build the public plugin with a minimal rules file so these tests exercise
 // configuration and hooks without depending on optional sidecar rules.
-func newConfiguredInterceptor(t *testing.T, configYAML string) pluginapi.RequestInterceptor {
+func newConfiguredInterceptor(t testing.TB, configYAML string) pluginapi.RequestInterceptor {
 	t.Helper()
 	resetMasking(t)
 	return buildInterceptor(t, t.TempDir(), configYAML)
 }
 
-func buildInterceptor(t *testing.T, dir, configYAML string) pluginapi.RequestInterceptor {
+func buildInterceptor(t testing.TB, dir, configYAML string) pluginapi.RequestInterceptor {
 	t.Helper()
 	if err := os.WriteFile(filepath.Join(dir, "rules.toml"), []byte("title = \"consumer test\"\n"), 0600); err != nil {
 		t.Fatal(err)
@@ -54,7 +54,7 @@ func buildInterceptor(t *testing.T, dir, configYAML string) pluginapi.RequestInt
 	return plugin.Capabilities.RequestInterceptor
 }
 
-func intercept(t *testing.T, interceptor pluginapi.RequestInterceptor, req pluginapi.RequestInterceptRequest) []byte {
+func intercept(t testing.TB, interceptor pluginapi.RequestInterceptor, req pluginapi.RequestInterceptRequest) []byte {
 	t.Helper()
 	resp, err := interceptor.InterceptRequestBeforeAuth(context.Background(), req)
 	if err != nil {
@@ -263,7 +263,7 @@ func TestConfigParseReportsRemovedFields(t *testing.T) {
 }
 
 func TestRegistrationCapabilityJSON(t *testing.T) {
-	raw, err := json.Marshal(newABIRegistration(pluginMetadata()).Capabilities)
+	raw, err := json.Marshal(newABIRegistration(pluginMetadata(), 0).Capabilities)
 	if err != nil {
 		t.Fatalf("json.Marshal() error = %v", err)
 	}
