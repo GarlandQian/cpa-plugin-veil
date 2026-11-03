@@ -45,11 +45,14 @@ func buildPlugin(configYAML []byte, pluginDir string) (pluginapi.Plugin, error) 
 	p := &veilPlugin{
 		cfg:       cfg,
 		pluginDir: pluginDir,
-		masker:    masker,
+		masker:    masker.WithValues(cfg.recordsOn()),
 		restorer:  restore.New(v),
 		vault:     v,
 		streams:   streams,
 		clean:     newBodySet(),
+	}
+	if cfg.recordsOn() {
+		p.records = recordStore(pluginDir)
 	}
 
 	return pluginapi.Plugin{
@@ -123,6 +126,11 @@ func pluginMetadata() pluginapi.Metadata {
 				Name:        "skip_formats",
 				Type:        pluginapi.ConfigFieldTypeArray,
 				Description: "Source format names to skip masking for.",
+			},
+			{
+				Name:        "records",
+				Type:        pluginapi.ConfigFieldTypeBoolean,
+				Description: "Keep a Masking record of each request that had a value masked, warned about or blocked, never the value itself. On unless false. Records go to disk only under base_dir or, on CPA v7, the plugin directory.",
 			},
 		},
 	}

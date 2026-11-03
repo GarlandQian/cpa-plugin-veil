@@ -38,6 +38,8 @@ type Masker struct {
 	vault    *vault.Vault
 	sent     *sentForms
 	actions  map[string]Action
+	// values says Report.Values is wanted, for a Masking record
+	values bool
 }
 
 // New returns a Masker that masks every Kind.
@@ -49,7 +51,14 @@ func New(d *detect.Detector, v *vault.Vault) *Masker {
 // say (Mask where they say nothing) and shares m's vault and Sent forms, for
 // a config reload.
 func (m *Masker) WithPolicy(d *detect.Detector, actions map[string]Action) *Masker {
-	return &Masker{detector: d, vault: m.vault, sent: m.sent, actions: actions}
+	return &Masker{detector: d, vault: m.vault, sent: m.sent, actions: actions, values: m.values}
+}
+
+// WithValues returns m, telling each value in Report.Values when on.
+func (m *Masker) WithValues(on bool) *Masker {
+	c := *m
+	c.values = on
+	return &c
 }
 
 func (m *Masker) action(kind string) Action {
@@ -70,6 +79,9 @@ type Report struct {
 	Warned       map[string]int
 	BlockedPaths []string
 	Blocked      map[string]int
+	// Values tells each value one by one, with a Masker WithValues; a
+	// Stopped request's have no Snip.
+	Values []Value
 }
 
 // Total returns how many values were masked.
@@ -102,10 +114,11 @@ func tally(counts map[string]int, paths *[]string, kind, path string) {
 // is shorter.
 const minFieldLen = 4
 
-// span is one value of a field to mask.
+// span is one value of a field to mask, and the rule that found it.
 type span struct {
 	start, end int
 	kind       string
+	rule       string
 }
 
 // Mask returns body with its sensitive values replaced by their Placeholders
@@ -139,6 +152,8 @@ func (m *Masker) Mask(scope string, body []byte) ([]byte, Report, error) {
 	}
 	spans := make([][]span, len(w.Fields))
 	fresh := map[int]*pending{}
+	// minted are the Placeholders this request recorded for the first time
+	minted := map[string]bool{}
 	for i, f := range w.Fields {
 		if len(f.Text) < minFieldLen {
 			continue
@@ -152,10 +167,10 @@ func (m *Masker) Mask(scope string, body []byte) ([]byte, Report, error) {
 		if detect.SecretField(fieldKey(f.Path), f.Text) {
 			// A field named for a secret holds one whatever it looks like:
 			// {"api_key": "…"} with a value no rule knows.
-			hits = []span{{0, len(f.Text), string(detect.KindSecret)}}
+			hits = []span{{0, len(f.Text), string(detect.KindSecret), RuleSecretField}}
 		} else {
 			for _, h := range m.detector.Detect(f.Text) {
-				hits = append(hits, span{h.Start, h.End, string(h.Kind)})
+				hits = append(hits, span{h.Start, h.End, string(h.Kind), h.Rule})
 			}
 		}
 		hits = outsidePlaceholders(f.Text, hits)
@@ -163,7 +178,9 @@ func (m *Masker) Mask(scope string, body []byte) ([]byte, Report, error) {
 		// Minting makes the value Known, so it is masked across the request.
 		for _, h := range hits {
 			if m.action(h.kind) == Mask {
-				m.vault.Placeholder(scope, h.kind, f.Text[h.start:h.end])
+				if p, created := m.vault.Mint(scope, h.kind, f.Text[h.start:h.end]); created && m.values {
+					minted[p] = true
+				}
 			}
 		}
 		fresh[i] = &pending{key: key, hits: hits}
@@ -172,7 +189,7 @@ func (m *Masker) Mask(scope string, body []byte) ([]byte, Report, error) {
 		f := w.Fields[i]
 		var known []span
 		for _, k := range m.vault.KnownMatches(scope, f.Text) {
-			known = append(known, span{k.Start, k.End, k.Kind})
+			known = append(known, span{k.Start, k.End, k.Kind, RuleKnown})
 		}
 		spans[i] = merge(p.hits, outsidePlaceholders(f.Text, known))
 	}
@@ -185,8 +202,29 @@ func (m *Masker) Mask(scope string, body []byte) ([]byte, Report, error) {
 			}
 		}
 	}
+	var values *valueSet
+	if m.values {
+		values = newValueSet()
+	}
 	if len(report.Blocked) > 0 {
 		// The request never goes out, so nothing of it was sent.
+		if values != nil {
+			for i, f := range w.Fields {
+				if len(spans[i]) == 0 {
+					continue
+				}
+				reps := make([]string, len(spans[i]))
+				for j, s := range spans[i] {
+					if raw := f.Text[s.start:s.end]; m.action(s.kind) == Mask {
+						reps[j] = m.vault.Placeholder(scope, s.kind, raw)
+					} else {
+						reps[j] = m.vault.Peek(scope, s.kind, raw)
+					}
+				}
+				values.addField(f.Text, f.Path, spans[i], reps, m.action, minted, false)
+			}
+			report.Values = values.list
+		}
 		return nil, report, nil
 	}
 	for i, p := range fresh {
@@ -196,15 +234,30 @@ func (m *Masker) Mask(scope string, body []byte) ([]byte, Report, error) {
 	for i, f := range w.Fields {
 		var b strings.Builder
 		prev := 0
-		for _, s := range spans[i] {
+		var reps []string
+		if values != nil {
+			reps = make([]string, len(spans[i]))
+		}
+		for j, s := range spans[i] {
+			raw := f.Text[s.start:s.end]
 			if m.action(s.kind) == Warn {
 				tally(report.Warned, &report.WarnedPaths, s.kind, f.Path)
+				if values != nil {
+					reps[j] = m.vault.Peek(scope, s.kind, raw)
+				}
 				continue
 			}
+			p := m.vault.Placeholder(scope, s.kind, raw)
+			if values != nil {
+				reps[j] = p
+			}
 			b.WriteString(f.Text[prev:s.start])
-			b.WriteString(m.vault.Placeholder(scope, s.kind, f.Text[s.start:s.end]))
+			b.WriteString(p)
 			prev = s.end
 			tally(report.Counts, &report.Paths, s.kind, f.Path)
+		}
+		if values != nil && len(spans[i]) > 0 {
+			values.addField(f.Text, f.Path, spans[i], reps, m.action, minted, true)
 		}
 		if prev == 0 {
 			continue
@@ -213,6 +266,9 @@ func (m *Masker) Mask(scope string, body []byte) ([]byte, Report, error) {
 		f.Doc.SetString(f.Value, b.String())
 	}
 	w.Commit()
+	if values != nil {
+		report.Values = values.list
+	}
 	if !doc.Changed() {
 		return nil, report, nil
 	}

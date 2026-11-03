@@ -4,12 +4,15 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/GarlandQian/cpa-plugin-veil/internal/mask"
+	"github.com/GarlandQian/cpa-plugin-veil/internal/records"
 	"github.com/GarlandQian/cpa-plugin-veil/internal/restore"
 	"github.com/GarlandQian/cpa-plugin-veil/internal/vault"
 
@@ -24,6 +27,8 @@ type veilPlugin struct {
 	vault     *vault.Vault
 	streams   *streamRegistry
 	clean     *bodySet
+	// records keeps the Masking records; nil when they are off
+	records *records.Store
 }
 
 var (
@@ -52,8 +57,10 @@ func (p *veilPlugin) InterceptRequestAfterAuth(ctx context.Context, req pluginap
 // send the original body upstream. A request Veil cannot mask, or one holding
 // a Kind whose Action is block, becomes a Stopped request instead.
 func (p *veilPlugin) interceptRequest(ctx context.Context, req pluginapi.RequestInterceptRequest) (resp pluginapi.RequestInterceptResponse, _ error) {
+	start := time.Now()
 	defer func() {
 		if r := recover(); r != nil {
+			p.record(req, mask.Report{}, records.StoppedError, start)
 			resp = p.stop(ctx, req, fmt.Sprintf("masking failed: %v", r))
 		}
 	}()
@@ -74,9 +81,15 @@ func (p *veilPlugin) interceptRequest(ctx context.Context, req pluginapi.Request
 
 	masked, report, err := p.masker.Mask(scope, req.Body)
 	if err != nil {
+		stopped := records.StoppedError
+		if errors.Is(err, mask.ErrMalformed) {
+			stopped = records.StoppedMalformed
+		}
+		p.record(req, report, stopped, start)
 		return p.stop(ctx, req, "masking failed: "+err.Error()), nil
 	}
 	if len(report.Blocked) > 0 {
+		p.record(req, report, records.StoppedBlock, start)
 		return p.stop(ctx, req, fmt.Sprintf("it holds %s in %s, whose action is block", kindSummary(report.Blocked), strings.Join(report.BlockedPaths, ", "))), nil
 	}
 	if len(report.Warned) > 0 {
@@ -87,6 +100,7 @@ func (p *veilPlugin) interceptRequest(ctx context.Context, req pluginapi.Request
 			"warned_fields": report.WarnedPaths,
 		})
 	}
+	p.record(req, report, "", start)
 	if masked == nil {
 		p.clean.add(sum)
 		return resp, nil
@@ -105,6 +119,44 @@ func (p *veilPlugin) interceptRequest(ctx context.Context, req pluginapi.Request
 	})
 	resp.Body = masked
 	return resp, nil
+}
+
+// record keeps a Masking record of a request that had a value or did not
+// reach the upstream; stopped says why it did not.
+func (p *veilPlugin) record(req pluginapi.RequestInterceptRequest, report mask.Report, stopped string, start time.Time) {
+	if p.records == nil || (len(report.Values) == 0 && stopped == "") {
+		return
+	}
+	r := records.Record{
+		Time:    start,
+		Caller:  vault.ScopeOf(req.Headers),
+		Model:   req.Model,
+		Format:  req.SourceFormat,
+		Stopped: stopped,
+		Took:    time.Since(start).Microseconds(),
+		Values:  make([]records.Value, 0, len(report.Values)),
+	}
+	for _, v := range report.Values {
+		r.N += v.N
+		r.Values = append(r.Values, records.Value{
+			Placeholder: v.Placeholder,
+			Kind:        v.Kind,
+			Rule:        v.Rule,
+			Head:        v.Head,
+			Len:         v.Len,
+			N:           v.N,
+			Action:      string(v.Action),
+			Paths:       v.Paths,
+			New:         v.New,
+		})
+		if v.Snip != "" {
+			if r.Snips == nil {
+				r.Snips = map[string]string{}
+			}
+			r.Snips[v.Placeholder] = v.Snip
+		}
+	}
+	p.records.Add(r)
 }
 
 // stop turns a request into a Stopped request and says why in the log.

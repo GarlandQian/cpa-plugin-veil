@@ -181,6 +181,7 @@ plugins:
 | `actions`       | object | `{}` | 按类型（`EMAIL`、`SECRET` 等）指定处理方式：`mask`（默认）、`block` 或 `warn` |
 | `skip_models`   | array  | `[]` | 命中的模型不做掩码                                                 |
 | `skip_formats`  | array  | `[]` | 命中的来源格式不做掩码                                               |
+| `records`       | bool   | `true` | 为每个有值被掩码、告警或拦截的请求保留一条脱敏记录，从不包含原值；只在 `base_dir` 或 CPA v7 的插件目录下落盘 |
 
 当 `gitleaks_toml` 为空、且解析出的基准目录下不存在 `rules/gitleaks.toml` 时，插件使用构建时内嵌到二进制中的规则。
 

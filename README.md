@@ -192,6 +192,7 @@ Plugin fields:
 | `actions`       | object | `{}`    | What to do with each kind (`EMAIL`, `SECRET`, ...): `mask` (default), `block` or `warn`.     |
 | `skip_models`   | array  | `[]`    | Models that should skip masking.                                                             |
 | `skip_formats`  | array  | `[]`    | Source formats that should skip masking.                                                     |
+| `records`       | bool   | `true`  | Keep a Masking record of each request with a value masked, warned about or blocked, never the value itself; on disk only under `base_dir` or, on CPA v7, the plugin directory |
 
 When `gitleaks_toml` is empty and no `rules/gitleaks.toml` sidecar file exists in the resolved base directory,
 the plugin uses the rules embedded in the binary at build time.
