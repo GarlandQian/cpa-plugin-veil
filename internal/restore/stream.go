@@ -93,6 +93,7 @@ func (s *Stream) Chunk(chunk []byte) (out []byte, done bool) {
 
 // line handles one line, line ending included, and reports the stream's end.
 func (s *Stream) line(b *bytes.Buffer, line []byte) bool {
+	newLine(b)
 	content := bytes.TrimRight(line, "\r\n")
 	ending := line[len(content):]
 	payload, isData := bytes.CutPrefix(content, []byte("data:"))
@@ -137,14 +138,14 @@ func (s *Stream) event(b *bytes.Buffer, eventLine, payload, ending []byte) bool 
 	ev := s.parse(payload, name)
 	if ev.doc == nil {
 		s.release(b)
-		b.Write(eventLine)
+		writeLine(b, eventLine)
 		b.WriteString("data:")
 		s.raw(b, payload)
 		b.Write(ending)
 		return strings.TrimSpace(string(payload)) == "[DONE]"
 	}
 	if ev.typ == "ping" || name == "ping" {
-		b.Write(eventLine)
+		writeLine(b, eventLine)
 		b.WriteString("data:")
 		b.Write(payload)
 		b.Write(ending)
@@ -178,7 +179,7 @@ func (s *Stream) event(b *bytes.Buffer, eventLine, payload, ending []byte) bool 
 		return false
 	}
 	s.tally.Add(r.fullTally)
-	b.Write(eventLine)
+	writeLine(b, eventLine)
 	b.WriteString("data:")
 	if r.full == nil {
 		b.Write(payload)
@@ -252,10 +253,31 @@ func (s *Stream) release(b *bytes.Buffer) {
 	s.eventLine = nil
 }
 
+// newLine starts a new line in b. The host may hand a stream over one line
+// per chunk without its line ending (CPA v8's Codex path does), and lines
+// Veil held and writes out together must not run into one another, as
+// "event: xdata: {...}" would.
+func newLine(b *bytes.Buffer) {
+	if n := b.Len(); n > 0 && b.Bytes()[n-1] != '\n' {
+		b.WriteByte('\n')
+	}
+}
+
+// writeLine writes a held line, which may have come without its ending, and
+// starts the next one.
+func writeLine(b *bytes.Buffer, line []byte) {
+	if len(line) == 0 {
+		return
+	}
+	newLine(b)
+	b.Write(line)
+	newLine(b)
+}
+
 // render writes a held event, ending it with the blank line its original
 // went out without.
 func (s *Stream) render(b *bytes.Buffer, eventLine, data []byte) {
-	b.Write(eventLine)
+	writeLine(b, eventLine)
 	b.WriteString("data: ")
 	b.Write(data)
 	b.WriteString("\n\n")

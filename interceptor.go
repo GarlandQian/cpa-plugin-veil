@@ -248,10 +248,14 @@ func (p *veilPlugin) InterceptStreamChunk(ctx context.Context, req pluginapi.Str
 		}
 		return resp, nil
 	}
+	// An empty chunk, such as the blank line between two events that CPA
+	// v8's Codex path hands over as a chunk of its own, still takes its index:
+	// the stream would otherwise lose its place and be restored without
+	// holding from there on.
+	entry := p.streams.take(key, req.ChunkIndex)
 	if len(req.Body) == 0 {
 		return resp, nil
 	}
-	entry := p.streams.take(key, req.ChunkIndex)
 	var stream *restore.Stream
 	switch {
 	case entry != nil:
