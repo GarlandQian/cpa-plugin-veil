@@ -65,7 +65,7 @@ var contextRules = []rule{
 		re: regexp.MustCompile(`(?i)(?:` + secretNames.pattern() + `|pwd|api[ ]key|access[ ]key|secret[ ]key|key|\bpin(?:[ ]?code)?)` + quote +
 			`[ \t]*(?:[为為是][ \t]*[:：]?|：)[ \t]*(?:\\?["'“「])?(` + secretCh + `{3,}[A-Za-z0-9_\-/+=~!@#%^&*])`)},
 
-	{id: "email", kind: KindEmail, cat: catPersonal, markers: []string{"@"}, bound: alnum + "_%+-", ok: realEmail, at: emailAt,
+	{id: "email", kind: KindEmail, cat: catPersonal, markers: []string{"@"}, bound: alnum + "%+-", fix: emailFix, at: emailAt,
 		re: regexp.MustCompile(`[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}`)},
 	{id: "id-card-cn", kind: KindIDCard, cat: catPersonal, bound: alnum, ok: chineseID,
 		re: regexp.MustCompile(`[1-9]\d{5}(?:18|19|20)\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])\d{3}[\dXx]`)},
@@ -242,7 +242,30 @@ func emailAt(s string, a, b int) bool {
 	if b+1 < len(s) && s[b] == '.' && strings.IndexByte(tokenCh, s[b+1]) >= 0 {
 		return false
 	}
+	// No domain has an underscore, so one after the address ends it, as
+	// Markdown's emphasis does (_a@b.cn_); a word after the underscores
+	// makes it a longer name instead (x@self.in_proj).
+	if e := b; e < len(s) && s[e] == '_' {
+		for e < len(s) && s[e] == '_' {
+			e++
+		}
+		if e < len(s) && strings.IndexByte(alnum, s[e]) >= 0 {
+			return false
+		}
+	}
 	return !inUserinfo(s, a) && !inRemoteCommand(s, a)
+}
+
+// emailFix leaves out the underscores Markdown puts before an address it
+// emphasises (_a@b.cn_, __a@b.cn__), which the local part's pattern takes
+// in, and checks what is left is a mailbox.
+func emailFix(s string, a, b int) (int, int, bool) {
+	if b < len(s) && s[b] == '_' {
+		for a < b && s[a] == '_' {
+			a++
+		}
+	}
+	return a, b, strings.IndexByte(s[a:b], '@') > 0 && realEmail(s[a:b])
 }
 
 // remoteCommands are the commands a user@host after which is a login, not
