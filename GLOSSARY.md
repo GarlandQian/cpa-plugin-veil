@@ -82,3 +82,9 @@ _Avoid_: whitelist, exception
 **Stopped request** (被拦请求):
 A request Veil keeps from reaching the upstream, either because a Hit carries the block Action or because Veil could not mask it; a request Veil cannot mask is never sent as it is.
 _Avoid_: rejected request, fail-open
+
+### Records
+
+**Masking record** (脱敏记录):
+What Veil did to one request that had a Hit or was a Stopped request: which Caller scope sent it, to which model, and each value it masked or warned about, told by its Placeholder or Stand-in, its Kind and a hint, never by the value itself; and once the response is done, how many places each was restored in and which Placeholders came back that could not be restored.
+_Avoid_: log, audit, history
