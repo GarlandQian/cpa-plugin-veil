@@ -233,6 +233,57 @@ func TestStreamOpenAIChat(t *testing.T) {
 	}
 }
 
+// Where the stream is cut must not matter: a Placeholder with a word on
+// either side restores whether it comes in one delta or in two.
+func TestStreamRestoresPlaceholdersAgainstWordsAtEveryCut(t *testing.T) {
+	r, v := newRestorer(t)
+	p := v.Placeholder("", "EMAIL", "a@b.com")
+	text := "x" + p + "next"
+	args := `{"to":"x` + p + `next"}`
+	for _, tc := range []struct {
+		name string
+		full string
+		wrap func(string) map[string]any
+		read func(map[string]any) (string, bool)
+	}{
+		{"content", text,
+			func(s string) map[string]any { return map[string]any{"content": s} },
+			func(ev map[string]any) (string, bool) {
+				s, ok := dig(ev, "choices", 0, "delta", "content").(string)
+				return s, ok
+			}},
+		{"tool arguments", args,
+			func(s string) map[string]any {
+				return map[string]any{"tool_calls": []any{map[string]any{"index": 0, "function": map[string]any{"arguments": s}}}}
+			},
+			func(ev map[string]any) (string, bool) {
+				s, ok := dig(ev, "choices", 0, "delta", "tool_calls", 0, "function", "arguments").(string)
+				return s, ok
+			}},
+	} {
+		for cut := 0; cut <= len(tc.full); cut++ {
+			var chunks []string
+			for _, piece := range []string{tc.full[:cut], tc.full[cut:]} {
+				if piece == "" {
+					continue
+				}
+				b, _ := json.Marshal(map[string]any{"id": "c", "choices": []any{map[string]any{"index": 0, "delta": tc.wrap(piece)}}})
+				chunks = append(chunks, "data: "+string(b)+"\n\n")
+			}
+			chunks = append(chunks, `data: {"id":"c","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}`+"\n\n", "data: [DONE]\n\n")
+			var got strings.Builder
+			for _, ev := range events(t, feed(t, r.NewStream("", true), chunks)) {
+				if s, ok := tc.read(ev); ok {
+					got.WriteString(s)
+				}
+			}
+			if want := strings.ReplaceAll(tc.full, p, "a@b.com"); got.String() != want {
+				t.Errorf("%s cut at %d: %q, want %q", tc.name, cut, got.String(), want)
+			}
+		}
+	}
+}
+
 func TestStreamResponses(t *testing.T) {
 	r, v := newRestorer(t)
 	p := v.Placeholder("", "EMAIL", "a@b.com")

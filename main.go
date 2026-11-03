@@ -9,7 +9,7 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginapi"
 )
 
-var pluginVersion = "0.4.1"
+var pluginVersion = "0.4.2"
 
 func buildPlugin(configYAML []byte, pluginDir string) (pluginapi.Plugin, error) {
 	cfg, removed, errParse := parseConfig(configYAML)

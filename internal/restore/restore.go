@@ -84,7 +84,11 @@ func (r *Restorer) placeholders(scope, text string, escape bool) (string, bool) 
 	prev := 0
 	for _, m := range matches {
 		start, end := m[0], m[1]
-		if (start > 0 && isWord(text[start-1])) || (end < len(text) && isWord(text[end])) {
+		// A brace marks where a Placeholder starts or ends, so a word may
+		// touch it there: masking itself leaves one against the text around
+		// a value ({{SECRET_…}}Mobile:). Only a side without its brace must
+		// not run on into a longer word.
+		if (text[start] != '{' && start > 0 && isWord(text[start-1])) || (text[end-1] != '}' && end < len(text) && isWord(text[end])) {
 			continue
 		}
 		kind := strings.ToUpper(text[m[2]:m[3]])
