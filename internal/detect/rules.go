@@ -162,9 +162,11 @@ func SecretField(name, value string) bool {
 		!strings.HasSuffix(n, "tokens") && !strings.HasSuffix(n, "token_count")
 }
 
-// notAVariable turns away what stands in for a value: ${PASS}, <password>, ****.
+// notAVariable turns away what stands in for a value: ${PASS}, <password>,
+// ****, and an escape where the value would start, the line having ended
+// (KEY: \nnext in JSON written out as text).
 func notAVariable(v string) bool {
-	if strings.ContainsAny(v[:1], "$%{<[*") {
+	if strings.ContainsAny(v[:1], "$%{<[*\\") {
 		return false
 	}
 	return strings.Trim(v, "*xX.") != ""
@@ -257,9 +259,13 @@ func emailAt(s string, a, b int) bool {
 }
 
 // emailFix leaves out the underscores Markdown puts before an address it
-// emphasises (_a@b.cn_, __a@b.cn__), which the local part's pattern takes
-// in, and checks what is left is a mailbox.
+// emphasises (_a@b.cn_, __a@b.cn__) and the letter of an escape before it
+// (origin\tgit@github.com in JSON written out as text), which the local
+// part's pattern takes in, and checks what is left is a mailbox.
 func emailFix(s string, a, b int) (int, int, bool) {
+	if a > 0 && s[a-1] == '\\' && strings.IndexByte("nrtbf", s[a]) >= 0 {
+		a++
+	}
 	if b < len(s) && s[b] == '_' {
 		for a < b && s[a] == '_' {
 			a++
@@ -322,6 +328,14 @@ func hiddenInURL(s string, a, b int) bool {
 	}
 	if b+1 > end {
 		return true
+	}
+	// A URL to a host kept for examples is a fixture's, its password too.
+	host := s[b+1 : end]
+	if i := strings.IndexAny(host, "/:?#"); i >= 0 {
+		host = host[:i]
+	}
+	if exampleHost(strings.ToLower(host)) {
+		return false
 	}
 	for _, part := range strings.FieldsFunc(s[b+1:end], func(r rune) bool { return strings.ContainsRune("/:.?#&=;,@", r) }) {
 		if part == pw {
@@ -410,12 +424,21 @@ func realEmail(v string) bool {
 	if fileHost(host) || docFiles[host] || !mailTLD(host[strings.LastIndexByte(host, '.')+1:]) {
 		return false
 	}
-	for _, fake := range []string{"example.com", "example.org", "example.net", "localhost", ".test", ".invalid", ".example"} {
-		if host == strings.TrimPrefix(fake, ".") || strings.HasSuffix(host, fake) {
-			return false
-		}
+	if exampleHost(host) {
+		return false
 	}
 	return !strings.HasPrefix(host, "noreply") && !strings.Contains(v, "noreply@")
+}
+
+// exampleHost says host, in lower case, is kept for examples and tests
+// (RFC 2606): example.com, anything.test, localhost.
+func exampleHost(host string) bool {
+	for _, fake := range []string{"example.com", "example.org", "example.net", "localhost", ".test", ".invalid", ".example", ".localhost"} {
+		if host == strings.TrimPrefix(fake, ".") || strings.HasSuffix(host, fake) {
+			return true
+		}
+	}
+	return false
 }
 
 // mailHost is whether host can be a mail domain, and not a linker's table

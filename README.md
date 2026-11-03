@@ -190,7 +190,7 @@ Plugin fields:
 | `disabled_rules`| array  | `[]`    | Rule IDs to turn off.                                                                        |
 | `categories`    | object | `{}`    | Categories to turn on or off; see [Rules](#rules).                                           |
 | `terms`         | array  | `[]`    | Words always masked, as `TERM`.                                                              |
-| `allow`         | array  | `[]`    | Values never masked.                                                                         |
+| `allow`         | array  | `[]`    | Values never masked, Known values included.                                                  |
 | `actions`       | object | `{}`    | What to do with each kind (`EMAIL`, `SECRET`, ...): `mask` (default), `block` or `warn`.     |
 | `skip_models`   | array  | `[]`    | Models that should skip masking.                                                             |
 | `skip_formats`  | array  | `[]`    | Source formats that should skip masking.                                                     |
@@ -536,6 +536,10 @@ Built-in rules are embedded into the shared library at build time from:
 ```text
 rules/gitleaks.toml
 ```
+
+As in gitleaks, a rule masks only its secret (its `secretGroup`, else its first capture group) and keeps its
+allowlists, the file's own `[allowlist]` too: their `regexes` (on the secret, the match or the line, by
+`regexTarget`), their `stopwords` and their `condition`. `paths` and `commits` never match, a request having neither.
 
 At runtime the plugin resolves rules in this order:
 

@@ -209,6 +209,11 @@ func (d *Detector) Detect(text string) []Hit {
 	return hits
 }
 
+// Allowed says v is one of the values the allow option lets through.
+func (d *Detector) Allowed(v string) bool {
+	return d.allow[strings.ToLower(strings.TrimSpace(v))]
+}
+
 // detect runs every layer on text, bypassing the cache.
 func (d *Detector) detect(text string) []Hit {
 	on := func(cat string) bool { return d.cats[cat] }
