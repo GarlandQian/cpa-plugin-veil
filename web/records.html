@@ -3,17 +3,659 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
 <title>脱敏记录 · Veil</title>
 <style>
-  :root { color-scheme: light dark; }
-  body { margin: 0; padding: 24px; font: 14px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-         background: var(--bg-primary, Canvas); color: var(--text-primary, CanvasText); }
-  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  :root {
+    color-scheme: light dark;
+    --v-bg: #f4f6fa; --v-surface: #ffffff; --v-surface-2: #f2f5f9; --v-text: #1f2933; --v-text-2: #52606d;
+    --v-text-3: #8a94a6; --v-border: rgba(15, 23, 42, 0.1); --v-accent: #3b82f6; --v-accent-contrast: #ffffff;
+    --v-danger: #e5484d; --v-warning: #d9822b; --v-success: #2f9e44; --v-radius: 10px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --v-bg: #0f1218; --v-surface: #171b23; --v-surface-2: #1e232d; --v-text: #e6e9ef; --v-text-2: #b2bac7;
+      --v-text-3: #7d8696; --v-border: rgba(255, 255, 255, 0.1); --v-accent: #5b9dff;
+    }
+  }
+  /* Inside CPA-Manager-Plus, its theme wins. */
+  html[data-cpamp-plugin-host] {
+    --v-bg: var(--bg-secondary); --v-surface: var(--bg-primary); --v-surface-2: var(--bg-tertiary);
+    --v-text: var(--text-primary); --v-text-2: var(--text-secondary); --v-text-3: var(--text-tertiary);
+    --v-border: var(--border-color); --v-accent: var(--primary-color); --v-accent-contrast: var(--primary-contrast);
+    --v-danger: var(--danger-color); --v-warning: var(--warning-color); --v-success: var(--success-color);
+    --v-radius: var(--app-radius-md, 10px);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body { background: var(--v-bg); color: var(--v-text); font: 14px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; }
+  code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.5px; }
+  button, input, select, textarea { font: inherit; color: inherit; }
+  .wrap { max-width: 1200px; margin: 0 auto; padding: 16px; }
+  header { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 14px; }
+  header h1 { font-size: 18px; margin: 0 8px 0 0; }
+  .tabs { display: flex; gap: 4px; background: var(--v-surface-2); padding: 3px; border-radius: 9px; }
+  .tabs button { border: 0; background: transparent; padding: 5px 14px; border-radius: 7px; cursor: pointer; color: var(--v-text-2); }
+  .tabs button[aria-selected="true"] { background: var(--v-surface); color: var(--v-text); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+  .spacer { flex: 1; }
+  .btn { border: 1px solid var(--v-border); background: var(--v-surface); padding: 5px 12px; border-radius: 7px; cursor: pointer; }
+  .btn:hover { border-color: var(--v-accent); }
+  .btn.primary { background: var(--v-accent); border-color: var(--v-accent); color: var(--v-accent-contrast); }
+  .btn.danger { color: var(--v-danger); }
+  .btn:disabled { opacity: .5; cursor: default; }
+  .card { background: var(--v-surface); border: 1px solid var(--v-border); border-radius: var(--v-radius); padding: 14px 16px; margin-bottom: 14px; }
+  .card h2 { font-size: 14px; margin: 0 0 10px; color: var(--v-text-2); font-weight: 600; }
+  .notice { border-left: 3px solid var(--v-warning); background: var(--v-surface); padding: 9px 12px; border-radius: 6px; margin-bottom: 14px; color: var(--v-text-2); }
+  .notice.error { border-color: var(--v-danger); }
+  .stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; }
+  .stat { background: var(--v-surface-2); border-radius: 8px; padding: 8px 10px; }
+  .stat b { display: block; font-size: 20px; font-weight: 600; }
+  .stat span { color: var(--v-text-3); font-size: 12px; }
+  .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--v-border); vertical-align: top; }
+  th { color: var(--v-text-3); font-weight: 500; font-size: 12px; white-space: nowrap; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  tr.row { cursor: pointer; }
+  tr.row:hover td { background: var(--v-surface-2); }
+  .muted { color: var(--v-text-3); }
+  .badge { display: inline-block; padding: 0 7px; border-radius: 999px; font-size: 12px; line-height: 20px; background: var(--v-surface-2); color: var(--v-text-2); margin: 1px 3px 1px 0; white-space: nowrap; }
+  .badge.mask { color: var(--v-accent); }
+  .badge.warn { color: var(--v-warning); }
+  .badge.block, .badge.stopped { color: var(--v-danger); }
+  .badge.new { color: var(--v-success); }
+  .bars { display: flex; align-items: flex-end; gap: 3px; height: 110px; padding-top: 6px; }
+  .bars div { flex: 1; min-width: 4px; background: var(--v-accent); opacity: .75; border-radius: 3px 3px 0 0; position: relative; }
+  .bars div:hover { opacity: 1; }
+  .bars-x { display: flex; justify-content: space-between; color: var(--v-text-3); font-size: 11px; margin-top: 4px; }
+  .filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
+  select, input[type=text], input[type=password], textarea { background: var(--v-surface); border: 1px solid var(--v-border); border-radius: 7px; padding: 5px 8px; }
+  textarea { width: 100%; min-height: 140px; resize: vertical; }
+  .snip { background: var(--v-surface-2); border-radius: 6px; padding: 6px 8px; white-space: pre-wrap; word-break: break-all; }
+  .snip mark { background: color-mix(in srgb, var(--v-accent) 22%, transparent); color: inherit; border-radius: 3px; padding: 0 2px; }
+  .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.35); display: flex; justify-content: flex-end; z-index: 10; }
+  .panel { width: min(760px, 100%); height: 100%; overflow: auto; background: var(--v-bg); padding: 16px; box-shadow: -4px 0 18px rgba(0,0,0,.15); }
+  .panel-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+  .panel-head h2 { flex: 1; font-size: 16px; margin: 0; }
+  .kv { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; }
+  .kv dt { color: var(--v-text-3); }
+  .kv dd { margin: 0; word-break: break-all; }
+  .login { max-width: 420px; margin: 60px auto; }
+  .login input { width: 100%; margin: 8px 0 12px; }
+  .hidden { display: none !important; }
+  .scroll { overflow-x: auto; }
 </style>
 </head>
 <body>
-<h1>脱敏记录</h1>
-<p>Veil 已在记录每个请求的脱敏情况（不含原值）。查看记录的页面将在后续版本提供。</p>
-<p lang="en">Veil is keeping a Masking record of each request, never the values themselves. The page to browse them comes in a later release.</p>
+<div class="wrap">
+  <div id="login" class="card login hidden">
+    <h2 data-t="loginTitle"></h2>
+    <p class="muted" data-t="loginHint"></p>
+    <div id="loginError" class="notice error hidden"></div>
+    <label for="keyInput" data-t="managementKey"></label>
+    <input id="keyInput" type="password" autocomplete="current-password">
+    <button id="loginButton" class="btn primary" data-t="connect"></button>
+  </div>
+
+  <div id="app" class="hidden">
+    <header>
+      <h1 data-t="title"></h1>
+      <div class="tabs" role="tablist">
+        <button role="tab" data-tab="overview" data-t="tabOverview"></button>
+        <button role="tab" data-tab="records" data-t="tabRecords"></button>
+        <button role="tab" data-tab="preview" data-t="tabPreview"></button>
+      </div>
+      <div class="spacer"></div>
+      <button id="refresh" class="btn" data-t="refresh"></button>
+      <button id="clear" class="btn danger" data-t="clear"></button>
+    </header>
+    <div id="notices"></div>
+
+    <section id="tab-overview">
+      <div class="card">
+        <div class="filters">
+          <h2 style="margin:0" data-t="range"></h2>
+          <select id="days">
+            <option value="1"></option><option value="7" selected></option><option value="30"></option>
+          </select>
+        </div>
+        <div id="stats" class="stats"></div>
+      </div>
+      <div class="card"><h2 data-t="trend"></h2><div id="bars" class="bars"></div><div id="barsX" class="bars-x"></div></div>
+      <div class="grid2">
+        <div class="card"><h2 data-t="byKind"></h2><div id="byKind"></div></div>
+        <div class="card"><h2 data-t="byCaller"></h2><div id="byCaller"></div></div>
+        <div class="card"><h2 data-t="byModel"></h2><div id="byModel"></div></div>
+        <div class="card"><h2 data-t="byRule"></h2><div id="byRule"></div></div>
+      </div>
+      <div class="card"><h2 data-t="topValues"></h2><div class="scroll" id="topValues"></div></div>
+    </section>
+
+    <section id="tab-records" class="hidden">
+      <div class="card">
+        <div class="filters">
+          <select id="fKind"></select>
+          <select id="fCaller"></select>
+          <select id="fModel"></select>
+          <select id="fAction"></select>
+          <label><input id="fStopped" type="checkbox"> <span data-t="onlyStopped"></span></label>
+        </div>
+        <div class="scroll"><table id="recordsTable"></table></div>
+        <div style="margin-top:10px"><button id="more" class="btn hidden" data-t="more"></button> <span id="listInfo" class="muted"></span></div>
+      </div>
+    </section>
+
+    <section id="tab-preview" class="hidden">
+      <div class="card">
+        <h2 data-t="previewTitle"></h2>
+        <p class="muted" data-t="previewHint"></p>
+        <textarea id="previewText"></textarea>
+        <div style="margin:10px 0"><button id="previewRun" class="btn primary" data-t="previewRun"></button></div>
+        <div id="previewOut"></div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<div id="detail" class="overlay hidden">
+  <div class="panel" role="dialog" aria-modal="true">
+    <div class="panel-head"><h2 data-t="detailTitle"></h2><button id="detailClose" class="btn" data-t="close"></button></div>
+    <div id="detailBody"></div>
+  </div>
+</div>
+
+<script>
+"use strict";
+(function () {
+  // ---- strings ----------------------------------------------------------
+  var STR = {
+    zh: {
+      title: "脱敏记录", tabOverview: "总览", tabRecords: "记录", tabPreview: "预览", refresh: "刷新", clear: "清空记录",
+      loginTitle: "连接 CPA 管理接口", loginHint: "没有读到管理面板保存的密钥，请输入管理密钥。它只保存在这个标签页里。",
+      managementKey: "管理密钥", connect: "连接", loginFailed: "密钥无效，或没有权限访问管理接口。", panelKeyFailed: "面板保存的密钥不能访问管理接口，请手动输入。",
+      range: "时间范围", day1: "今天", day7: "最近 7 天", day30: "最近 30 天", trend: "每天的请求数",
+      requests: "请求", places: "掩码次数", distinct: "不同的值", warned: "告警放行", stopped: "被拦请求",
+      restored: "已还原", unrestored: "还原不了", dropped: "丢弃的记录",
+      byKind: "按类型", byCaller: "按调用方", byModel: "按模型", byRule: "按规则", topValues: "掩码最多的值",
+      name: "名称", count: "次数", values: "值", value: "值", kind: "类型", rule: "规则", hint: "提示", len: "长度",
+      lastSeen: "最后出现", time: "时间", caller: "调用方", model: "模型", format: "来源格式", action: "动作", paths: "字段",
+      none: "暂无数据", allKinds: "全部类型", allCallers: "全部调用方", allModels: "全部模型", allActions: "全部动作",
+      onlyStopped: "只看被拦请求", more: "加载更多", shown: "已显示 {n} 条",
+      aMask: "掩码", aWarn: "告警", aBlock: "拦截", isNew: "新出现",
+      sBlock: "命中拦截规则", sMalformed: "请求体不是有效 JSON", sError: "掩码出错",
+      unknownCaller: "未识别调用方", chars: "{n} 个字符",
+      detailTitle: "记录详情", close: "关闭", took: "掩码耗时", micro: "{n} 微秒", snips: "上游看到的上下文",
+      noSnips: "上下文只在内存里保留最近 400 条记录，这一条已经没有了。", restoredTitle: "回复中的还原",
+      noResponse: "还没有收到这个请求的回复，或者回复不是在本次 CPA 进程里收到的。", restoredPlaces: "还原 {n} 处",
+      unrestoredTitle: "回复里出现、但还原不了的占位符",
+      previewTitle: "预览掩码", previewHint: "按当前配置检测并掩码这段文字，结果不会保存，也不会影响正在进行的对话。占位符只作示意。",
+      previewRun: "预览", previewNone: "没有识别出需要掩码的值。", truncated: "文字超过 64 KB，只预览了前一部分。",
+      confirmClear: "确定清空所有脱敏记录吗？正在进行的对话不受影响，仍会正常还原。", cleared: "已清空记录。",
+      off: "脱敏记录已关闭（records: false）。在 plugins.configs.veil 中删除这一项或设为 true 即可开启。",
+      memoryOnly: "记录只保存在内存里，重启 CPA 后会清空。设置 base_dir 后会按天写入磁盘，保留 30 天。",
+      droppedNotice: "有 {n} 条记录因为写入队列已满被丢弃。", newNote: "“新出现”按内存判断，CPA 重启后会重新计算。",
+      loadFailed: "加载失败：{e}", noValues: "这个请求在掩码前就被拦下，没有可记录的值。"
+    },
+    en: {
+      title: "Masking records", tabOverview: "Overview", tabRecords: "Records", tabPreview: "Preview", refresh: "Refresh", clear: "Clear records",
+      loginTitle: "Connect to the CPA Management API", loginHint: "No key saved by the management panel was found. Enter the management key; it stays in this tab only.",
+      managementKey: "Management key", connect: "Connect", loginFailed: "The key is wrong or may not use the Management API.", panelKeyFailed: "The key the panel saved cannot use the Management API. Enter one.",
+      range: "Range", day1: "Today", day7: "Last 7 days", day30: "Last 30 days", trend: "Requests per day",
+      requests: "Requests", places: "Places masked", distinct: "Different values", warned: "Sent as written", stopped: "Stopped requests",
+      restored: "Restored", unrestored: "Not restorable", dropped: "Dropped records",
+      byKind: "By kind", byCaller: "By caller", byModel: "By model", byRule: "By rule", topValues: "Most masked values",
+      name: "Name", count: "Places", values: "Values", value: "Value", kind: "Kind", rule: "Rule", hint: "Hint", len: "Length",
+      lastSeen: "Last seen", time: "Time", caller: "Caller", model: "Model", format: "Format", action: "Action", paths: "Fields",
+      none: "Nothing yet", allKinds: "All kinds", allCallers: "All callers", allModels: "All models", allActions: "All actions",
+      onlyStopped: "Stopped requests only", more: "Load more", shown: "{n} shown",
+      aMask: "masked", aWarn: "warned", aBlock: "blocked", isNew: "new",
+      sBlock: "a value has the block action", sMalformed: "the body is not valid JSON", sError: "masking failed",
+      unknownCaller: "Unknown caller", chars: "{n} characters",
+      detailTitle: "Record", close: "Close", took: "Masking took", micro: "{n} µs", snips: "Context as the upstream saw it",
+      noSnips: "Context is kept in memory for the latest 400 records only; this one no longer has it.", restoredTitle: "Restored in the response",
+      noResponse: "No response to this request yet, or it came to an earlier CPA process.", restoredPlaces: "{n} restored",
+      unrestoredTitle: "Placeholders in the response that could not be restored",
+      previewTitle: "Preview masking", previewHint: "Masks the text under the current settings. Nothing is kept and no conversation is affected; the placeholders are for show.",
+      previewRun: "Preview", previewNone: "Nothing to mask was found.", truncated: "The text is over 64 KB; only its start was previewed.",
+      confirmClear: "Clear every Masking record? Conversations in progress are not affected and keep restoring.", cleared: "Records cleared.",
+      off: "Masking records are off (records: false). Remove it from plugins.configs.veil, or set it to true, to turn them on.",
+      memoryOnly: "Records are in memory only and are gone when CPA restarts. With base_dir set they go to disk, a file a day, kept 30 days.",
+      droppedNotice: "{n} records were dropped because the write queue was full.", newNote: "\"New\" is judged from memory and starts over when CPA restarts.",
+      loadFailed: "Could not load: {e}", noValues: "The request was stopped before masking; there are no values to tell."
+    }
+  };
+  var lang = "zh";
+  function t(key, n) {
+    var s = (STR[lang] && STR[lang][key]) || STR.zh[key] || key;
+    return n === undefined ? s : s.replace("{n}", n).replace("{e}", n);
+  }
+  function hostLang() {
+    try {
+      if (window.parent !== window && parent.document.documentElement.lang) return parent.document.documentElement.lang;
+    } catch (e) {}
+    try {
+      var stored = JSON.parse(localStorage.getItem("cli-proxy-language") || "null");
+      var l = stored && (stored.state ? stored.state.language : stored.language);
+      if (l) return l;
+    } catch (e) {}
+    return navigator.language || "zh-CN";
+  }
+  function applyLang() {
+    lang = /^zh/i.test(hostLang()) ? "zh" : "en";
+    document.documentElement.lang = lang === "zh" ? "zh-CN" : "en";
+    document.title = t("title") + " · Veil";
+    each("[data-t]", function (el) { el.textContent = t(el.getAttribute("data-t")); });
+    var days = byId("days").options;
+    days[0].textContent = t("day1"); days[1].textContent = t("day7"); days[2].textContent = t("day30");
+    if (state.ready) renderAll();
+  }
+
+  // ---- tiny DOM helpers ---------------------------------------------------
+  function byId(id) { return document.getElementById(id); }
+  function each(sel, fn) { Array.prototype.forEach.call(document.querySelectorAll(sel), fn); }
+  function el(tag, attrs) {
+    var node = document.createElement(tag);
+    if (attrs) for (var k in attrs) {
+      if (k === "text") node.textContent = attrs[k];
+      else if (k === "class") node.className = attrs[k];
+      else if (k.slice(0, 2) === "on") node.addEventListener(k.slice(2), attrs[k]);
+      else node.setAttribute(k, attrs[k]);
+    }
+    for (var i = 2; i < arguments.length; i++) {
+      var c = arguments[i];
+      if (c === null || c === undefined || c === false) continue;
+      node.appendChild(typeof c === "object" ? c : document.createTextNode(String(c)));
+    }
+    return node;
+  }
+  function clear(node) { while (node.firstChild) node.removeChild(node.firstChild); return node; }
+  function fmt(n) { return Number(n || 0).toLocaleString(lang === "zh" ? "zh-CN" : "en"); }
+  function when(s) { var d = new Date(s); return isNaN(d) ? "" : d.toLocaleString(lang === "zh" ? "zh-CN" : "en"); }
+
+  // CPA HTML-escapes every string a plugin's Management API answers with.
+  function unescapeHTML(s) {
+    return s.replace(/&(lt|gt|quot|#34|#39|#x27|amp);/g, function (_, e) {
+      return { lt: "<", gt: ">", quot: "\"", "#34": "\"", "#39": "'", "#x27": "'", amp: "&" }[e];
+    });
+  }
+  function unescapeDeep(v) {
+    if (typeof v === "string") return unescapeHTML(v);
+    if (Array.isArray(v)) return v.map(unescapeDeep);
+    if (v && typeof v === "object") { var o = {}; for (var k in v) o[unescapeHTML(k)] = unescapeDeep(v[k]); return o; }
+    return v;
+  }
+
+  // ---- SHA-256: an http page has no crypto.subtle -------------------------
+  var K = [0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2];
+  function sha256Hex(str) {
+    var bytes = new TextEncoder().encode(str);
+    var len = bytes.length, padded = new Uint8Array(Math.ceil((len + 9) / 64) * 64);
+    padded.set(bytes); padded[len] = 0x80;
+    var view = new DataView(padded.buffer);
+    view.setUint32(padded.length - 8, Math.floor(len / 0x20000000), false);
+    view.setUint32(padded.length - 4, (len * 8) >>> 0, false);
+    var h = [0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19], w = new Array(64);
+    for (var off = 0; off < padded.length; off += 64) {
+      for (var i = 0; i < 16; i++) w[i] = view.getUint32(off + i * 4, false);
+      for (i = 16; i < 64; i++) {
+        var a = w[i - 15], b = w[i - 2];
+        var s0 = ((a >>> 7) | (a << 25)) ^ ((a >>> 18) | (a << 14)) ^ (a >>> 3);
+        var s1 = ((b >>> 17) | (b << 15)) ^ ((b >>> 19) | (b << 13)) ^ (b >>> 10);
+        w[i] = (w[i - 16] + s0 + w[i - 7] + s1) | 0;
+      }
+      var A = h[0], B = h[1], C = h[2], D = h[3], E = h[4], F = h[5], G = h[6], H = h[7];
+      for (i = 0; i < 64; i++) {
+        var S1 = ((E >>> 6) | (E << 26)) ^ ((E >>> 11) | (E << 21)) ^ ((E >>> 25) | (E << 7));
+        var t1 = (H + S1 + ((E & F) ^ (~E & G)) + K[i] + w[i]) | 0;
+        var S0 = ((A >>> 2) | (A << 30)) ^ ((A >>> 13) | (A << 19)) ^ ((A >>> 22) | (A << 10));
+        var t2 = (S0 + ((A & B) ^ (A & C) ^ (B & C))) | 0;
+        H = G; G = F; F = E; E = (D + t1) | 0; D = C; C = B; B = A; A = (t1 + t2) | 0;
+      }
+      h[0] = (h[0] + A) | 0; h[1] = (h[1] + B) | 0; h[2] = (h[2] + C) | 0; h[3] = (h[3] + D) | 0;
+      h[4] = (h[4] + E) | 0; h[5] = (h[5] + F) | 0; h[6] = (h[6] + G) | 0; h[7] = (h[7] + H) | 0;
+    }
+    return h.map(function (x) { return ("00000000" + (x >>> 0).toString(16)).slice(-8); }).join("");
+  }
+
+  // ---- where the API is, and the key --------------------------------------
+  var path = location.pathname, at = path.indexOf("/v0/resource/plugins/");
+  var prefix = at >= 0 ? path.slice(0, at) : "";
+  var pluginID = at >= 0 ? decodeURIComponent(path.slice(at + 21).split("/")[0]) : "veil";
+  var api = prefix + "/v0/management/plugins/" + encodeURIComponent(pluginID) + "/";
+  var SESSION_KEY = "veil-records-key";
+
+  // The key CPA-Manager-Plus saves when "remember" is on: obfuscated, not
+  // encrypted, readable by any page of its origin (enc::v2:: now, enc::v1::
+  // before, or plain JSON).
+  function panelKey() {
+    try {
+      var raw = localStorage.getItem("cli-proxy-auth");
+      if (!raw) return "";
+      var salt = "cli-proxy-api-webui::secure-storage";
+      var unxor = function (b64, key) {
+        var bin = atob(b64), k = new TextEncoder().encode(key), out = new Uint8Array(bin.length);
+        for (var i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i) ^ k[i % k.length];
+        return new TextDecoder().decode(out);
+      };
+      if (raw.indexOf("enc::v2::") === 0) raw = unxor(raw.slice(9), salt + "|v2|" + location.host);
+      else if (raw.indexOf("enc::v1::") === 0) raw = unxor(raw.slice(9), salt + "|" + location.host + "|" + navigator.userAgent);
+      var x = JSON.parse(raw), s = x && (x.state || x);
+      return s && typeof s.managementKey === "string" ? s.managementKey : "";
+    } catch (e) { return ""; }
+  }
+  function sessionKey() { try { return sessionStorage.getItem(SESSION_KEY) || ""; } catch (e) { return ""; } }
+  function saveSessionKey(k) { try { sessionStorage.setItem(SESSION_KEY, k); } catch (e) {} }
+
+  var state = { key: "", fromPanel: false, ready: false, summary: null, records: [], more: false, callers: {}, tab: "overview" };
+
+  function AuthError() {}
+  function request(url, opts) {
+    opts = opts || {};
+    var headers = { Authorization: "Bearer " + state.key };
+    if (opts.body) headers["Content-Type"] = "application/json";
+    return fetch(url, { method: opts.method || "GET", headers: headers, body: opts.body, credentials: "same-origin", cache: "no-store" })
+      .then(function (r) {
+        if (r.status === 401 || r.status === 403) throw new AuthError();
+        return r.json().catch(function () { return {}; }).then(function (body) {
+          if (!r.ok) throw new Error((body && body.error) || ("HTTP " + r.status));
+          return body;
+        });
+      });
+  }
+  function call(name, query, body) {
+    var url = api + name + (query ? "?" + new URLSearchParams(query).toString() : "");
+    return request(url, body === undefined ? {} : { method: "POST", body: JSON.stringify(body) }).then(unescapeDeep);
+  }
+
+  // ---- caller names --------------------------------------------------------
+  function loadCallers() {
+    var names = {};
+    var aliases = request(prefix + "/v0/management/api-key-aliases").then(function (r) {
+      (r.items || []).forEach(function (it) {
+        var h = String(it.apiKeyHash || it.api_key_hash || "").toLowerCase().replace(/^sha256:/, "");
+        if (h && it.alias) names[h] = { label: it.alias, alias: true };
+      });
+    }).catch(function () {});
+    var keys = request(prefix + "/v0/management/api-keys").then(function (r) {
+      (r["api-keys"] || r.items || []).forEach(function (k) {
+        var key = typeof k === "string" ? k : (k && (k["api-key"] || k.key || k.value)) || "";
+        if (!key) return;
+        var h = sha256Hex(key);
+        if (!names[h]) names[h] = { label: "…" + key.slice(-4) };
+      });
+    }).catch(function () {});
+    return Promise.all([aliases, keys]).then(function () { state.callers = names; });
+  }
+  function callerName(scope) {
+    if (!scope) return t("unknownCaller");
+    var n = state.callers[scope];
+    return n ? n.label : scope.slice(0, 8);
+  }
+
+  // ---- login ----------------------------------------------------------------
+  function showLogin(message) {
+    byId("app").classList.add("hidden");
+    byId("login").classList.remove("hidden");
+    var err = byId("loginError");
+    err.textContent = message || "";
+    err.classList.toggle("hidden", !message);
+    byId("keyInput").focus();
+  }
+  function start(key, fromPanel) {
+    state.key = key; state.fromPanel = fromPanel;
+    return call("summary", { days: byId("days").value }).then(function (sum) {
+      state.summary = sum; state.ready = true;
+      byId("login").classList.add("hidden");
+      byId("app").classList.remove("hidden");
+      return loadCallers().then(function () { renderAll(); return loadRecords(true); });
+    }).catch(function (e) {
+      if (e instanceof AuthError) showLogin(fromPanel ? t("panelKeyFailed") : (key ? t("loginFailed") : ""));
+      else showLogin(t("loadFailed", e.message));
+    });
+  }
+  byId("loginButton").addEventListener("click", function () {
+    var k = byId("keyInput").value.trim();
+    if (!k) return;
+    start(k, false).then(function () { if (state.ready) saveSessionKey(k); });
+  });
+  byId("keyInput").addEventListener("keydown", function (e) { if (e.key === "Enter") byId("loginButton").click(); });
+
+  // ---- notices, tabs ----------------------------------------------------------
+  function notice(text, error) { byId("notices").appendChild(el("div", { class: "notice" + (error ? " error" : ""), text: text })); }
+  function renderNotices() {
+    var s = state.summary || {};
+    clear(byId("notices"));
+    if (s.enabled === false) { notice(t("off")); return; }
+    if (s.persisted === false) notice(t("memoryOnly"));
+    if (s.dropped > 0) notice(t("droppedNotice", fmt(s.dropped)));
+  }
+  function selectTab(tab) {
+    state.tab = tab;
+    each("[data-tab]", function (b) { b.setAttribute("aria-selected", b.getAttribute("data-tab") === tab ? "true" : "false"); });
+    ["overview", "records", "preview"].forEach(function (n) { byId("tab-" + n).classList.toggle("hidden", n !== tab); });
+  }
+  each("[data-tab]", function (b) { b.addEventListener("click", function () { selectTab(b.getAttribute("data-tab")); }); });
+
+  // ---- overview ----------------------------------------------------------------
+  function shareTable(list, nameOf) {
+    if (!list || !list.length) return el("p", { class: "muted", text: t("none") });
+    var table = el("table", null, el("tr", null, el("th", { text: t("name") }), el("th", { class: "num", text: t("requests") }), el("th", { class: "num", text: t("count") }), el("th", { class: "num", text: t("distinct") })));
+    list.slice(0, 12).forEach(function (c) {
+      table.appendChild(el("tr", null, el("td", null, nameOf ? nameOf(c.name) : (c.name || "—")), el("td", { class: "num", text: fmt(c.requests) }), el("td", { class: "num", text: fmt(c.n) }), el("td", { class: "num", text: fmt(c.distinct) })));
+    });
+    return table;
+  }
+  function hintText(v) {
+    var parts = [];
+    if (v.head) parts.push(v.head + "…");
+    parts.push(t("chars", v.len));
+    return parts.join(" · ");
+  }
+  function renderOverview() {
+    var s = state.summary || {};
+    var stats = clear(byId("stats"));
+    [["requests", s.requests], ["places", s.n], ["distinct", s.distinct], ["warned", s.warned], ["stopped", s.stopped], ["restored", s.restored], ["unrestored", s.unrestored]].forEach(function (p) {
+      stats.appendChild(el("div", { class: "stat" }, el("b", { text: fmt(p[1]) }), el("span", { text: t(p[0]) })));
+    });
+    var days = s.days || [], max = 1;
+    days.forEach(function (d) { max = Math.max(max, d.requests || 0); });
+    var bars = clear(byId("bars"));
+    days.forEach(function (d) {
+      var bar = el("div", { title: d.day + " · " + t("requests") + " " + fmt(d.requests) + " · " + t("places") + " " + fmt(d.n) });
+      bar.style.height = Math.max(2, Math.round((d.requests || 0) / max * 100)) + "%";
+      if (!d.requests) bar.style.opacity = ".2";
+      bars.appendChild(bar);
+    });
+    var x = clear(byId("barsX"));
+    if (days.length) { x.appendChild(el("span", { text: days[0].day })); x.appendChild(el("span", { text: days[days.length - 1].day })); }
+    clear(byId("byKind")).appendChild(shareTable(s.kinds));
+    clear(byId("byCaller")).appendChild(shareTable(s.callers, callerName));
+    clear(byId("byModel")).appendChild(shareTable(s.models));
+    clear(byId("byRule")).appendChild(shareTable(s.rules));
+    var top = clear(byId("topValues"));
+    if (!s.values || !s.values.length) { top.appendChild(el("p", { class: "muted", text: t("none") })); return; }
+    var table = el("table", null, el("tr", null, el("th", { text: t("value") }), el("th", { text: t("kind") }), el("th", { text: t("hint") }), el("th", { text: t("rule") }), el("th", { class: "num", text: t("count") }), el("th", { class: "num", text: t("requests") }), el("th", { text: t("lastSeen") })));
+    s.values.forEach(function (v) {
+      table.appendChild(el("tr", null, el("td", null, el("code", { text: v.p })), el("td", null, el("span", { class: "badge", text: v.kind })), el("td", { text: hintText(v) }), el("td", { class: "muted", text: v.rule || "" }), el("td", { class: "num", text: fmt(v.n) }), el("td", { class: "num", text: fmt(v.requests) }), el("td", { class: "muted", text: when(v.last) })));
+    });
+    top.appendChild(table);
+  }
+
+  // ---- records -------------------------------------------------------------------
+  function fillSelect(id, allKey, items, labelOf) {
+    var sel = byId(id), keep = sel.value;
+    clear(sel).appendChild(el("option", { value: "", text: t(allKey) }));
+    items.forEach(function (it) { sel.appendChild(el("option", { value: it, text: labelOf ? labelOf(it) : it })); });
+    if (Array.prototype.some.call(sel.options, function (o) { return o.value === keep; })) sel.value = keep;
+  }
+  function renderFilters() {
+    var s = state.summary || {};
+    var names = function (list) { return (list || []).map(function (c) { return c.name; }); };
+    fillSelect("fKind", "allKinds", names(s.kinds));
+    fillSelect("fCaller", "allCallers", names(s.callers).map(function (c) { return "=" + c; }), function (v) { return callerName(v.slice(1)); });
+    fillSelect("fModel", "allModels", names(s.models).filter(Boolean));
+    fillSelect("fAction", "allActions", ["mask", "warn", "block"], function (a) { return t({ mask: "aMask", warn: "aWarn", block: "aBlock" }[a]); });
+  }
+  function query(before) {
+    var q = { limit: "50" };
+    if (before) q.before = String(before);
+    if (byId("fKind").value) q.kind = byId("fKind").value;
+    if (byId("fCaller").value) q.caller = byId("fCaller").value.slice(1);
+    if (byId("fModel").value) q.model = byId("fModel").value;
+    if (byId("fAction").value) q.action = byId("fAction").value;
+    if (byId("fStopped").checked) q.stopped = "1";
+    return q;
+  }
+  function loadRecords(reset) {
+    var before = !reset && state.records.length ? state.records[state.records.length - 1].key : 0;
+    return call("records", query(before)).then(function (r) {
+      state.records = (reset ? [] : state.records).concat(r.records || []);
+      state.more = !!r.more;
+      renderRecords();
+    }).catch(failed);
+  }
+  function actionBadge(a) { return el("span", { class: "badge " + a, text: t({ mask: "aMask", warn: "aWarn", block: "aBlock" }[a] || a) }); }
+  function stoppedText(s) { return t({ block: "sBlock", malformed: "sMalformed", error: "sError" }[s] || s); }
+  function restoredCount(r) {
+    if (!r.restored) return "";
+    var n = 0, back = r.restored.back || {};
+    for (var p in back) n += back[p];
+    return fmt(n);
+  }
+  function renderRecords() {
+    var table = clear(byId("recordsTable"));
+    table.appendChild(el("tr", null, el("th", { text: t("time") }), el("th", { text: t("caller") }), el("th", { text: t("model") }), el("th", { text: t("values") }), el("th", { class: "num", text: t("count") }), el("th", { class: "num", text: t("restored") })));
+    if (!state.records.length) table.appendChild(el("tr", null, el("td", { colspan: "6", class: "muted", text: t("none") })));
+    state.records.forEach(function (r) {
+      var kinds = el("td");
+      if (r.stopped) kinds.appendChild(el("span", { class: "badge stopped", text: stoppedText(r.stopped) }));
+      var byKind = {};
+      (r.values || []).forEach(function (v) { byKind[v.kind] = (byKind[v.kind] || 0) + v.n; });
+      Object.keys(byKind).sort().forEach(function (k) { kinds.appendChild(el("span", { class: "badge", text: k + " ×" + byKind[k] })); });
+      table.appendChild(el("tr", { class: "row", onclick: function () { openDetail(r.key); } },
+        el("td", { class: "muted", text: when(r.time) }), el("td", { text: callerName(r.caller) }), el("td", { text: r.model || "—" }), kinds,
+        el("td", { class: "num", text: fmt(r.n) }), el("td", { class: "num", text: restoredCount(r) })));
+    });
+    byId("more").classList.toggle("hidden", !state.more);
+    byId("listInfo").textContent = state.records.length ? t("shown", fmt(state.records.length)) : "";
+  }
+  ["fKind", "fCaller", "fModel", "fAction", "fStopped"].forEach(function (id) { byId(id).addEventListener("change", function () { loadRecords(true); }); });
+  byId("more").addEventListener("click", function () { loadRecords(false); });
+
+  // ---- one record -------------------------------------------------------------------
+  function marked(snip, placeholders) {
+    var box = el("div", { class: "snip" });
+    var rest = snip;
+    while (rest.length) {
+      var best = -1, which = "";
+      placeholders.forEach(function (p) { var i = rest.indexOf(p); if (i >= 0 && (best < 0 || i < best)) { best = i; which = p; } });
+      if (best < 0) { box.appendChild(document.createTextNode(rest)); break; }
+      box.appendChild(document.createTextNode(rest.slice(0, best)));
+      box.appendChild(el("mark", { text: which }));
+      rest = rest.slice(best + which.length);
+    }
+    return box;
+  }
+  function openDetail(key) {
+    call("record", { key: String(key) }).then(function (r) {
+      var body = clear(byId("detailBody"));
+      var kv = el("dl", { class: "kv" },
+        el("dt", { text: t("time") }), el("dd", { text: when(r.time) }),
+        el("dt", { text: t("caller") }), el("dd", { text: callerName(r.caller) + (r.caller ? "  (" + r.caller.slice(0, 16) + "…)" : "") }),
+        el("dt", { text: t("model") }), el("dd", { text: r.model || "—" }),
+        el("dt", { text: t("format") }), el("dd", { text: r.format || "—" }),
+        el("dt", { text: t("took") }), el("dd", { text: t("micro", fmt(r.took)) }));
+      if (r.stopped) { kv.appendChild(el("dt", { text: t("stopped") })); kv.appendChild(el("dd", null, el("span", { class: "badge stopped", text: stoppedText(r.stopped) }))); }
+      body.appendChild(el("div", { class: "card" }, kv));
+
+      var values = r.values || [], back = (r.restored && r.restored.back) || {};
+      var vt = el("table", null, el("tr", null, el("th", { text: t("value") }), el("th", { text: t("kind") }), el("th", { text: t("hint") }), el("th", { text: t("action") }), el("th", { class: "num", text: t("count") }), el("th", { class: "num", text: t("restored") }), el("th", { text: t("paths") })));
+      values.forEach(function (v) {
+        vt.appendChild(el("tr", null,
+          el("td", null, el("code", { text: v.p }), v.new ? el("span", { class: "badge new", text: t("isNew") }) : null),
+          el("td", null, el("span", { class: "badge", text: v.kind }), el("div", { class: "muted", text: v.rule || "" })),
+          el("td", { text: hintText(v) }), el("td", null, actionBadge(v.action)),
+          el("td", { class: "num", text: fmt(v.n) }), el("td", { class: "num", text: back[v.p] ? fmt(back[v.p]) : "" }),
+          el("td", { class: "mono muted", text: (v.paths || []).join(", ") })));
+      });
+      body.appendChild(el("div", { class: "card" }, el("h2", { text: t("values") }), values.length ? el("div", { class: "scroll" }, vt) : el("p", { class: "muted", text: t("noValues") }), el("p", { class: "muted", text: t("newNote") })));
+
+      var snips = el("div", { class: "card" }, el("h2", { text: t("snips") }));
+      var placeholders = values.map(function (v) { return v.p; }).sort(function (a, b) { return b.length - a.length; });
+      if (r.snips) values.forEach(function (v) { if (r.snips[v.p]) { snips.appendChild(el("div", { class: "muted", text: v.kind + " " + v.p })); snips.appendChild(marked(r.snips[v.p], placeholders)); } });
+      else if (values.length) snips.appendChild(el("p", { class: "muted", text: t("noSnips") }));
+      body.appendChild(snips);
+
+      var rs = el("div", { class: "card" }, el("h2", { text: t("restoredTitle") }));
+      if (!r.restored) rs.appendChild(el("p", { class: "muted", text: t("noResponse") }));
+      else {
+        var list = el("div");
+        Object.keys(back).sort().forEach(function (p) { list.appendChild(el("div", null, el("code", { text: p }), " ", el("span", { class: "muted", text: t("restoredPlaces", fmt(back[p])) }))); });
+        if (!Object.keys(back).length) list.appendChild(el("p", { class: "muted", text: t("restoredPlaces", 0) }));
+        rs.appendChild(list);
+        var un = r.restored.unrestored || {};
+        if (Object.keys(un).length) {
+          rs.appendChild(el("h2", { style: "margin-top:12px", text: t("unrestoredTitle") }));
+          Object.keys(un).sort().forEach(function (p) { rs.appendChild(el("div", null, el("code", { text: p }), " ×" + un[p])); });
+        }
+      }
+      body.appendChild(rs);
+      byId("detail").classList.remove("hidden");
+    }).catch(failed);
+  }
+  byId("detailClose").addEventListener("click", function () { byId("detail").classList.add("hidden"); });
+  byId("detail").addEventListener("click", function (e) { if (e.target === byId("detail")) byId("detail").classList.add("hidden"); });
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape") byId("detail").classList.add("hidden"); });
+
+  // ---- preview ----------------------------------------------------------------------
+  byId("previewRun").addEventListener("click", function () {
+    var text = byId("previewText").value;
+    call("preview", null, { text: text }).then(function (r) {
+      var out = clear(byId("previewOut"));
+      if (r.truncated) out.appendChild(el("div", { class: "notice", text: t("truncated") }));
+      var hits = r.hits || [];
+      if (!hits.length) { out.appendChild(el("p", { class: "muted", text: t("previewNone") })); return; }
+      out.appendChild(marked(r.text || "", hits.map(function (h) { return h.p; }).sort(function (a, b) { return b.length - a.length; })));
+      var table = el("table", { style: "margin-top:10px" }, el("tr", null, el("th", { text: t("value") }), el("th", { text: t("kind") }), el("th", { text: t("rule") }), el("th", { text: t("hint") }), el("th", { text: t("action") })));
+      hits.forEach(function (h) { table.appendChild(el("tr", null, el("td", null, el("code", { text: h.p })), el("td", null, el("span", { class: "badge", text: h.kind })), el("td", { class: "muted", text: h.rule || "" }), el("td", { text: hintText(h) }), el("td", null, actionBadge(h.action)))); });
+      out.appendChild(table);
+    }).catch(failed);
+  });
+
+  // ---- refresh, clear ---------------------------------------------------------------
+  function refresh() {
+    return call("summary", { days: byId("days").value }).then(function (s) { state.summary = s; renderAll(); return loadRecords(true); }).catch(failed);
+  }
+  byId("refresh").addEventListener("click", function () { loadCallers().then(refresh); });
+  byId("days").addEventListener("change", refresh);
+  byId("clear").addEventListener("click", function () {
+    if (!window.confirm(t("confirmClear"))) return;
+    call("clear", null, {}).then(function () { return refresh(); }).then(function () { notice(t("cleared")); }).catch(failed);
+  });
+  function failed(e) {
+    if (e instanceof AuthError) { showLogin(t("loginFailed")); return; }
+    notice(t("loadFailed", e && e.message ? e.message : String(e)), true);
+  }
+  function renderAll() {
+    renderNotices();
+    renderOverview();
+    renderFilters();
+    renderRecords();
+  }
+
+  // ---- go ---------------------------------------------------------------------------
+  applyLang();
+  selectTab("overview");
+  try {
+    var root = window.parent !== window && parent.document.documentElement;
+    if (root) new MutationObserver(applyLang).observe(root, { attributes: true, attributeFilter: ["lang"] });
+  } catch (e) {}
+  window.addEventListener("storage", function (e) { if (e.key === "cli-proxy-language") applyLang(); });
+  var k = panelKey();
+  if (k) start(k, true);
+  else if (sessionKey()) start(sessionKey(), false);
+  else showLogin("");
+})();
+</script>
 </body>
 </html>
