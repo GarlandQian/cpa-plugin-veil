@@ -156,13 +156,30 @@ func (p *veilPlugin) list(req pluginapi.ManagementRequest) pluginapi.ManagementR
 		f.Caller = &caller
 	}
 	list, more := p.records.List(before, limit, f)
-	for i := range list {
-		list[i].Snips = nil // a record's own page shows them
+	out := make([]listed, len(list))
+	for i, r := range list {
+		out[i] = listed{Record: r, Glimpse: glimpse(r)}
+		out[i].Snips = nil // a record's own page shows them
 	}
-	if list == nil {
-		list = []records.Record{}
+	return jsonResponse(http.StatusOK, map[string]any{"enabled": true, "records": out, "more": more})
+}
+
+// listed is a record as the list tells it: without its Snips, with a
+// Glimpse of one.
+type listed struct {
+	records.Record
+	// Glimpse is the Snip of the record's first value that has one, for the
+	// list to show what the request was about.
+	Glimpse string `json:"glimpse,omitempty"`
+}
+
+func glimpse(r records.Record) string {
+	for _, v := range r.Values {
+		if s := r.Snips[v.Placeholder]; s != "" {
+			return s
+		}
 	}
-	return jsonResponse(http.StatusOK, map[string]any{"enabled": true, "records": list, "more": more})
+	return ""
 }
 
 func (p *veilPlugin) recordDetail(req pluginapi.ManagementRequest) pluginapi.ManagementResponse {

@@ -410,22 +410,25 @@ Veil keeps a Masking record of each request that had a value masked, warned abou
 request. A "脱敏记录" (Masking records) entry appears in management panels that show plugin menus, such as
 CPA-Manager-Plus, and the page below can be opened directly too. It has:
 
-- **Overview**: requests, places masked, different values, values sent as written, Stopped requests, places the
-  responses restored and Placeholders they held that could not be restored; requests per day; shares by Kind, caller,
-  model and rule; the most masked values.
-- **Records**: newest first, filtered by Kind, caller, model or Action, or Stopped requests only.
-- **A record**: each value's Placeholder or Stand-in, Kind, the rule that found it, a hint (its first character, or a
-  key's prefix), length, count, Action, fields and whether it was new; the context as the upstream saw it; how many
-  places the response restored and which Placeholders it could not.
+- **Overview**: places with sensitive values and how many different values, requests and Stopped requests, places
+  the responses restored and Placeholders they could not, values sent as written; requests per day; what Kinds, how
+  they were found (each rule told in plain words), which callers and models; the values seen most often.
+- **Requests**: newest first, each with its Kinds and counts, what the response restored and a line of context;
+  filtered by Kind, caller, model or Action, or Stopped requests only.
+- **A request**: a sentence on what happened to it, then a card for each value: its Kind and Action, a hint (its first
+  character, or a key's prefix) and length, why it was taken for sensitive, where it was (such as "item 68 · tool
+  output"), the context as the upstream saw it with each Placeholder shown as its Kind, how many places the response
+  restored, and what to change in the config if it is not sensitive (turn the rule off, let the value through with
+  `allow`, or set the Kind to `warn`). The Placeholder, rule ID and field paths are under its technical details.
 - **Clear records**: deletes the records only; conversations in progress keep restoring.
-- **Preview**: shows how a text would be masked under the current settings, keeping nothing and touching no
+- **Try it**: shows how a text would be masked under the current settings, keeping nothing and touching no
   conversation.
 
 Records and the page **never hold a value**, and offer no way to see one (ADR-0005): holding the management key should
 not mean seeing every caller's secrets and personal data.
 
 Callers are told apart by client API key: the page shows the alias CPA-Manager-Plus has for the key, else the key's
-last four characters, and "unknown caller" for requests without a key. Veil keeps no key.
+last four characters, and "Default caller" for requests without a key. Veil keeps no key.
 
 ### Storage
 
@@ -436,7 +439,7 @@ last four characters, and "unknown caller" for requests without a key. Veil keep
   On CPA v8 without `base_dir` records live in memory and are gone when CPA restarts.
 - Records are written in the background and never make a request wait; when the queue is full a record is dropped,
   and the page says how many were.
-- "New" is judged from the mappings in memory and starts over when CPA restarts.
+- "First time" is judged from the mappings in memory and starts over when CPA restarts.
 
 To keep no records, set `records: false`:
 
@@ -455,7 +458,7 @@ no data and reads the records from Management API routes behind the management k
 | Route | What it does |
 |---|---|
 | `GET /v0/management/plugins/veil/summary?days=7` | A summary of the last days (1 to 30) |
-| `GET /v0/management/plugins/veil/records` | The records, with `before`, `limit`, `kind`, `caller`, `model`, `action`, `stopped=1` |
+| `GET /v0/management/plugins/veil/records` | The records, each with a `glimpse` of its context, with `before`, `limit`, `kind`, `caller`, `model`, `action`, `stopped=1` |
 | `GET /v0/management/plugins/veil/record?key=` | One record, with its context and what was restored |
 | `POST /v0/management/plugins/veil/clear` | Clears the records |
 | `POST /v0/management/plugins/veil/preview` | Previews `{"text": "..."}`, up to 64 KB |

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -66,7 +67,7 @@ func TestManagementAnswersWithoutValues(t *testing.T) {
 	status, list, raw = manage(t, p, http.MethodGet, base+"records", url.Values{"kind": {"EMAIL"}}, "")
 	bodies = append(bodies, raw)
 	recs := list["records"].([]any)
-	if status != http.StatusOK || len(recs) != 1 || recs[0].(map[string]any)["snips"] != nil {
+	if status != http.StatusOK || len(recs) != 1 || recs[0].(map[string]any)["snips"] != nil || !strings.Contains(fmt.Sprint(recs[0].(map[string]any)["glimpse"]), "{{EMAIL_") {
 		t.Fatalf("records = %d %s", status, raw)
 	}
 	key := strconv.FormatInt(int64(recs[0].(map[string]any)["key"].(float64)), 10)

@@ -28,62 +28,143 @@
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; }
-  body { background: var(--v-bg); color: var(--v-text); font: 14px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; }
-  code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.5px; }
+  body { background: var(--v-bg); color: var(--v-text); font: 14px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; }
+  code, pre, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.5px; }
   button, input, select, textarea { font: inherit; color: inherit; }
-  .wrap { max-width: 1200px; margin: 0 auto; padding: 16px; }
-  header { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 14px; }
-  header h1 { font-size: 18px; margin: 0 8px 0 0; }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 16px; }
+  header { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; margin-bottom: 14px; }
+  .title { display: flex; flex-direction: column; margin-right: 8px; min-width: 0; }
+  .title h1 { font-size: 18px; margin: 0; line-height: 1.3; }
+  .title span { color: var(--v-text-3); font-size: 12px; }
   .tabs { display: flex; gap: 4px; background: var(--v-surface-2); padding: 3px; border-radius: 9px; }
-  .tabs button { border: 0; background: transparent; padding: 5px 14px; border-radius: 7px; cursor: pointer; color: var(--v-text-2); }
+  .tabs button { border: 0; background: transparent; padding: 5px 14px; border-radius: 7px; cursor: pointer; color: var(--v-text-2); white-space: nowrap; }
   .tabs button[aria-selected="true"] { background: var(--v-surface); color: var(--v-text); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
   .spacer { flex: 1; }
-  .btn { border: 1px solid var(--v-border); background: var(--v-surface); padding: 5px 12px; border-radius: 7px; cursor: pointer; }
+  .actions { display: flex; gap: 8px; }
+  .btn { border: 1px solid var(--v-border); background: var(--v-surface); padding: 5px 12px; border-radius: 7px; cursor: pointer; white-space: nowrap; }
   .btn:hover { border-color: var(--v-accent); }
   .btn.primary { background: var(--v-accent); border-color: var(--v-accent); color: var(--v-accent-contrast); }
   .btn.danger { color: var(--v-danger); }
+  .btn.small { padding: 1px 9px; font-size: 12px; }
   .btn:disabled { opacity: .5; cursor: default; }
-  .card { background: var(--v-surface); border: 1px solid var(--v-border); border-radius: var(--v-radius); padding: 14px 16px; margin-bottom: 14px; }
-  .card h2 { font-size: 14px; margin: 0 0 10px; color: var(--v-text-2); font-weight: 600; }
+  .card { background: var(--v-surface); border: 1px solid var(--v-border); border-radius: var(--v-radius); padding: 14px 16px; margin-bottom: 14px; min-width: 0; }
+  .card > h2, .card-head h2 { font-size: 14px; margin: 0 0 10px; font-weight: 600; }
+  .card-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .card-head h2 { margin: 0; flex: 1; }
+  .sub { color: var(--v-text-3); font-size: 12px; margin: -6px 0 10px; }
   .notice { border-left: 3px solid var(--v-warning); background: var(--v-surface); padding: 9px 12px; border-radius: 6px; margin-bottom: 14px; color: var(--v-text-2); }
   .notice.error { border-color: var(--v-danger); }
-  .stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; }
-  .stat { background: var(--v-surface-2); border-radius: 8px; padding: 8px 10px; }
-  .stat b { display: block; font-size: 20px; font-weight: 600; }
-  .stat span { color: var(--v-text-3); font-size: 12px; }
-  .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
-  table { width: 100%; border-collapse: collapse; }
-  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--v-border); vertical-align: top; }
-  th { color: var(--v-text-3); font-weight: 500; font-size: 12px; white-space: nowrap; }
-  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
-  tr.row { cursor: pointer; }
-  tr.row:hover td { background: var(--v-surface-2); }
+  .notice.ok { border-color: var(--v-success); }
   .muted { color: var(--v-text-3); }
-  .badge { display: inline-block; padding: 0 7px; border-radius: 999px; font-size: 12px; line-height: 20px; background: var(--v-surface-2); color: var(--v-text-2); margin: 1px 3px 1px 0; white-space: nowrap; }
-  .badge.mask { color: var(--v-accent); }
-  .badge.warn { color: var(--v-warning); }
-  .badge.block, .badge.stopped { color: var(--v-danger); }
-  .badge.new { color: var(--v-success); }
+  .small { font-size: 12px; }
+  .hidden { display: none !important; }
+  .ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+
+  /* kinds: secrets red, personal data orange, devices and networks blue, the user's own green */
+  .g-secret { --kc: var(--v-danger); }
+  .g-personal { --kc: var(--v-warning); }
+  .g-device { --kc: var(--v-accent); }
+  .g-custom { --kc: var(--v-success); }
+  .kind { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; font-weight: 500; }
+  .kind::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--kc, var(--v-text-3)); flex: none; }
+  .tag { display: inline-flex; align-items: center; gap: 4px; padding: 0 8px; border-radius: 999px; font-size: 12px; line-height: 22px; background: var(--v-surface-2); color: var(--v-text-2); white-space: nowrap; }
+  .tag.kc { background: color-mix(in srgb, var(--kc) 13%, transparent); color: var(--v-text); }
+  .tag.mask { color: var(--v-accent); }
+  .tag.warn { color: var(--v-warning); }
+  .tag.block, .tag.stopped { color: var(--v-danger); }
+  .tag.new { color: var(--v-success); }
+  .tags { display: flex; flex-wrap: wrap; gap: 6px; }
+  /* a Placeholder or Stand-in in a context: what it stands for, the token itself on hover */
+  .ph { display: inline-block; padding: 0 5px; margin: 0 1px; border-radius: 4px; font-size: 12px; line-height: 18px; font-weight: 600; white-space: nowrap;
+        background: color-mix(in srgb, var(--kc, var(--v-accent)) 16%, transparent); color: var(--kc, var(--v-accent)); cursor: help; }
+  .quote { background: var(--v-surface-2); border-radius: 6px; padding: 8px 10px; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--v-text-2); }
+
+  /* overview */
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
+  .stat { background: var(--v-surface-2); border-radius: 8px; padding: 10px 12px; min-width: 0; }
+  .stat b { display: block; font-size: 24px; font-weight: 600; line-height: 1.25; font-variant-numeric: tabular-nums; }
+  .stat .label { font-weight: 500; }
+  .stat .note { color: var(--v-text-3); font-size: 12px; }
+  .stat .note.bad { color: var(--v-warning); }
+  .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; }
+  .grid2 > .card { margin-bottom: 0; }
+  .grid2 { margin-bottom: 14px; }
   .bars { display: flex; align-items: flex-end; gap: 3px; height: 110px; padding-top: 6px; }
-  .bars div { flex: 1; min-width: 4px; background: var(--v-accent); opacity: .75; border-radius: 3px 3px 0 0; position: relative; }
+  .bars div { flex: 1; min-width: 4px; background: var(--v-accent); opacity: .75; border-radius: 3px 3px 0 0; }
   .bars div:hover { opacity: 1; }
-  .bars-x { display: flex; justify-content: space-between; color: var(--v-text-3); font-size: 11px; margin-top: 4px; }
-  .filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
-  select, input[type=text], input[type=password], textarea { background: var(--v-surface); border: 1px solid var(--v-border); border-radius: 7px; padding: 5px 8px; }
+  .bars-x { display: flex; justify-content: space-between; gap: 3px; color: var(--v-text-3); font-size: 11px; margin-top: 4px; }
+  .bars-x span { flex: 1; text-align: center; min-width: 0; overflow: hidden; }
+  .bars-x.ends span { flex: none; }
+  .share { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 12px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--v-border); }
+  .share:last-child { border-bottom: 0; }
+  .share .num { color: var(--v-text-2); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; text-align: right; }
+  .share .meter { grid-column: 1 / -1; height: 4px; border-radius: 2px; background: var(--v-surface-2); overflow: hidden; }
+  .share .meter i { display: block; height: 100%; background: var(--kc, var(--v-accent)); opacity: .7; }
+  .share .why { grid-column: 1 / -1; color: var(--v-text-3); font-size: 12px; }
+  .seen { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 12px; padding: 8px 0; border-bottom: 1px solid var(--v-border); }
+  .seen:last-child { border-bottom: 0; }
+  .seen .right { text-align: right; font-size: 12px; color: var(--v-text-2); white-space: nowrap; }
+
+  /* records */
+  .filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+  select, input[type=text], input[type=password], textarea { background: var(--v-surface); border: 1px solid var(--v-border); border-radius: 7px; padding: 5px 8px; max-width: 100%; }
   textarea { width: 100%; min-height: 140px; resize: vertical; }
-  .snip { background: var(--v-surface-2); border-radius: 6px; padding: 6px 8px; white-space: pre-wrap; word-break: break-all; }
-  .snip mark { background: color-mix(in srgb, var(--v-accent) 22%, transparent); color: inherit; border-radius: 3px; padding: 0 2px; }
+  .rec { display: block; border-bottom: 1px solid var(--v-border); padding: 10px 6px; cursor: pointer; border-radius: 6px; min-width: 0; }
+  .rec:hover, .rec:focus-visible { background: var(--v-surface-2); outline: none; }
+  .rec-top { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+  .rec-time { font-weight: 600; white-space: nowrap; }
+  .rec-who { color: var(--v-text-3); font-size: 12px; }
+  .rec-state { margin-left: auto; font-size: 12px; white-space: nowrap; color: var(--v-text-2); }
+  .rec-state.bad { color: var(--v-danger); }
+  .rec-sum { margin: 4px 0 2px; }
+  .rec-glimpse { color: var(--v-text-3); font-size: 12.5px; }
+  .list-foot { margin-top: 10px; display: flex; align-items: center; gap: 10px; }
+
+  /* one record */
   .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.35); display: flex; justify-content: flex-end; z-index: 10; }
-  .panel { width: min(760px, 100%); height: 100%; overflow: auto; background: var(--v-bg); padding: 16px; box-shadow: -4px 0 18px rgba(0,0,0,.15); }
+  .panel { width: min(780px, 100%); height: 100%; overflow: auto; background: var(--v-bg); padding: 16px; box-shadow: -4px 0 18px rgba(0,0,0,.15); }
   .panel-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
-  .panel-head h2 { flex: 1; font-size: 16px; margin: 0; }
-  .kv { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; }
-  .kv dt { color: var(--v-text-3); }
-  .kv dd { margin: 0; word-break: break-all; }
+  .panel-head h2 { flex: 1; font-size: 16px; margin: 0; min-width: 0; }
+  .lead { font-size: 15px; margin: 0 0 10px; }
+  .facts { display: flex; flex-wrap: wrap; gap: 6px 18px; color: var(--v-text-2); font-size: 12.5px; }
+  .facts span b { color: var(--v-text-3); font-weight: 400; margin-right: 4px; }
+  .vcard { border: 1px solid var(--v-border); border-left: 3px solid var(--kc, var(--v-border)); border-radius: 8px; padding: 12px 14px; margin-bottom: 10px; background: var(--v-surface); }
+  .vhead { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+  .vhead .kind { font-size: 15px; }
+  .vhead .back { margin-left: auto; font-size: 12px; color: var(--v-success); white-space: nowrap; }
+  .vhead .back.none { color: var(--v-text-3); }
+  .vline { display: grid; grid-template-columns: 4.5em minmax(0, 1fr); gap: 8px; margin-top: 8px; }
+  .vline > b { color: var(--v-text-3); font-weight: 400; }
+  .vline > div { min-width: 0; }
+  details { margin-top: 10px; }
+  details > summary { cursor: pointer; color: var(--v-accent); font-size: 13px; width: max-content; max-width: 100%; }
+  details[open] > summary { margin-bottom: 6px; }
+  .fp { background: var(--v-surface-2); border-radius: 6px; padding: 10px 12px; font-size: 13px; }
+  .fp h4 { margin: 10px 0 4px; font-size: 13px; }
+  .fp h4:first-child { margin-top: 0; }
+  .fp p { margin: 0 0 6px; color: var(--v-text-2); }
+  .snippet { display: flex; align-items: flex-start; gap: 8px; }
+  .snippet pre { flex: 1; min-width: 0; margin: 0; background: var(--v-surface); border: 1px solid var(--v-border); border-radius: 6px; padding: 6px 8px; overflow-x: auto; }
+  .tech { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 12px; font-size: 12.5px; }
+  .tech dt { color: var(--v-text-3); }
+  .tech dd { margin: 0; overflow-wrap: anywhere; }
   .login { max-width: 420px; margin: 60px auto; }
   .login input { width: 100%; margin: 8px 0 12px; }
-  .hidden { display: none !important; }
-  .scroll { overflow-x: auto; }
+
+  @media (max-width: 640px) {
+    .wrap { padding: 12px; }
+    .tabs { order: 3; width: 100%; }
+    .tabs button { flex: 1; padding: 5px 6px; }
+    .actions { margin-left: auto; }
+    .card { padding: 12px; }
+    .stats { grid-template-columns: 1fr 1fr; }
+    .stat b { font-size: 20px; }
+    .grid2 { grid-template-columns: minmax(0, 1fr); }
+    .rec-top { flex-wrap: wrap; }
+    .rec-state { margin-left: 0; }
+    .panel { padding: 12px; }
+    .vline { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  }
 </style>
 </head>
 <body>
@@ -99,23 +180,25 @@
 
   <div id="app" class="hidden">
     <header>
-      <h1 data-t="title"></h1>
+      <div class="title"><h1 data-t="title"></h1><span data-t="tagline"></span></div>
       <div class="tabs" role="tablist">
         <button role="tab" data-tab="overview" data-t="tabOverview"></button>
         <button role="tab" data-tab="records" data-t="tabRecords"></button>
         <button role="tab" data-tab="preview" data-t="tabPreview"></button>
       </div>
       <div class="spacer"></div>
-      <button id="refresh" class="btn" data-t="refresh"></button>
-      <button id="clear" class="btn danger" data-t="clear"></button>
+      <div class="actions">
+        <button id="refresh" class="btn" data-t="refresh"></button>
+        <button id="clear" class="btn danger" data-t="clear"></button>
+      </div>
     </header>
     <div id="notices"></div>
 
     <section id="tab-overview">
       <div class="card">
-        <div class="filters">
-          <h2 style="margin:0" data-t="range"></h2>
-          <select id="days">
+        <div class="card-head">
+          <h2 data-t="atAGlance"></h2>
+          <select id="days" aria-label="range">
             <option value="1"></option><option value="7" selected></option><option value="30"></option>
           </select>
         </div>
@@ -123,25 +206,25 @@
       </div>
       <div class="card"><h2 data-t="trend"></h2><div id="bars" class="bars"></div><div id="barsX" class="bars-x"></div></div>
       <div class="grid2">
-        <div class="card"><h2 data-t="byKind"></h2><div id="byKind"></div></div>
+        <div class="card"><h2 data-t="byKind"></h2><p class="sub" data-t="byKindSub"></p><div id="byKind"></div></div>
+        <div class="card"><h2 data-t="byRule"></h2><p class="sub" data-t="byRuleSub"></p><div id="byRule"></div></div>
         <div class="card"><h2 data-t="byCaller"></h2><div id="byCaller"></div></div>
         <div class="card"><h2 data-t="byModel"></h2><div id="byModel"></div></div>
-        <div class="card"><h2 data-t="byRule"></h2><div id="byRule"></div></div>
       </div>
-      <div class="card"><h2 data-t="topValues"></h2><div class="scroll" id="topValues"></div></div>
+      <div class="card"><h2 data-t="topValues"></h2><p class="sub" data-t="topValuesSub"></p><div id="topValues"></div></div>
     </section>
 
     <section id="tab-records" class="hidden">
       <div class="card">
         <div class="filters">
-          <select id="fKind"></select>
-          <select id="fCaller"></select>
-          <select id="fModel"></select>
-          <select id="fAction"></select>
+          <select id="fKind" aria-label="kind"></select>
+          <select id="fCaller" aria-label="caller"></select>
+          <select id="fModel" aria-label="model"></select>
+          <select id="fAction" aria-label="action"></select>
           <label><input id="fStopped" type="checkbox"> <span data-t="onlyStopped"></span></label>
         </div>
-        <div class="scroll"><table id="recordsTable"></table></div>
-        <div style="margin-top:10px"><button id="more" class="btn hidden" data-t="more"></button> <span id="listInfo" class="muted"></span></div>
+        <div id="recordsList"></div>
+        <div class="list-foot"><button id="more" class="btn hidden" data-t="more"></button><span id="listInfo" class="muted small"></span></div>
       </div>
     </section>
 
@@ -158,8 +241,8 @@
 </div>
 
 <div id="detail" class="overlay hidden">
-  <div class="panel" role="dialog" aria-modal="true">
-    <div class="panel-head"><h2 data-t="detailTitle"></h2><button id="detailClose" class="btn" data-t="close"></button></div>
+  <div class="panel" role="dialog" aria-modal="true" aria-labelledby="detailTitle">
+    <div class="panel-head"><h2 id="detailTitle"></h2><button id="detailClose" class="btn" data-t="close"></button></div>
     <div id="detailBody"></div>
   </div>
 </div>
@@ -170,64 +253,197 @@
   // ---- strings ----------------------------------------------------------
   var STR = {
     zh: {
-      title: "脱敏记录", tabOverview: "总览", tabRecords: "记录", tabPreview: "预览", refresh: "刷新", clear: "清空记录",
+      title: "脱敏记录", tagline: "Veil 在发给上游前替换掉的敏感信息，这里只记录类型和位置，不保存原文",
+      tabOverview: "总览", tabRecords: "请求记录", tabPreview: "试一试", refresh: "刷新", clear: "清空记录",
       loginTitle: "连接 CPA 管理接口", loginHint: "没有读到管理面板保存的密钥，请输入管理密钥。它只保存在这个标签页里。",
       managementKey: "管理密钥", connect: "连接", loginFailed: "密钥无效，或没有权限访问管理接口。", panelKeyFailed: "面板保存的密钥不能访问管理接口，请手动输入。",
-      range: "时间范围", day1: "今天", day7: "最近 7 天", day30: "最近 30 天", trend: "每天的请求数",
-      requests: "请求", places: "掩码次数", distinct: "不同的值", warned: "告警放行", stopped: "被拦请求",
-      restored: "已还原", unrestored: "还原不了", dropped: "丢弃的记录",
-      byKind: "按类型", byCaller: "按调用方", byModel: "按模型", byRule: "按规则", topValues: "掩码最多的值",
-      name: "名称", count: "次数", values: "值", value: "值", kind: "类型", rule: "规则", hint: "提示", len: "长度",
-      lastSeen: "最后出现", time: "时间", caller: "调用方", model: "模型", format: "来源格式", action: "动作", paths: "字段",
-      none: "暂无数据", allKinds: "全部类型", allCallers: "全部调用方", allModels: "全部模型", allActions: "全部动作",
-      onlyStopped: "只看被拦请求", more: "加载更多", shown: "已显示 {n} 条",
-      aMask: "掩码", aWarn: "告警", aBlock: "拦截", isNew: "新出现",
-      sBlock: "命中拦截规则", sMalformed: "请求体不是有效 JSON", sError: "掩码出错",
-      unknownCaller: "未识别调用方", chars: "{n} 个字符",
-      detailTitle: "记录详情", close: "关闭", took: "掩码耗时", micro: "{n} 微秒", snips: "上游看到的上下文",
-      noSnips: "上下文只在内存里保留最近 400 条记录，这一条已经没有了。", restoredTitle: "回复中的还原",
-      noResponse: "还没有收到这个请求的回复，或者回复不是在本次 CPA 进程里收到的。", restoredPlaces: "还原 {n} 处",
-      unrestoredTitle: "回复里出现、但还原不了的占位符",
-      previewTitle: "预览掩码", previewHint: "按当前配置检测并掩码这段文字，结果不会保存，也不会影响正在进行的对话。占位符只作示意。",
-      previewRun: "预览", previewNone: "没有识别出需要掩码的值。", truncated: "文字超过 64 KB，只预览了前一部分。",
-      confirmClear: "确定清空所有脱敏记录吗？正在进行的对话不受影响，仍会正常还原。", cleared: "已清空记录。",
-      off: "脱敏记录已关闭（records: false）。在 plugins.configs.veil 中删除这一项或设为 true 即可开启。",
-      memoryOnly: "记录只保存在内存里，重启 CPA 后会清空。设置 base_dir 后会按天写入磁盘，保留 30 天。",
-      droppedNotice: "有 {n} 条记录因为写入队列已满被丢弃。", newNote: "“新出现”按内存判断，CPA 重启后会重新计算。",
-      loadFailed: "加载失败：{e}", noValues: "这个请求在掩码前就被拦下，没有可记录的值。"
+      day1: "今天", day7: "最近 7 天", day30: "最近 30 天", atAGlance: "概况", trend: "每天有多少请求带了敏感信息",
+      sFound: "处敏感信息", sFoundNote: "共 {n} 个不同的值", sRequests: "个请求", sRequestsNote: "带有敏感信息", sRequestsStopped: "其中 {n} 个被拦下，没有发出",
+      sBack: "处换回了原文", sBackNote: "在模型的回复里", sBackBad: "另有 {n} 处没能换回", sWarned: "处原样发出", sWarnedNote: "按配置只提醒、不替换",
+      byKind: "哪些类型的信息", byKindSub: "按被替换的次数排列", byRule: "是怎么认出来的", byRuleSub: "每条规则认出了多少处",
+      byCaller: "来自哪个调用方", byModel: "发往哪个模型", topValues: "反复出现的值", topValuesSub: "同一个值在多个请求里出现，看提示就能大致认出是哪一个",
+      places: "{n} 处", requestsN: "{n} 个请求", none: "这段时间里还没有记录",
+      allKinds: "全部类型", allCallers: "全部调用方", allModels: "全部模型", allActions: "全部处理方式",
+      onlyStopped: "只看被拦下的", more: "加载更多", shown: "已显示 {n} 条",
+      aMask: "已替换", aWarn: "仅提醒", aBlock: "已拦截", isNew: "首次出现",
+      newTip: "这个调用方之前的请求里没有出现过它（按内存判断，CPA 重启后重新计算）",
+      sBlock: "里面有按配置要拦截的值", sMalformed: "请求体不是有效的 JSON", sError: "脱敏时出错",
+      stoppedTag: "被拦下", unknownCaller: "默认调用方",
+      startsWith: "以 {n} 开头", chars: "{n} 个字符", times: "出现 {n} 处",
+      justNow: "刚刚", minAgo: "{n} 分钟前", hourAgo: "{n} 小时前", yesterday: "昨天 {n}",
+      backN: "已换回 {n} 处", backNone: "回复里没用到", noResp: "等待回复", warnedN: "{n} 处原样发出",
+      detailTitle: "{n} 的请求", close: "关闭",
+      leadMasked: "Veil 在这个请求里认出了 {k} 个敏感值，共 {n} 处，换成占位符后才发给上游。",
+      leadWarned: "其中 {n} 处按配置只提醒，原样发了出去。",
+      leadStopped: "这个请求被拦下了，没有发给上游：{n}。",
+      leadBack: "模型回复里出现的占位符，换回原文 {n} 处。", leadBackNone: "模型回复里没有用到这些占位符。", leadNoResp: "还没有收到这个请求的回复，或者回复不是这次启动的 CPA 收到的。",
+      fCaller: "调用方", fModel: "模型", fFormat: "接口", fTook: "脱敏用时", fKey: "记录编号",
+      tookMs: "{n} 毫秒", tookS: "{n} 秒",
+      whatTitle: "认出了什么", noValues: "这个请求在脱敏前就被拦下，没有可以展示的值。",
+      vWhy: "为什么", vWhere: "在哪里", vContext: "上下文", vBack: "回复中换回 {n} 处", vNoBack: "回复中没有用到",
+      moreFields: "等 {n} 个位置", noSnip: "上下文只在内存里保留最近 400 条记录，这一条已经没有了。",
+      ctxNote: "上游看到的就是这样：彩色的是占位符，鼠标移上去能看到它的原样。",
+      standIn: "替身：一个形式相同的假值，模型可以照常使用，回复里会换回原文",
+      fpTitle: "这是误报？", fpIntro: "页面不保存原文，所以没法在这里一键放行。改 CPA 配置里的 plugins.configs.veil，保存后会自动生效：",
+      fpRule: "这条规则对你没用：关掉它", fpRuleText: "以后所有请求都不再用“{n}”这条规则检测。",
+      fpAllow: "只是这一个值不用替换：放行它", fpAllowText: "把原文填进 allow，整段比较，不区分大小写。放行后，它在别处出现也不再替换。",
+      fpKind: "这一类只想提醒：改成仅提醒", fpKindText: "“{n}”类的值以后原样发给上游，只在记录里标出来。",
+      fpTerm: "这是你在 terms 里配置的词，从 terms 里删掉它即可。",
+      fpKnown: "它被记成了已知的值：最初是别的规则在这个调用方更早的请求里认出来的，之后在哪里出现都会替换。",
+      fpField: "字段名表明这里存的是密钥，所以整个值都被替换。如果它不是密钥，放行它即可。",
+      fpTry: "改完后，可以在“试一试”里粘贴同样的文字确认。", fillOriginal: "这里换成原文",
+      copy: "复制", copied: "已复制", copyFailed: "复制失败，请手动选中",
+      techTitle: "技术细节", tPlaceholder: "发给上游的", tRule: "规则 ID", tFields: "字段路径",
+      otherBack: "回复里还换回了更早请求里的值：", unrestoredTitle: "有 {n} 处占位符没能换回原文",
+      unrestoredText: "这些占位符原样留在了回复里。常见原因：对话是 CPA 重启前开始的且没有配置固定的 key，或者换了调用方的 API key。",
+      previewTitle: "试一试", previewHint: "按当前配置检测这段文字，看看哪些内容会被替换。结果不会保存，也不会影响任何对话；占位符只作示意。",
+      previewRun: "检测", previewNone: "没有认出需要替换的内容。", truncated: "文字超过 64 KB，只检测了前一部分。",
+      confirmClear: "确定清空所有脱敏记录吗？正在进行的对话不受影响，仍会正常换回原文。", cleared: "已清空记录。",
+      off: "脱敏记录已关闭（records: false）。在 plugins.configs.veil 里删掉这一项或设为 true 即可开启。",
+      memoryOnly: "记录只保存在内存里，重启 CPA 后会清空。配置 base_dir 后会按天写入磁盘，保留 30 天。",
+      droppedNotice: "有 {n} 条记录因为写入太快被丢弃了。", loadFailed: "加载失败：{n}",
+      fieldText: "文本", fieldTool: "工具输出", fieldArgs: "工具调用参数", fieldReason: "推理内容", fieldNamed: "字段 {n}",
+      atMessage: "第 {n} 条消息", atItem: "第 {n} 项输入", atInput: "输入", atSystem: "系统提示词", atInstructions: "系统指令", atTools: "工具定义", atPrompt: "提示词"
     },
     en: {
-      title: "Masking records", tabOverview: "Overview", tabRecords: "Records", tabPreview: "Preview", refresh: "Refresh", clear: "Clear records",
+      title: "Masking records", tagline: "What Veil replaced before a request went upstream: kinds and places only, never the values",
+      tabOverview: "Overview", tabRecords: "Requests", tabPreview: "Try it", refresh: "Refresh", clear: "Clear records",
       loginTitle: "Connect to the CPA Management API", loginHint: "No key saved by the management panel was found. Enter the management key; it stays in this tab only.",
       managementKey: "Management key", connect: "Connect", loginFailed: "The key is wrong or may not use the Management API.", panelKeyFailed: "The key the panel saved cannot use the Management API. Enter one.",
-      range: "Range", day1: "Today", day7: "Last 7 days", day30: "Last 30 days", trend: "Requests per day",
-      requests: "Requests", places: "Places masked", distinct: "Different values", warned: "Sent as written", stopped: "Stopped requests",
-      restored: "Restored", unrestored: "Not restorable", dropped: "Dropped records",
-      byKind: "By kind", byCaller: "By caller", byModel: "By model", byRule: "By rule", topValues: "Most masked values",
-      name: "Name", count: "Places", values: "Values", value: "Value", kind: "Kind", rule: "Rule", hint: "Hint", len: "Length",
-      lastSeen: "Last seen", time: "Time", caller: "Caller", model: "Model", format: "Format", action: "Action", paths: "Fields",
-      none: "Nothing yet", allKinds: "All kinds", allCallers: "All callers", allModels: "All models", allActions: "All actions",
-      onlyStopped: "Stopped requests only", more: "Load more", shown: "{n} shown",
-      aMask: "masked", aWarn: "warned", aBlock: "blocked", isNew: "new",
-      sBlock: "a value has the block action", sMalformed: "the body is not valid JSON", sError: "masking failed",
-      unknownCaller: "Unknown caller", chars: "{n} characters",
-      detailTitle: "Record", close: "Close", took: "Masking took", micro: "{n} µs", snips: "Context as the upstream saw it",
-      noSnips: "Context is kept in memory for the latest 400 records only; this one no longer has it.", restoredTitle: "Restored in the response",
-      noResponse: "No response to this request yet, or it came to an earlier CPA process.", restoredPlaces: "{n} restored",
-      unrestoredTitle: "Placeholders in the response that could not be restored",
-      previewTitle: "Preview masking", previewHint: "Masks the text under the current settings. Nothing is kept and no conversation is affected; the placeholders are for show.",
-      previewRun: "Preview", previewNone: "Nothing to mask was found.", truncated: "The text is over 64 KB; only its start was previewed.",
+      day1: "Today", day7: "Last 7 days", day30: "Last 30 days", atAGlance: "At a glance", trend: "Requests with sensitive values, per day",
+      sFound: "places with sensitive values", sFoundNote: "{n} different value{s}", sRequests: "requests", sRequestsNote: "had sensitive values", sRequestsStopped: "{n} stopped, not sent",
+      sBack: "places restored", sBackNote: "in the model's replies", sBackBad: "{n} more could not be", sWarned: "places sent as written", sWarnedNote: "set to warn only",
+      byKind: "What kinds", byKindSub: "By places replaced", byRule: "How they were found", byRuleSub: "Places each rule found",
+      byCaller: "From which caller", byModel: "To which model", topValues: "Values seen again and again", topValuesSub: "One value in many requests; the hint tells you roughly which",
+      places: "{n} place{s}", requestsN: "{n} request{s}", none: "No records in this range yet",
+      allKinds: "All kinds", allCallers: "All callers", allModels: "All models", allActions: "Any handling",
+      onlyStopped: "Stopped only", more: "Load more", shown: "{n} shown",
+      aMask: "replaced", aWarn: "warned", aBlock: "blocked", isNew: "first time",
+      newTip: "No earlier request of this caller had it (judged from memory, starting over when CPA restarts)",
+      sBlock: "it holds a value set to block", sMalformed: "the body is not valid JSON", sError: "masking failed",
+      stoppedTag: "stopped", unknownCaller: "Default caller",
+      startsWith: "starts with {n}", chars: "{n} character{s}", times: "{n} place{s}",
+      justNow: "just now", minAgo: "{n} min ago", hourAgo: "{n} h ago", yesterday: "yesterday {n}",
+      backN: "{n} restored", backNone: "none in the reply", noResp: "no reply yet", warnedN: "{n} sent as written",
+      detailTitle: "Request at {n}", close: "Close",
+      leadMasked: "Sensitive values in this request: {k}, in {n} place{s}. Veil replaced them before it went upstream.",
+      leadWarned: "Of those places, {n} were set to warn only and went as written.",
+      leadStopped: "This request was stopped and never went upstream: {n}.",
+      leadBack: "Placeholders in the reply turned back into the values: {n}.", leadBackNone: "The reply used none of these placeholders.", leadNoResp: "No reply to this request yet, or it came to an earlier CPA process.",
+      fCaller: "Caller", fModel: "Model", fFormat: "API", fTook: "Masking took", fKey: "Record",
+      tookMs: "{n} ms", tookS: "{n} s",
+      whatTitle: "What was found", noValues: "The request was stopped before masking; there are no values to show.",
+      vWhy: "Why", vWhere: "Where", vContext: "Context", vBack: "{n} restored in the reply", vNoBack: "not used in the reply",
+      moreFields: "({n} in all)", noSnip: "Context is kept in memory for the latest 400 records only; this one no longer has it.",
+      ctxNote: "This is what the upstream saw: the colored parts are placeholders; hover one to see it as sent.",
+      standIn: "Stand-in: a made-up value of the same form the model can use; the reply gets the real one back",
+      fpTitle: "Not sensitive?", fpIntro: "The page never holds the value, so it cannot let it through for you. Change plugins.configs.veil in the CPA config; it applies once saved:",
+      fpRule: "This rule is no use to you: turn it off", fpRuleText: "No request is checked with the \"{n}\" rule any more.",
+      fpAllow: "Only this value: let it through", fpAllowText: "Put the value itself in allow; it is compared whole and in any case, and is no longer replaced anywhere.",
+      fpKind: "Warn about this kind only", fpKindText: "Values of the kind \"{n}\" go upstream as written and are only marked in the records.",
+      fpTerm: "This is one of your terms; remove it from terms.",
+      fpKnown: "It was remembered as a Known value: another rule found it in an earlier request of this caller, and it is replaced wherever it shows up since.",
+      fpField: "The field's name says it holds a secret, so the whole value was replaced. If it is not one, let it through.",
+      fpTry: "Then paste the same text into Try it to check.", fillOriginal: "the value itself",
+      copy: "Copy", copied: "Copied", copyFailed: "Could not copy; select it by hand",
+      techTitle: "Technical details", tPlaceholder: "Sent upstream as", tRule: "Rule ID", tFields: "Field paths",
+      otherBack: "The reply also restored values of earlier requests:", unrestoredTitle: "Placeholders that could not be restored: {n}",
+      unrestoredText: "They stayed in the reply as they were. Usually the conversation began before CPA restarted without a fixed key, or the caller's API key changed.",
+      previewTitle: "Try it", previewHint: "Checks the text under the current settings and shows what would be replaced. Nothing is kept and no conversation is affected; the placeholders are for show.",
+      previewRun: "Check", previewNone: "Nothing to replace was found.", truncated: "The text is over 64 KB; only its start was checked.",
       confirmClear: "Clear every Masking record? Conversations in progress are not affected and keep restoring.", cleared: "Records cleared.",
       off: "Masking records are off (records: false). Remove it from plugins.configs.veil, or set it to true, to turn them on.",
       memoryOnly: "Records are in memory only and are gone when CPA restarts. With base_dir set they go to disk, a file a day, kept 30 days.",
-      droppedNotice: "{n} records were dropped because the write queue was full.", newNote: "\"New\" is judged from memory and starts over when CPA restarts.",
-      loadFailed: "Could not load: {e}", noValues: "The request was stopped before masking; there are no values to tell."
+      droppedNotice: "Records dropped because they came too fast: {n}.", loadFailed: "Could not load: {n}",
+      fieldText: "text", fieldTool: "tool output", fieldArgs: "tool call arguments", fieldReason: "reasoning", fieldNamed: "field {n}",
+      atMessage: "message {n}", atItem: "item {n}", atInput: "input", atSystem: "system prompt", atInstructions: "instructions", atTools: "tool definitions", atPrompt: "prompt"
     }
   };
+
+  // What each Kind is called, and its group's color.
+  var KINDS = {
+    SECRET: ["secret", "密钥", "Secret"], PASSWORD: ["secret", "密码", "Password"], PRIVATE_KEY: ["secret", "私钥", "Private key"],
+    EMAIL: ["personal", "邮箱", "Email"], PHONE: ["personal", "手机号", "Phone number"], ID_CARD: ["personal", "身份证号", "ID card number"],
+    BANK_CARD: ["personal", "银行卡号", "Bank card number"], SSN: ["personal", "社会安全号", "SSN"], PASSPORT: ["personal", "护照号", "Passport number"],
+    IBAN: ["personal", "IBAN 账号", "IBAN"], BIRTHDAY: ["personal", "生日", "Birthday"],
+    MAC: ["device", "MAC 地址", "MAC address"], SERIAL: ["device", "序列号", "Serial number"], USERNAME: ["device", "用户名", "User name"],
+    HOSTNAME: ["device", "主机名", "Host name"], IP: ["device", "IP 地址", "IP address"], BUCKET: ["device", "存储桶", "Bucket"],
+    TERM: ["custom", "自定义词", "Term"]
+  };
+
+  // What each rule is called and what it looks for, in plain words.
+  var RULES = {
+    "email": [["邮箱地址", "形如 名字@域名 的电子邮箱地址。"], ["Email address", "An email address, name@domain."]],
+    "phone-cn": [["手机号", "1 开头的 11 位中国大陆手机号，可以带 +86。"], ["Chinese mobile number", "An 11-digit mainland China mobile number starting with 1, +86 or not."]],
+    "id-card-cn": [["身份证号", "18 位居民身份证号，出生日期和校验位都对得上。"], ["Chinese ID card number", "An 18-digit resident ID number whose date and check digit hold."]],
+    "bank-card": [["银行卡号", "16 到 19 位数字，并且通过了银行卡号校验（Luhn）。"], ["Bank card number", "16 to 19 digits that pass the card check (Luhn)."]],
+    "ssn": [["社会安全号", "美国社会安全号码，形如 123-45-6789。"], ["SSN", "A US Social Security number, 123-45-6789."]],
+    "ssn-labelled": [["标明的社会安全号", "写在 SSN 或 social security number 后面的号码。"], ["Labelled SSN", "A number after SSN or social security number."]],
+    "passport": [["护照号", "写在“护照”或 passport 后面的号码。"], ["Passport number", "A number after passport or 护照."]],
+    "iban": [["IBAN 账号", "国际银行账号（IBAN），校验位对得上。"], ["IBAN", "An international bank account number whose check digits hold."]],
+    "birthday": [["生日", "写在“生日”“出生日期”或 DOB 后面的日期。"], ["Birthday", "A date after birthday, date of birth or DOB."]],
+    "mac": [["MAC 地址", "网卡的 MAC 地址，形如 00:1A:2B:3C:4D:5E。"], ["MAC address", "A network card's MAC address, 00:1A:2B:3C:4D:5E."]],
+    "serial": [["序列号", "写在“序列号”或 serial 后面的设备序列号。"], ["Serial number", "A device serial number after serial or 序列号."]],
+    "home-user": [["家目录里的用户名", "家目录路径里的用户名，例如 /Users/用户名。"], ["User name in a home path", "The user name in a home directory path, such as /Users/name."]],
+    "home-user-windows": [["家目录里的用户名", "Windows 家目录路径里的用户名，例如 C:\\Users\\用户名。"], ["User name in a home path", "The user name in a Windows home path, such as C:\\Users\\name."]],
+    "user-host-prompt": [["命令行提示符", "命令行提示符里的用户名和主机名，例如 user@host:~$。"], ["Shell prompt", "The user and host names in a shell prompt, user@host:~$."]],
+    "user-host-ssh": [["SSH 地址", "SSH 地址里的用户名和主机名，例如 ssh user@host。"], ["SSH address", "The user and host names of an SSH address, ssh user@host."]],
+    "hostname-line": [["主机名", "标着 hostname 或“主机名”的那一行里的主机名。"], ["Host name", "The host name on a line labelled hostname."]],
+    "user-line": [["用户名", "标着 user 或“用户名”的那一行里的用户名。"], ["User name", "The user name on a line labelled user."]],
+    "ipv4": [["IPv4 地址", "一个 IPv4 地址。"], ["IPv4 address", "An IPv4 address."]],
+    "ipv6": [["IPv6 地址", "一个 IPv6 地址。"], ["IPv6 address", "An IPv6 address."]],
+    "bucket-url": [["存储桶", "云存储地址（S3、OSS、COS 等）里的存储桶名。"], ["Bucket", "A bucket name in a cloud storage address (S3, OSS, COS and others)."]],
+    "bucket-host": [["存储桶", "云存储域名里的存储桶名。"], ["Bucket", "A bucket name in a cloud storage host."]],
+    "bucket-path": [["存储桶", "云存储路径里的存储桶名。"], ["Bucket", "A bucket name in a cloud storage path."]],
+    "vendor-sk": [["sk- 密钥", "sk- 开头的 API 密钥，OpenAI、Anthropic、OpenRouter 等都用这种格式。"], ["sk- key", "An API key starting with sk-, as OpenAI, Anthropic, OpenRouter and others issue."]],
+    "vendor-relay-sk": [["中转站密钥", "形如 xx_sk_… 的 API 密钥，常见于各类中转站。"], ["Relay key", "An API key shaped xx_sk_…, as relay services issue."]],
+    "vendor-ark": [["火山方舟密钥", "ark- 开头的火山方舟 API 密钥。"], ["Volcano Ark key", "A Volcano Ark API key starting with ark-."]],
+    "vendor-git": [["GitHub / GitLab 令牌", "ghp_、github_pat_、glpat- 等开头的代码托管平台令牌。"], ["GitHub / GitLab token", "A code hosting token starting with ghp_, github_pat_, glpat- and the like."]],
+    "vendor-google": [["Google API 密钥", "AIza 开头的 Google API 密钥。"], ["Google API key", "A Google API key starting with AIza."]],
+    "vendor-slack": [["Slack 令牌", "xox 开头的 Slack 令牌。"], ["Slack token", "A Slack token starting with xox."]],
+    "vendor-stripe": [["Stripe 密钥", "sk_live_ 或 rk_live_ 开头的 Stripe 正式环境密钥。"], ["Stripe key", "A live Stripe key starting with sk_live_ or rk_live_."]],
+    "vendor-aws": [["AWS 访问密钥", "AKIA 或 ASIA 开头的 AWS 访问密钥 ID。"], ["AWS access key", "An AWS access key ID starting with AKIA or ASIA."]],
+    "vendor-other": [["服务密钥", "Hugging Face、Groq、xAI、npm、PyPI、DigitalOcean、SendGrid 等服务的密钥格式。"], ["Service key", "A key in the format of Hugging Face, Groq, xAI, npm, PyPI, DigitalOcean, SendGrid and others."]],
+    "jwt": [["JWT 令牌", "三段式、以 eyJ 开头的登录令牌。"], ["JWT", "A three-part sign-in token starting with eyJ."]],
+    "private-key-block": [["私钥", "以 -----BEGIN … PRIVATE KEY----- 开头的整段私钥。"], ["Private key", "A whole private key, -----BEGIN … PRIVATE KEY----- on."]],
+    "private-key": [["私钥", "以 -----BEGIN … PRIVATE KEY----- 开头的私钥。"], ["Private key", "A private key starting -----BEGIN … PRIVATE KEY-----."]],
+    "url-password": [["网址里的密码", "网址里 用户名:密码@主机 中的密码部分。"], ["Password in a URL", "The password of user:password@host in a URL."]],
+    "named-secret": [["配置项里的密钥", "名字里带 password、secret、token、api_key 等字样的配置项的值，例如 .env 里的 API_KEY=…。"], ["Named secret", "The value of a setting named for a password, secret, token or API key, such as API_KEY=… in a .env file."]],
+    "env-secret": [["环境变量里的密钥", "以 _KEY 或 _PASS 结尾的大写环境变量的值，例如 DB_PASS=…。"], ["Secret env var", "The value of an upper-case variable ending in _KEY or _PASS, such as DB_PASS=…."]],
+    "auth-header": [["认证请求头", "Authorization 或 Cookie 请求头的值。"], ["Auth header", "The value of an Authorization or Cookie header."]],
+    "key-field": [["key 字段", "名为 key 的字段里一长串字母和数字混合的值。"], ["key field", "A long value of letters and digits in a field called key."]],
+    "cjk-password": [["“密码”后面的值", "写在“密码”“口令”等字样后面的值。"], ["After 密码", "A value after 密码, 口令 or the like."]],
+    "cjk-secret": [["“密钥”后面的值", "写在“密钥”“令牌”“授权码”等字样后面的值。"], ["After 密钥", "A value after 密钥, 令牌, 授权码 or the like."]],
+    "copula-secret": [["“…为 / 是”后面的值", "“apikey 为 …”“token 是 …”这类说法里的值。"], ["After 为 / 是", "The value in phrasings like apikey 为 … or token 是 …."]],
+    "context-secret": [["密钥字样后的值", "写在 token、secret、password、密钥 等字样后面（如 token = …），并且看起来像真实的取值。"], ["Value after a secret's name", "A value after token, secret, password or the like (token = …) that looks real."]],
+    "high-entropy": [["随机长串", "一段看起来像随机生成的长字符串，附近又出现了 key、token、secret 之类的字样。"], ["Random-looking string", "A long string that looks randomly made, near words like key, token or secret."]],
+    "generic-api-key": [["通用 API 密钥", "gitleaks 的通用规则：key、token、secret 等字样后面跟着一段较随机的字符串。"], ["Generic API key", "gitleaks' catch-all: a fairly random string after key, token, secret or the like."]],
+    "secret-field": [["密钥字段", "JSON 字段名本身表明它存的是密钥（如 api_key、password、token），整个值都被替换。"], ["Secret field", "The JSON field's name says it holds a secret (api_key, password, token), so all of it is replaced."]],
+    "known": [["已知的值", "这个调用方更早的请求里已经认出过它，之后它在哪里出现都会替换，回复里也能换回。"], ["Known value", "An earlier request of this caller had it found, so it is replaced wherever it shows up and restored in replies."]],
+    "term": [["自定义词", "你在 terms 里配置、要求始终替换的词。"], ["Term", "A word you listed in terms to be always replaced."]]
+  };
+  // Rules disabled_rules cannot turn off.
+  var FIXED_RULES = { "context-secret": true, "high-entropy": true, "secret-field": true, "known": true, "term": true };
+
+  var FORMATS = { "openai": "OpenAI Chat", "openai-response": "OpenAI Responses", "openai-responses": "OpenAI Responses", "claude": "Claude", "gemini": "Gemini", "gemini-cli": "Gemini CLI", "codex": "Codex" };
+
   var lang = "zh";
-  function t(key, n) {
+  // t returns a string, its {n} (and {k}) filled from vars: a value for {n}
+  // or an object of them.
+  function t(key, vars) {
     var s = (STR[lang] && STR[lang][key]) || STR.zh[key] || key;
-    return n === undefined ? s : s.replace("{n}", n).replace("{e}", n);
+    if (vars === undefined) return s;
+    if (typeof vars !== "object") vars = { n: vars };
+    // {s} is English's plural ending for {n}.
+    vars.s = String(vars.n) === "1" ? "" : "s";
+    return s.replace(/\{(\w+)\}/g, function (m, name) { return vars[name] !== undefined ? vars[name] : m; });
+  }
+  function kindName(k) { var d = KINDS[k]; return d ? d[lang === "zh" ? 1 : 2] : k; }
+  function kindGroup(k) { var d = KINDS[k]; return "g-" + (d ? d[0] : "custom"); }
+  function ruleText(id) {
+    var d = RULES[id];
+    if (d) return d[lang === "zh" ? 0 : 1];
+    return lang === "zh" ? ["规则 " + id, "gitleaks 规则或你在 rules_toml 里加的规则 " + id + " 认出的格式。"] : ["Rule " + id, "The format the gitleaks rule or your rules_toml rule " + id + " looks for."];
   }
   function hostLang() {
     try {
@@ -256,6 +472,7 @@
   function el(tag, attrs) {
     var node = document.createElement(tag);
     if (attrs) for (var k in attrs) {
+      if (attrs[k] === undefined || attrs[k] === null) continue;
       if (k === "text") node.textContent = attrs[k];
       else if (k === "class") node.className = attrs[k];
       else if (k.slice(0, 2) === "on") node.addEventListener(k.slice(2), attrs[k]);
@@ -264,13 +481,35 @@
     for (var i = 2; i < arguments.length; i++) {
       var c = arguments[i];
       if (c === null || c === undefined || c === false) continue;
+      if (Array.isArray(c)) { c.forEach(function (x) { if (x) node.appendChild(x); }); continue; }
       node.appendChild(typeof c === "object" ? c : document.createTextNode(String(c)));
     }
     return node;
   }
   function clear(node) { while (node.firstChild) node.removeChild(node.firstChild); return node; }
-  function fmt(n) { return Number(n || 0).toLocaleString(lang === "zh" ? "zh-CN" : "en"); }
-  function when(s) { var d = new Date(s); return isNaN(d) ? "" : d.toLocaleString(lang === "zh" ? "zh-CN" : "en"); }
+  function locale() { return lang === "zh" ? "zh-CN" : "en"; }
+  function fmt(n) { return Number(n || 0).toLocaleString(locale()); }
+  function when(s) { var d = new Date(s); return isNaN(d) ? "" : d.toLocaleString(locale()); }
+  function pad(n) { return (n < 10 ? "0" : "") + n; }
+  // ago is a time as people say it: just now, 5 minutes ago, yesterday 14:03.
+  function ago(s) {
+    var d = new Date(s);
+    if (isNaN(d)) return "";
+    var mins = Math.floor((Date.now() - d) / 60000), hm = pad(d.getHours()) + ":" + pad(d.getMinutes());
+    if (mins < 1) return t("justNow");
+    if (mins < 60) return t("minAgo", mins);
+    var today = new Date(); today.setHours(0, 0, 0, 0);
+    if (d >= today) return t("hourAgo", Math.floor(mins / 60));
+    if (d >= new Date(today.getTime() - 86400000)) return t("yesterday", hm);
+    return (d.getFullYear() === today.getFullYear() ? "" : d.getFullYear() + "-") + pad(d.getMonth() + 1) + "-" + pad(d.getDate()) + " " + hm;
+  }
+  // took tells microseconds in milliseconds or seconds.
+  function took(us) {
+    us = Number(us || 0);
+    if (us >= 1e6) return t("tookS", (us / 1e6).toFixed(us >= 1e7 ? 0 : 1));
+    var ms = us / 1000;
+    return t("tookMs", ms >= 10 ? Math.round(ms) : ms >= 1 ? ms.toFixed(1) : ms.toFixed(2));
+  }
 
   // CPA HTML-escapes every string a plugin's Management API answers with.
   function unescapeHTML(s) {
@@ -421,7 +660,7 @@
   byId("keyInput").addEventListener("keydown", function (e) { if (e.key === "Enter") byId("loginButton").click(); });
 
   // ---- notices, tabs ----------------------------------------------------------
-  function notice(text, error) { byId("notices").appendChild(el("div", { class: "notice" + (error ? " error" : ""), text: text })); }
+  function notice(text, kind) { byId("notices").appendChild(el("div", { class: "notice" + (kind ? " " + kind : ""), text: text })); }
   function renderNotices() {
     var s = state.summary || {};
     clear(byId("notices"));
@@ -436,49 +675,139 @@
   }
   each("[data-tab]", function (b) { b.addEventListener("click", function () { selectTab(b.getAttribute("data-tab")); }); });
 
-  // ---- overview ----------------------------------------------------------------
-  function shareTable(list, nameOf) {
-    if (!list || !list.length) return el("p", { class: "muted", text: t("none") });
-    var table = el("table", null, el("tr", null, el("th", { text: t("name") }), el("th", { class: "num", text: t("requests") }), el("th", { class: "num", text: t("count") }), el("th", { class: "num", text: t("distinct") })));
-    list.slice(0, 12).forEach(function (c) {
-      table.appendChild(el("tr", null, el("td", null, nameOf ? nameOf(c.name) : (c.name || "—")), el("td", { class: "num", text: fmt(c.requests) }), el("td", { class: "num", text: fmt(c.n) }), el("td", { class: "num", text: fmt(c.distinct) })));
-    });
-    return table;
-  }
-  function hintText(v) {
+  // ---- telling a value -------------------------------------------------------
+  function kindLabel(k, extra) { return el("span", { class: "kind " + kindGroup(k) }, kindName(k), extra); }
+  // hint is what the record lets one know of a value: how it starts, how long.
+  function hint(v) {
     var parts = [];
-    if (v.head) parts.push(v.head + "…");
+    if (v.head) parts.push(t("startsWith", v.head));
     parts.push(t("chars", v.len));
     return parts.join(" · ");
+  }
+  var PLACEHOLDER = /\{\{([A-Z0-9_]+)_[0-9a-z]+\}\}/g;
+  // context is a snip with each Placeholder or Stand-in in it shown as what
+  // it stands for. known maps the record's own ones to their values.
+  function context(snip, known, oneLine) {
+    var box = el("span");
+    var text = oneLine ? snip.replace(/\s+/g, " ").trim() : snip.replace(/\n{3,}/g, "\n\n");
+    var tokens = Object.keys(known).sort(function (a, b) { return b.length - a.length; });
+    var rest = text;
+    while (rest.length) {
+      var best = -1, which = "", kind = "";
+      tokens.forEach(function (p) { var i = rest.indexOf(p); if (i >= 0 && (best < 0 || i < best)) { best = i; which = p; kind = known[p].kind; } });
+      PLACEHOLDER.lastIndex = 0;
+      var m = PLACEHOLDER.exec(rest);
+      if (m && (best < 0 || m.index < best)) { best = m.index; which = m[0]; kind = m[1]; }
+      if (best < 0) { box.appendChild(document.createTextNode(rest)); break; }
+      box.appendChild(document.createTextNode(rest.slice(0, best)));
+      var standIn = which.indexOf("{{") !== 0;
+      box.appendChild(el("span", { class: "ph " + kindGroup(kind), title: standIn ? which + "\n" + t("standIn") : which }, kindName(kind)));
+      rest = rest.slice(best + which.length);
+    }
+    return box;
+  }
+  function valuesOf(r) {
+    var m = {};
+    (r.values || []).forEach(function (v) { m[v.p] = v; });
+    return m;
+  }
+
+  // place tells a field path as a person would: input[67].output[1].text is
+  // item 68's tool output.
+  function place(p) {
+    var tok = [], re = /([^.\[\]]+)|\[(\d+)\]/g, m;
+    while ((m = re.exec(p))) tok.push(m[2] !== undefined ? Number(m[2]) : m[1]);
+    var where = "", i = 0, head = tok[0];
+    if ((head === "messages" || head === "contents") && typeof tok[1] === "number") { where = t("atMessage", tok[1] + 1); i = 2; }
+    else if (head === "input" && typeof tok[1] === "number") { where = t("atItem", tok[1] + 1); i = 2; }
+    else if (head === "input") { where = t("atInput"); i = 1; }
+    else if (head === "system" || head === "systemInstruction" || head === "system_instruction") { where = t("atSystem"); i = 1; }
+    else if (head === "instructions") { where = t("atInstructions"); i = 1; }
+    else if (head === "tools") return t("atTools");
+    else if (head === "prompt") { where = t("atPrompt"); i = 1; }
+    var rest = tok.slice(i).filter(function (x) { return typeof x === "string"; });
+    var what = "";
+    var has = function (name) { return rest.indexOf(name) >= 0; };
+    var contents = rest.filter(function (x) { return x === "content"; }).length;
+    if (has("output") || has("functionResponse") || has("function_response") || contents >= 2) what = t("fieldTool");
+    else if (has("arguments") || has("tool_calls") || has("functionCall") || has("function_call") || has("args") || (i > 0 && has("input"))) {
+      what = t("fieldArgs");
+      var last = rest[rest.length - 1];
+      if (last && ["arguments", "args", "input", "function", "tool_calls", "functionCall"].indexOf(last) < 0) what += " · " + last;
+    }
+    else if (has("reasoning") || has("thinking") || has("summary")) what = t("fieldReason");
+    else if (!rest.length || has("text") || has("content") || has("parts")) what = where ? t("fieldText") : "";
+    else what = t("fieldNamed", rest[rest.length - 1]);
+    if (!where) return what || p;
+    return what ? where + " · " + what : where;
+  }
+  function places(paths) {
+    paths = paths || [];
+    var seen = {}, out = [];
+    paths.forEach(function (p) { var s = place(p); if (!seen[s]) { seen[s] = true; out.push(s); } });
+    if (!out.length || (out.length === 1 && !out[0])) return "—";
+    var shown = out.slice(0, 3).join(lang === "zh" ? "；" : "; ");
+    return out.length > 3 ? shown + " " + t("moreFields", out.length) : shown;
+  }
+
+  // ---- overview ----------------------------------------------------------------
+  function stat(value, label, note, bad) {
+    return el("div", { class: "stat" }, el("b", { text: fmt(value) }), el("div", { class: "label", text: label }), note ? el("div", { class: "note" + (bad ? " bad" : ""), text: note }) : null);
+  }
+  // shares lists counts as bars, each with a name, numbers and, if given, a
+  // line of explanation.
+  function shares(list, nameOf, whyOf, groupOf) {
+    var box = el("div");
+    if (!list || !list.length) { box.appendChild(el("p", { class: "muted", text: t("none") })); return box; }
+    var max = 1;
+    list.forEach(function (c) { max = Math.max(max, c.n || 0); });
+    list.slice(0, 10).forEach(function (c) {
+      var meter = el("div", { class: "meter" }, el("i"));
+      meter.firstChild.style.width = Math.max(2, Math.round((c.n || 0) / max * 100)) + "%";
+      box.appendChild(el("div", { class: "share" + (groupOf ? " " + groupOf(c.name) : "") },
+        el("div", { class: "ellipsis", title: c.name || "" }, nameOf(c.name)),
+        el("div", { class: "num", text: t("places", fmt(c.n)) + " · " + t("requestsN", fmt(c.requests)) }),
+        meter,
+        whyOf ? el("div", { class: "why", text: whyOf(c.name) }) : null));
+    });
+    return box;
   }
   function renderOverview() {
     var s = state.summary || {};
     var stats = clear(byId("stats"));
-    [["requests", s.requests], ["places", s.n], ["distinct", s.distinct], ["warned", s.warned], ["stopped", s.stopped], ["restored", s.restored], ["unrestored", s.unrestored]].forEach(function (p) {
-      stats.appendChild(el("div", { class: "stat" }, el("b", { text: fmt(p[1]) }), el("span", { text: t(p[0]) })));
-    });
+    stats.appendChild(stat(s.n, t("sFound"), t("sFoundNote", fmt(s.distinct))));
+    stats.appendChild(stat(s.requests, t("sRequests"), s.stopped ? t("sRequestsStopped", fmt(s.stopped)) : t("sRequestsNote"), s.stopped > 0));
+    stats.appendChild(stat(s.restored, t("sBack"), s.unrestored ? t("sBackBad", fmt(s.unrestored)) : t("sBackNote"), s.unrestored > 0));
+    if (s.warned) stats.appendChild(stat(s.warned, t("sWarned"), t("sWarnedNote")));
+
     var days = s.days || [], max = 1;
     days.forEach(function (d) { max = Math.max(max, d.requests || 0); });
     var bars = clear(byId("bars"));
     days.forEach(function (d) {
-      var bar = el("div", { title: d.day + " · " + t("requests") + " " + fmt(d.requests) + " · " + t("places") + " " + fmt(d.n) });
+      var bar = el("div", { title: d.day + "\n" + t("requestsN", fmt(d.requests)) + " · " + t("places", fmt(d.n)) });
       bar.style.height = Math.max(2, Math.round((d.requests || 0) / max * 100)) + "%";
       if (!d.requests) bar.style.opacity = ".2";
       bars.appendChild(bar);
     });
-    var x = clear(byId("barsX"));
-    if (days.length) { x.appendChild(el("span", { text: days[0].day })); x.appendChild(el("span", { text: days[days.length - 1].day })); }
-    clear(byId("byKind")).appendChild(shareTable(s.kinds));
-    clear(byId("byCaller")).appendChild(shareTable(s.callers, callerName));
-    clear(byId("byModel")).appendChild(shareTable(s.models));
-    clear(byId("byRule")).appendChild(shareTable(s.rules));
+    var x = clear(byId("barsX")), short = function (day) { return String(day).slice(5); };
+    x.classList.toggle("ends", days.length > 7);
+    if (days.length > 7) { x.appendChild(el("span", { text: short(days[0].day) })); x.appendChild(el("span", { text: short(days[days.length - 1].day) })); }
+    else days.forEach(function (d) { x.appendChild(el("span", { text: short(d.day) })); });
+
+    clear(byId("byKind")).appendChild(shares(s.kinds, function (k) { return kindLabel(k); }, null, kindGroup));
+    clear(byId("byRule")).appendChild(shares(s.rules, function (id) { return ruleText(id)[0]; }, function (id) { return ruleText(id)[1]; }));
+    clear(byId("byCaller")).appendChild(shares(s.callers, callerName));
+    clear(byId("byModel")).appendChild(shares(s.models, function (m) { return m || "—"; }));
+
     var top = clear(byId("topValues"));
     if (!s.values || !s.values.length) { top.appendChild(el("p", { class: "muted", text: t("none") })); return; }
-    var table = el("table", null, el("tr", null, el("th", { text: t("value") }), el("th", { text: t("kind") }), el("th", { text: t("hint") }), el("th", { text: t("rule") }), el("th", { class: "num", text: t("count") }), el("th", { class: "num", text: t("requests") }), el("th", { text: t("lastSeen") })));
     s.values.forEach(function (v) {
-      table.appendChild(el("tr", null, el("td", null, el("code", { text: v.p })), el("td", null, el("span", { class: "badge", text: v.kind })), el("td", { text: hintText(v) }), el("td", { class: "muted", text: v.rule || "" }), el("td", { class: "num", text: fmt(v.n) }), el("td", { class: "num", text: fmt(v.requests) }), el("td", { class: "muted", text: when(v.last) })));
+      top.appendChild(el("div", { class: "seen" },
+        el("div", { class: "ellipsis" }, kindLabel(v.kind), " ", el("span", { text: hint(v) }), el("span", { class: "muted small", text: " · " + ruleText(v.rule)[0] })),
+        el("div", { class: "right", text: t("places", fmt(v.n)) + " · " + t("requestsN", fmt(v.requests)) }),
+        el("div", { class: "muted small mono ellipsis", text: v.p }),
+        el("div", { class: "right muted", title: when(v.last), text: ago(v.last) })));
     });
-    top.appendChild(table);
   }
 
   // ---- records -------------------------------------------------------------------
@@ -488,13 +817,14 @@
     items.forEach(function (it) { sel.appendChild(el("option", { value: it, text: labelOf ? labelOf(it) : it })); });
     if (Array.prototype.some.call(sel.options, function (o) { return o.value === keep; })) sel.value = keep;
   }
+  function actionName(a) { return t({ mask: "aMask", warn: "aWarn", block: "aBlock" }[a] || a); }
   function renderFilters() {
     var s = state.summary || {};
     var names = function (list) { return (list || []).map(function (c) { return c.name; }); };
-    fillSelect("fKind", "allKinds", names(s.kinds));
+    fillSelect("fKind", "allKinds", names(s.kinds), kindName);
     fillSelect("fCaller", "allCallers", names(s.callers).map(function (c) { return "=" + c; }), function (v) { return callerName(v.slice(1)); });
     fillSelect("fModel", "allModels", names(s.models).filter(Boolean));
-    fillSelect("fAction", "allActions", ["mask", "warn", "block"], function (a) { return t({ mask: "aMask", warn: "aWarn", block: "aBlock" }[a]); });
+    fillSelect("fAction", "allActions", ["mask", "warn", "block"], actionName);
   }
   function query(before) {
     var q = { limit: "50" };
@@ -514,27 +844,37 @@
       renderRecords();
     }).catch(failed);
   }
-  function actionBadge(a) { return el("span", { class: "badge " + a, text: t({ mask: "aMask", warn: "aWarn", block: "aBlock" }[a] || a) }); }
   function stoppedText(s) { return t({ block: "sBlock", malformed: "sMalformed", error: "sError" }[s] || s); }
-  function restoredCount(r) {
-    if (!r.restored) return "";
-    var n = 0, back = r.restored.back || {};
+  function backCount(r) {
+    var n = 0, back = (r.restored && r.restored.back) || {};
     for (var p in back) n += back[p];
-    return fmt(n);
+    return n;
+  }
+  // kindTags sums a record's values by Kind: 邮箱 ×2, 密钥 ×1.
+  function kindTags(r) {
+    var byKind = {}, order = [];
+    (r.values || []).forEach(function (v) { if (!byKind[v.kind]) { byKind[v.kind] = 0; order.push(v.kind); } byKind[v.kind] += v.n; });
+    return el("div", { class: "tags" }, order.map(function (k) { return el("span", { class: "tag kc " + kindGroup(k) }, kindLabel(k), "×" + byKind[k]); }));
+  }
+  function recordState(r) {
+    if (r.stopped) return el("span", { class: "rec-state bad", text: t("stoppedTag") + " · " + stoppedText(r.stopped) });
+    var warned = 0;
+    (r.values || []).forEach(function (v) { if (v.action === "warn") warned += v.n; });
+    var back = backCount(r);
+    var parts = [!r.restored ? t("noResp") : back ? t("backN", fmt(back)) : t("backNone")];
+    if (warned) parts.unshift(t("warnedN", fmt(warned)));
+    return el("span", { class: "rec-state", text: parts.join(" · ") });
   }
   function renderRecords() {
-    var table = clear(byId("recordsTable"));
-    table.appendChild(el("tr", null, el("th", { text: t("time") }), el("th", { text: t("caller") }), el("th", { text: t("model") }), el("th", { text: t("values") }), el("th", { class: "num", text: t("count") }), el("th", { class: "num", text: t("restored") })));
-    if (!state.records.length) table.appendChild(el("tr", null, el("td", { colspan: "6", class: "muted", text: t("none") })));
+    var list = clear(byId("recordsList"));
+    if (!state.records.length) list.appendChild(el("p", { class: "muted", text: t("none") }));
     state.records.forEach(function (r) {
-      var kinds = el("td");
-      if (r.stopped) kinds.appendChild(el("span", { class: "badge stopped", text: stoppedText(r.stopped) }));
-      var byKind = {};
-      (r.values || []).forEach(function (v) { byKind[v.kind] = (byKind[v.kind] || 0) + v.n; });
-      Object.keys(byKind).sort().forEach(function (k) { kinds.appendChild(el("span", { class: "badge", text: k + " ×" + byKind[k] })); });
-      table.appendChild(el("tr", { class: "row", onclick: function () { openDetail(r.key); } },
-        el("td", { class: "muted", text: when(r.time) }), el("td", { text: callerName(r.caller) }), el("td", { text: r.model || "—" }), kinds,
-        el("td", { class: "num", text: fmt(r.n) }), el("td", { class: "num", text: restoredCount(r) })));
+      var who = [callerName(r.caller), r.model].filter(Boolean).join(" · ");
+      var open = function () { openDetail(r.key); };
+      list.appendChild(el("div", { class: "rec", role: "button", tabindex: "0", onclick: open, onkeydown: function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } } },
+        el("div", { class: "rec-top" }, el("span", { class: "rec-time", title: when(r.time), text: ago(r.time) }), el("span", { class: "rec-who ellipsis", text: who }), recordState(r)),
+        r.values && r.values.length ? el("div", { class: "rec-sum" }, kindTags(r)) : null,
+        r.glimpse ? el("div", { class: "rec-glimpse ellipsis" }, context(r.glimpse, valuesOf(r), true)) : null));
     });
     byId("more").classList.toggle("hidden", !state.more);
     byId("listInfo").textContent = state.records.length ? t("shown", fmt(state.records.length)) : "";
@@ -543,64 +883,125 @@
   byId("more").addEventListener("click", function () { loadRecords(false); });
 
   // ---- one record -------------------------------------------------------------------
-  function marked(snip, placeholders) {
-    var box = el("div", { class: "snip" });
-    var rest = snip;
-    while (rest.length) {
-      var best = -1, which = "";
-      placeholders.forEach(function (p) { var i = rest.indexOf(p); if (i >= 0 && (best < 0 || i < best)) { best = i; which = p; } });
-      if (best < 0) { box.appendChild(document.createTextNode(rest)); break; }
-      box.appendChild(document.createTextNode(rest.slice(0, best)));
-      box.appendChild(el("mark", { text: which }));
-      rest = rest.slice(best + which.length);
+  function copy(text, button) {
+    var label = button.textContent;
+    var done = function (ok) { button.textContent = t(ok ? "copied" : "copyFailed"); setTimeout(function () { button.textContent = label; }, 1500); };
+    var fallback = function () {
+      var area = el("textarea", { style: "position:fixed;top:0;left:0;opacity:0" });
+      area.value = text;
+      document.body.appendChild(area);
+      area.select();
+      var ok = false;
+      try { ok = document.execCommand("copy"); } catch (e) {}
+      document.body.removeChild(area);
+      done(ok);
+    };
+    try {
+      if (navigator.clipboard && window.isSecureContext) { navigator.clipboard.writeText(text).then(function () { done(true); }, fallback); return; }
+    } catch (e) {}
+    fallback();
+  }
+  function snippet(yaml) {
+    var button = el("button", { class: "btn small", type: "button", text: t("copy") });
+    button.addEventListener("click", function () { copy(yaml, button); });
+    return el("div", { class: "snippet" }, el("pre", { text: yaml }), button);
+  }
+  function veilYAML(lines) { return "plugins:\n  configs:\n    veil:\n" + lines.map(function (l) { return "      " + l; }).join("\n"); }
+  // falsePositive tells how to stop a value being replaced, as far as the
+  // page can tell without the value.
+  function falsePositive(v) {
+    var box = el("div", { class: "fp" }, el("p", { text: t("fpIntro") }));
+    if (v.rule === "term") { box.appendChild(el("p", { text: t("fpTerm") })); return box; }
+    if (v.rule === "known") box.appendChild(el("p", { text: t("fpKnown") }));
+    if (v.rule === "secret-field") box.appendChild(el("p", { text: t("fpField") }));
+    if (v.rule && !FIXED_RULES[v.rule]) {
+      box.appendChild(el("h4", { text: t("fpRule") }));
+      box.appendChild(el("p", { text: t("fpRuleText", ruleText(v.rule)[0]) }));
+      box.appendChild(snippet(veilYAML(["disabled_rules:", "  - " + v.rule])));
     }
+    box.appendChild(el("h4", { text: t("fpAllow") }));
+    box.appendChild(el("p", { text: t("fpAllowText") }));
+    box.appendChild(snippet(veilYAML(["allow:", "  - \"" + t("fillOriginal") + "\""])));
+    if (v.action !== "warn") {
+      box.appendChild(el("h4", { text: t("fpKind") }));
+      box.appendChild(el("p", { text: t("fpKindText", kindName(v.kind)) }));
+      box.appendChild(snippet(veilYAML(["actions:", "  " + v.kind + ": warn"])));
+    }
+    box.appendChild(el("p", { class: "muted", style: "margin-top:8px", text: t("fpTry") }));
     return box;
+  }
+  function line(label, content) { return el("div", { class: "vline" }, el("b", { text: label }), el("div", null, content)); }
+  function valueCard(v, r, known) {
+    var back = (r.restored && r.restored.back) || {};
+    var rule = ruleText(v.rule);
+    var head = el("div", { class: "vhead" }, kindLabel(v.kind), el("span", { class: "tag " + v.action, text: actionName(v.action) }),
+      v.new ? el("span", { class: "tag new", title: t("newTip"), text: t("isNew") }) : null,
+      r.restored && v.action === "mask" ? el("span", { class: "back" + (back[v.p] ? "" : " none"), text: back[v.p] ? t("vBack", fmt(back[v.p])) : t("vNoBack") }) : null);
+    var card = el("div", { class: "vcard " + kindGroup(v.kind) }, head,
+      el("div", { class: "muted small", style: "margin-top:2px", text: hint(v) + " · " + t("times", fmt(v.n)) }),
+      line(t("vWhy"), el("span", null, el("b", { text: rule[0] }), lang === "zh" ? "：" : ": ", rule[1])),
+      line(t("vWhere"), el("span", { title: (v.paths || []).join("\n"), text: places(v.paths) })));
+    var snip = r.snips && r.snips[v.p];
+    if (snip) card.appendChild(line(t("vContext"), el("div", { class: "quote" }, context(snip, known, false))));
+    var fp = el("details", null, el("summary", { text: t("fpTitle") }), falsePositive(v));
+    var tech = el("details", null, el("summary", { text: t("techTitle") }), el("dl", { class: "tech" },
+      el("dt", { text: t("tPlaceholder") }), el("dd", { class: "mono", text: v.p }),
+      el("dt", { text: t("tRule") }), el("dd", { class: "mono", text: v.rule || "—" }),
+      el("dt", { text: t("tFields") }), el("dd", { class: "mono", style: "white-space:pre-wrap", text: (v.paths || []).join("\n") })));
+    card.appendChild(fp);
+    card.appendChild(tech);
+    return card;
   }
   function openDetail(key) {
     call("record", { key: String(key) }).then(function (r) {
       var body = clear(byId("detailBody"));
-      var kv = el("dl", { class: "kv" },
-        el("dt", { text: t("time") }), el("dd", { text: when(r.time) }),
-        el("dt", { text: t("caller") }), el("dd", { text: callerName(r.caller) + (r.caller ? "  (" + r.caller.slice(0, 16) + "…)" : "") }),
-        el("dt", { text: t("model") }), el("dd", { text: r.model || "—" }),
-        el("dt", { text: t("format") }), el("dd", { text: r.format || "—" }),
-        el("dt", { text: t("took") }), el("dd", { text: t("micro", fmt(r.took)) }));
-      if (r.stopped) { kv.appendChild(el("dt", { text: t("stopped") })); kv.appendChild(el("dd", null, el("span", { class: "badge stopped", text: stoppedText(r.stopped) }))); }
-      body.appendChild(el("div", { class: "card" }, kv));
+      byId("detailTitle").textContent = t("detailTitle", when(r.time));
+      var values = r.values || [], known = valuesOf(r), back = (r.restored && r.restored.back) || {};
 
-      var values = r.values || [], back = (r.restored && r.restored.back) || {};
-      var vt = el("table", null, el("tr", null, el("th", { text: t("value") }), el("th", { text: t("kind") }), el("th", { text: t("hint") }), el("th", { text: t("action") }), el("th", { class: "num", text: t("count") }), el("th", { class: "num", text: t("restored") }), el("th", { text: t("paths") })));
-      values.forEach(function (v) {
-        vt.appendChild(el("tr", null,
-          el("td", null, el("code", { text: v.p }), v.new ? el("span", { class: "badge new", text: t("isNew") }) : null),
-          el("td", null, el("span", { class: "badge", text: v.kind }), el("div", { class: "muted", text: v.rule || "" })),
-          el("td", { text: hintText(v) }), el("td", null, actionBadge(v.action)),
-          el("td", { class: "num", text: fmt(v.n) }), el("td", { class: "num", text: back[v.p] ? fmt(back[v.p]) : "" }),
-          el("td", { class: "mono muted", text: (v.paths || []).join(", ") })));
-      });
-      body.appendChild(el("div", { class: "card" }, el("h2", { text: t("values") }), values.length ? el("div", { class: "scroll" }, vt) : el("p", { class: "muted", text: t("noValues") }), el("p", { class: "muted", text: t("newNote") })));
-
-      var snips = el("div", { class: "card" }, el("h2", { text: t("snips") }));
-      var placeholders = values.map(function (v) { return v.p; }).sort(function (a, b) { return b.length - a.length; });
-      if (r.snips) values.forEach(function (v) { if (r.snips[v.p]) { snips.appendChild(el("div", { class: "muted", text: v.kind + " " + v.p })); snips.appendChild(marked(r.snips[v.p], placeholders)); } });
-      else if (values.length) snips.appendChild(el("p", { class: "muted", text: t("noSnips") }));
-      body.appendChild(snips);
-
-      var rs = el("div", { class: "card" }, el("h2", { text: t("restoredTitle") }));
-      if (!r.restored) rs.appendChild(el("p", { class: "muted", text: t("noResponse") }));
+      var lead = el("div", { class: "card" });
+      var masked = 0, warned = 0;
+      values.forEach(function (v) { masked += v.n; if (v.action === "warn") warned += v.n; });
+      if (r.stopped) lead.appendChild(el("p", { class: "lead", text: t("leadStopped", stoppedText(r.stopped)) }));
       else {
-        var list = el("div");
-        Object.keys(back).sort().forEach(function (p) { list.appendChild(el("div", null, el("code", { text: p }), " ", el("span", { class: "muted", text: t("restoredPlaces", fmt(back[p])) }))); });
-        if (!Object.keys(back).length) list.appendChild(el("p", { class: "muted", text: t("restoredPlaces", 0) }));
-        rs.appendChild(list);
-        var un = r.restored.unrestored || {};
-        if (Object.keys(un).length) {
-          rs.appendChild(el("h2", { style: "margin-top:12px", text: t("unrestoredTitle") }));
-          Object.keys(un).sort().forEach(function (p) { rs.appendChild(el("div", null, el("code", { text: p }), " ×" + un[p])); });
+        lead.appendChild(el("p", { class: "lead", text: t("leadMasked", { k: fmt(values.length), n: fmt(masked) }) + (warned ? " " + t("leadWarned", fmt(warned)) : "") }));
+        lead.appendChild(el("p", { class: "muted", style: "margin:-4px 0 10px", text: !r.restored ? t("leadNoResp") : backCount(r) ? t("leadBack", fmt(backCount(r))) : t("leadBackNone") }));
+      }
+      var fact = function (label, text) { return el("span", null, el("b", { text: label }), text); };
+      lead.appendChild(el("div", { class: "facts" },
+        fact(t("fCaller"), callerName(r.caller)), fact(t("fModel"), r.model || "—"),
+        fact(t("fFormat"), FORMATS[r.format] || r.format || "—"), fact(t("fTook"), took(r.took)), fact(t("fKey"), String(r.key))));
+      body.appendChild(lead);
+
+      var what = el("div", { class: "card" }, el("h2", { text: t("whatTitle") }));
+      if (!values.length) what.appendChild(el("p", { class: "muted", text: t("noValues") }));
+      else {
+        if (r.snips) what.appendChild(el("p", { class: "sub", style: "margin:-4px 0 10px", text: t("ctxNote") }));
+        else what.appendChild(el("p", { class: "sub", style: "margin:-4px 0 10px", text: t("noSnip") }));
+        values.forEach(function (v) { what.appendChild(valueCard(v, r, known)); });
+      }
+      body.appendChild(what);
+
+      if (r.restored) {
+        var others = Object.keys(back).filter(function (p) { return !known[p]; });
+        var un = r.restored.unrestored || {}, unKeys = Object.keys(un).sort();
+        if (others.length || unKeys.length) {
+          var rs = el("div", { class: "card" });
+          if (others.length) {
+            rs.appendChild(el("p", { style: "margin:0 0 6px", text: t("otherBack") }));
+            rs.appendChild(el("div", { class: "tags" }, others.sort().map(function (p) { return el("span", { class: "tag" }, context(p, {}, true), "×" + back[p]); })));
+          }
+          if (unKeys.length) {
+            var total = 0;
+            unKeys.forEach(function (p) { total += un[p]; });
+            rs.appendChild(el("div", { class: "notice", style: "margin:" + (others.length ? "12px" : "0") + " 0 0" },
+              el("b", { text: t("unrestoredTitle", fmt(total)) }), el("div", { class: "small", text: t("unrestoredText") }),
+              el("div", { class: "tags", style: "margin-top:6px" }, unKeys.map(function (p) { return el("span", { class: "tag mono", text: p + " ×" + un[p] }); }))));
+          }
+          body.appendChild(rs);
         }
       }
-      body.appendChild(rs);
       byId("detail").classList.remove("hidden");
+      byId("detail").querySelector(".panel").scrollTop = 0;
     }).catch(failed);
   }
   byId("detailClose").addEventListener("click", function () { byId("detail").classList.add("hidden"); });
@@ -615,10 +1016,16 @@
       if (r.truncated) out.appendChild(el("div", { class: "notice", text: t("truncated") }));
       var hits = r.hits || [];
       if (!hits.length) { out.appendChild(el("p", { class: "muted", text: t("previewNone") })); return; }
-      out.appendChild(marked(r.text || "", hits.map(function (h) { return h.p; }).sort(function (a, b) { return b.length - a.length; })));
-      var table = el("table", { style: "margin-top:10px" }, el("tr", null, el("th", { text: t("value") }), el("th", { text: t("kind") }), el("th", { text: t("rule") }), el("th", { text: t("hint") }), el("th", { text: t("action") })));
-      hits.forEach(function (h) { table.appendChild(el("tr", null, el("td", null, el("code", { text: h.p })), el("td", null, el("span", { class: "badge", text: h.kind })), el("td", { class: "muted", text: h.rule || "" }), el("td", { text: hintText(h) }), el("td", null, actionBadge(h.action)))); });
-      out.appendChild(table);
+      var known = {};
+      hits.forEach(function (h) { known[h.p] = h; });
+      out.appendChild(el("div", { class: "quote", style: "margin-bottom:10px" }, context(r.text || "", known, false)));
+      hits.forEach(function (h) {
+        var rule = ruleText(h.rule);
+        out.appendChild(el("div", { class: "vcard " + kindGroup(h.kind) },
+          el("div", { class: "vhead" }, kindLabel(h.kind), el("span", { class: "tag " + h.action, text: actionName(h.action) })),
+          el("div", { class: "muted small", style: "margin-top:2px", text: hint(h) + " · " + t("times", fmt(h.n)) }),
+          line(t("vWhy"), el("span", null, el("b", { text: rule[0] }), lang === "zh" ? "：" : ": ", rule[1]))));
+      });
     }).catch(failed);
   });
 
@@ -630,11 +1037,11 @@
   byId("days").addEventListener("change", refresh);
   byId("clear").addEventListener("click", function () {
     if (!window.confirm(t("confirmClear"))) return;
-    call("clear", null, {}).then(function () { return refresh(); }).then(function () { notice(t("cleared")); }).catch(failed);
+    call("clear", null, {}).then(function () { return refresh(); }).then(function () { notice(t("cleared"), "ok"); }).catch(failed);
   });
   function failed(e) {
     if (e instanceof AuthError) { showLogin(t("loginFailed")); return; }
-    notice(t("loadFailed", e && e.message ? e.message : String(e)), true);
+    notice(t("loadFailed", e && e.message ? e.message : String(e)), "error");
   }
   function renderAll() {
     renderNotices();
