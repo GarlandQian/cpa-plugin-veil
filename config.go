@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -17,6 +18,8 @@ const veilProvider = "veil"
 const pluginName = "veil"
 
 type veilConfig struct {
+	Key           string            `yaml:"key"`
+	BaseDir       string            `yaml:"base_dir"`
 	GitleaksTOML  string            `yaml:"gitleaks_toml"`
 	RulesTOML     string            `yaml:"rules_toml"`
 	DisabledRules []string          `yaml:"disabled_rules"`
@@ -71,6 +74,9 @@ func parseConfig(raw []byte) (veilConfig, []string, error) {
 	if err := yaml.Unmarshal(raw, &fields); err != nil {
 		return cfg, nil, fmt.Errorf("invalid veil config: %w", err)
 	}
+	if _, err := cfg.configuredKey(); err != nil {
+		return cfg, nil, err
+	}
 	if _, err := cfg.actions(); err != nil {
 		return cfg, nil, fmt.Errorf("invalid veil config: %w", err)
 	}
@@ -81,6 +87,19 @@ func parseConfig(raw []byte) (veilConfig, []string, error) {
 		}
 	}
 	return cfg, removed, nil
+}
+
+// configuredKey accepts the same encoding as veil.key, so copying an existing
+// key into the config preserves Placeholders. Never include its value in errors.
+func (cfg *veilConfig) configuredKey() ([]byte, error) {
+	if cfg.Key == "" {
+		return nil, nil
+	}
+	key, err := hex.DecodeString(strings.TrimSpace(cfg.Key))
+	if err != nil || len(key) != 32 {
+		return nil, fmt.Errorf("invalid veil config: key must be 64 hexadecimal characters (32 bytes)")
+	}
+	return key, nil
 }
 
 // actions returns the configured Action of each Kind, keyed by the Kind in
@@ -105,19 +124,29 @@ func (cfg *veilConfig) actions() (map[string]mask.Action, error) {
 // resolveGitleaksPath resolves the configured gitleaks rule file. The return is
 // split into a path (may be empty) and an embedded flag: when the path is empty
 // and embedded is true, the caller should load the rules baked into the binary.
-func (cfg *veilConfig) resolveGitleaksPath(pluginDir string) (path string, embedded bool) {
+func (cfg *veilConfig) resolveGitleaksPath(pluginDir string) (path string, embedded bool, err error) {
 	if cfg.GitleaksTOML == "" {
-		builtin := filepath.Join(pluginDir, "rules", "gitleaks.toml")
-		if _, err := os.Stat(builtin); err == nil {
-			return builtin, false
+		if pluginDir != "" {
+			builtin := filepath.Join(pluginDir, "rules", "gitleaks.toml")
+			if _, err := os.Stat(builtin); err == nil {
+				return builtin, false, nil
+			}
 		}
 		// No sidecar file: fall back to the rules compiled into the binary.
-		return "", true
+		return "", true, nil
 	}
-	if filepath.IsAbs(cfg.GitleaksTOML) {
-		return cfg.GitleaksTOML, false
+	path, err = resolveRulePath(pluginDir, cfg.GitleaksTOML, "gitleaks_toml")
+	return path, false, err
+}
+
+func resolveRulePath(pluginDir, path, field string) (string, error) {
+	if filepath.IsAbs(path) {
+		return path, nil
 	}
-	return filepath.Join(pluginDir, cfg.GitleaksTOML), false
+	if pluginDir == "" {
+		return "", fmt.Errorf("%s is relative but the original plugin directory is unavailable; set base_dir or use an absolute path", field)
+	}
+	return filepath.Join(pluginDir, path), nil
 }
 
 func (cfg *veilConfig) shouldSkip(model, requestedModel, format string) bool {
@@ -136,7 +165,10 @@ func (cfg *veilConfig) shouldSkip(model, requestedModel, format string) bool {
 }
 
 func newDetector(pluginDir string, cfg veilConfig) (*detect.Detector, error) {
-	tomlPath, embedded := cfg.resolveGitleaksPath(pluginDir)
+	tomlPath, embedded, err := cfg.resolveGitleaksPath(pluginDir)
+	if err != nil {
+		return nil, err
+	}
 	var source string
 	switch {
 	case embedded:
@@ -164,9 +196,9 @@ func newDetector(pluginDir string, cfg veilConfig) (*detect.Detector, error) {
 		opts.Terms = append(opts.Terms, detect.Term{Text: t.Term, AnyCase: t.AnyCase, WholeWord: t.WholeWord})
 	}
 	if cfg.RulesTOML != "" {
-		path := cfg.RulesTOML
-		if !filepath.IsAbs(path) {
-			path = filepath.Join(pluginDir, path)
+		path, err := resolveRulePath(pluginDir, cfg.RulesTOML, "rules_toml")
+		if err != nil {
+			return nil, err
 		}
 		raw, err := os.ReadFile(path)
 		if err != nil {

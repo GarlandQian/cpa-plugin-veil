@@ -74,14 +74,59 @@ BUILD_DIR=dist make build
 
 ## 在 CLIProxyAPI 中使用
 
-将共享库放入 CLIProxyAPI 的插件目录即可。Gitleaks 规则已内嵌到二进制中，无需额外文件：
+### 从插件商店安装
 
-```text
-veil/
-└── veil.so        # 或 veil.dylib / veil.dll
+Veil 不在官方插件商店里，但 CLIProxyAPI v8 可以通过 `plugins.store-sources` 添加额外的插件源（v7 还不支持这个配置项）。
+在 `config.yaml` 中加上 Veil 的源：
+
+```yaml
+plugins:
+  enabled: true
+  dir: "plugins"
+  store-sources:
+    - "https://raw.githubusercontent.com/GarlandQian/cpa-plugin-veil/main/registry.json"
 ```
 
-然后在 CLIProxyAPI 中启用 `veil` 插件。
+CLIProxyAPI 会自动重新加载配置，之后插件商店里就会出现 Veil。可以在管理面板的插件商店里安装，也可以调用管理接口：
+
+```bash
+curl -X POST "http://127.0.0.1:8317/v0/management/plugin-store/veil/install" \
+  -H "Authorization: Bearer <管理密钥>"
+```
+
+商店会下载本仓库最新 Release 中对应平台的 zip，用 `checksums.txt` 校验后装到 `plugins/<系统>/<架构>/veil-v<版本>.dylib`
+（Linux 为 `.so`，Windows 为 `.dll`），并把 `plugins.configs.veil.enabled` 设为 `true`，不需要重启。
+
+### 手动安装
+
+1. 从 [Releases](https://github.com/GarlandQian/cpa-plugin-veil/releases) 下载对应平台的 `veil_<版本>_<系统>_<架构>.zip`，
+   例如 Apple 芯片的 Mac 用 `veil_0.4.1_darwin_arm64.zip`。可以用同一页的 `checksums.txt` 校验：
+
+   ```bash
+   shasum -a 256 -c checksums.txt --ignore-missing   # Linux 上用 sha256sum
+   ```
+
+2. 解压出 `veil.so` / `veil.dylib` / `veil.dll`，放进插件目录（`plugins.dir`，默认 `plugins`）下的 `<系统>/<架构>/`，
+   和插件商店的安装位置相同：
+
+   ```text
+   plugins/
+   └── darwin/
+       └── arm64/
+           └── veil.dylib   # Linux 为 veil.so，Windows 为 veil.dll
+   ```
+
+   也可以直接放在 `plugins/` 下。CLIProxyAPI 只在这两处查找插件，不会进入其他子目录。插件 ID 取自文件名，
+   所以文件名要保持 `veil`，才能和配置键 `plugins.configs.veil` 对上。
+
+3. 在 `config.yaml` 中启用插件（见[配置](#配置)），然后重启 CLIProxyAPI。启动日志里出现 `veil loaded ... rules`
+   就表示加载成功，也可以通过 `GET /v0/management/plugins` 确认 `effective_enabled: true`。
+
+Gitleaks 规则已内嵌到二进制中，无需额外规则文件。在 CLIProxyAPI v8 下，请按下文配置 `key`，让重启后的占位符保持稳定。
+v8 从共享库的临时副本加载插件，不能用实际加载位置保存 `veil.key` 或查找安装目录旁的规则；需要这些文件时，设置 `base_dir`。
+在 v7 下，Veil 默认仍在库文件旁生成并复用 `veil.key`。
+
+`key` 和 `base_dir` 从 v0.4.1 起支持。v0.4.0 没有这两项，在 CPA v8 下每次重启都会改变占位符，请先升级。
 
 插件注册信息：
 
@@ -114,7 +159,7 @@ plugins:
   configs:
     veil:
       enabled: true
-      gitleaks_toml: ""        # 为空时使用内嵌规则（或共享库旁的 rules/gitleaks.toml）
+      gitleaks_toml: ""        # 为空时使用内嵌规则（或基准目录下的 rules/gitleaks.toml）
       skip_models:
         - gpt-4
       skip_formats:
@@ -125,7 +170,9 @@ plugins:
 
 | 字段              | 类型     | 默认值  | 说明                                                        |
 |-----------------|--------|------|-----------------------------------------------------------|
-| `gitleaks_toml` | string | `""` | 替换内置规则的 gitleaks 规则文件，相对插件目录解析                            |
+| `key`          | string | `""` | 占位符密钥：32 个随机字节的 64 位十六进制编码，见下文                     |
+| `base_dir`     | string | `""` | 相对规则路径、旁置规则和未设置 `key` 时的 `veil.key` 所在目录；相对 CPA 工作目录解析 |
+| `gitleaks_toml` | string | `""` | 替换内置规则的 gitleaks 规则文件，相对 `base_dir` 或已知的原始插件目录解析     |
 | `rules_toml`    | string | `""` | 追加到内置规则之后的 gitleaks 规则文件，见[规则](#规则)                         |
 | `disabled_rules`| array  | `[]` | 要关闭的规则 ID                                                    |
 | `categories`    | object | `{}` | 打开或关闭类别，见[规则](#规则)                                             |
@@ -135,7 +182,50 @@ plugins:
 | `skip_models`   | array  | `[]` | 命中的模型不做掩码                                                 |
 | `skip_formats`  | array  | `[]` | 命中的来源格式不做掩码                                               |
 
-当 `gitleaks_toml` 为空、且共享库旁不存在 `rules/gitleaks.toml` 时，插件使用构建时内嵌到二进制中的规则。
+当 `gitleaks_toml` 为空、且解析出的基准目录下不存在 `rules/gitleaks.toml` 时，插件使用构建时内嵌到二进制中的规则。
+
+### 让占位符在重启后保持稳定
+
+用 `openssl rand -hex 32` 生成一次密钥，把结果保存在已经持久化的 CPA 配置里：
+
+```yaml
+plugins:
+  enabled: true
+  configs:
+    veil:
+      enabled: true
+      key: "<在这里粘贴生成的 64 个十六进制字符>"
+```
+
+这把密钥应保密并保持不变。它独立于客户端 API key，不会发送给上游。使用内嵌规则时，Docker 只需保留已有的 CPA 配置挂载，
+不需要额外挂载目录。
+
+`key` 优先于 `veil.key`，设置后不读写密钥文件。未设置时，Veil 在 `base_dir` 或 v7 的原始库文件目录里读取或创建
+`veil.key`（权限 0600）。如果无法确定持久目录（例如 v8 未设置 `base_dir`），或密钥文件不可用，Veil 会用内存中的临时密钥
+继续脱敏，并输出警告或错误：这种情况下重启会改变占位符。Veil 不会向识别出的 CPA 影子目录写入密钥。
+
+从 v7 上的 v0.4.0 迁移时，把已有 `veil.key` 的内容复制到 `key`，或让 `base_dir` 指向这个文件所在目录，
+都能继续使用原密钥、保持占位符不变。迁移时不要重新生成密钥。v8 的旧密钥如果已随影子目录删除，则无法恢复。
+
+热更新保留 Vault 和正在进行的流。同一把密钥从 `veil.key` 搬入 `key` 可以直接热更新；更换密钥、删除显式的 `key`，
+或更换文件密钥所在目录，需要重启 CPA。这类热更新会被拒绝并记入日志，插件继续使用上一份有效配置。
+
+### CPA v8 下的外部规则文件
+
+通过 `base_dir` 指定规则原来所在的目录，例如：
+
+```yaml
+plugins:
+  configs:
+    veil:
+      base_dir: plugins/darwin/arm64
+      rules_toml: rules/extra.toml
+```
+
+`gitleaks_toml` 为空时，也会查找该目录下的 `rules/gitleaks.toml`。`base_dir` 必须存在，相对路径基于 CPA 进程的工作目录，
+不是 `config.yaml` 所在目录。绝对路径的 `gitleaks_toml` 和 `rules_toml` 不需要 `base_dir`。
+如果 v8 没有提供原始插件目录，未设置 `base_dir` 的相对规则路径会被拒绝；Veil 不猜测目录，也不会静默读取工作目录里的同名规则。
+没有配置外部规则时，使用内嵌规则。
 
 ### 拦截与告警
 
@@ -215,14 +305,17 @@ after-auth 这一遍用来拦住请求链后面其他插件加进来的文本，
 ### 占位符与调用方范围
 
 占位符的格式是 `{{KIND_xxxxxxxx}}`：类型（`EMAIL`、`SECRET`、`PASSWORD` 等，见[规则](#规则)）加上原值 HMAC 的 8 个字符。
-HMAC 密钥在首次启动时生成，保存在插件目录的 `veil.key`（权限 0600）中，所以重启后占位符不变。请把 `veil.key` 当作敏感文件：
-拿到它的人可以把猜测的值和占位符对照验证。删掉它，所有占位符都会改变。
+HMAC 密钥和调用方范围相同时，重启后的占位符保持不变；密钥保存方式见[让占位符在重启后保持稳定](#让占位符在重启后保持稳定)。
+请把 `key` 和 `veil.key` 都当作敏感信息：拿到密钥的人可以把猜测的值和占位符对照验证。更换或丢失密钥，所有占位符都会改变。
 
 每个客户端 API key 是一个独立的调用方范围：同一个值在另一个 key 下得到不同的占位符，占位符也不会为另一个客户端还原。
 Veil 从 `Authorization: Bearer`、`x-api-key` 或 `x-goog-api-key` 读取 key，只保存它的哈希。没有这些请求头的请求共用默认范围，
 其中包括用 `?key=` 查询参数传 key 的 Gemini 客户端，因为插件看不到查询参数。
 
 占位符到原值的映射只保存在内存中，最多保留最近使用的 200,000 个值。
+即使密钥不变，重启也会清空这些映射。客户端重发原文后，会用相同占位符重建映射；只保存在服务商侧的历史
+（包括 compaction 和 `previous_response_id`）本身无法重建映射，旧占位符可能无法还原。
+保留密钥不会持久化 Vault，也不保证 prompt cache 一定命中；它消除的是仅由重启更换密钥造成的占位符变化。
 
 ### 用户名和公网 IP 的替身
 
@@ -343,7 +436,7 @@ rules/gitleaks.toml
 运行时按以下顺序解析规则：
 
 1. 配置项 `gitleaks_toml`（若设置；它会替换内置规则，想追加规则请用 `rules_toml`）
-2. 共享库旁的 `rules/gitleaks.toml` 附带文件
+2. `base_dir` 下的 `rules/gitleaks.toml`，或目录已知时原始共享库旁的同名文件
 3. 构建时内嵌的规则（默认）
 
 更新内嵌规则并重新构建：
@@ -353,16 +446,31 @@ make update-rules
 make build
 ```
 
-相对路径会基于插件目录解析。
+相对路径会基于 `base_dir` 或已知的原始插件目录解析。在 CPA v8 下，请设置 `base_dir` 或使用绝对路径，
+见 [CPA v8 下的外部规则文件](#cpa-v8-下的外部规则文件)。
 
 ## 从 privacyfilter 迁移
 
-1. 把 `privacyfilter` 共享库换成 `veil.so` / `veil.dylib` / `veil.dll`，放进单独的 `veil/` 插件目录。
-2. 配置键从 `plugins.configs.privacyfilter` 改为 `plugins.configs.veil`。`gitleaks_toml`、`skip_models`、`skip_formats` 含义不变。
-3. 删除 `replacement` 和 `replacement_labels`。Veil 会忽略这两项，并在启动时输出
+1. 删掉旧插件的库文件 `privacyfilter.so` / `privacyfilter.dylib` / `privacyfilter.dll`。从插件商店安装的在
+   `plugins/<系统>/<架构>/` 下，手动安装的一般在 `plugins/` 下。旧插件一定要删：两个插件同时加载时，
+   旧插件可能先把值换成 `[EMAIL]` 这类标签，Veil 就无法还原了。
+2. 按[在 CLIProxyAPI 中使用](#在-cliproxyapi-中使用)安装 Veil。
+3. 配置键从 `plugins.configs.privacyfilter` 改为 `plugins.configs.veil`。`gitleaks_toml`、`skip_models`、`skip_formats` 含义不变。
+4. 删除 `replacement` 和 `replacement_labels`。Veil 会忽略这两项，并在启动时输出
    `veil ignores removed config field(s): ...`，直到删掉为止。
-4. 命中结果会有变化：值现在换成占位符，并在回复里还原；IP 地址默认不再掩码（如需掩码公网地址，打开 `ip` 类别）；
-   `example.com` 这类文档域名的邮箱、校验位不对的身份证号、看起来是订单号的手机号不再掩码；工具调用参数和工具结果也会掩码。
+5. 重启 CLIProxyAPI。
+
+命中结果会有变化：值现在换成占位符，并在回复里还原；IP 地址默认不再掩码（如需掩码公网地址，打开 `ip` 类别）；
+`example.com` 这类文档域名的邮箱、校验位不对的身份证号、看起来是订单号的手机号不再掩码；工具调用参数和工具结果也会掩码。
+
+### 原来的对话
+
+换成 Veil 后，原来的对话可以接着用。旧插件只改发往上游的请求，不改回复，所以客户端保存的历史一直是原文，
+Veil 会在发出前把其中的原值换成占位符。有两点要知道：
+
+- 切换后的第一次请求，上游看到的历史从 `[EMAIL]` 变成了 `{{EMAIL_…}}`，这段对话的 prompt cache 会失效一次，
+  整段历史要重新写入缓存。之后同一个值的占位符保持不变，缓存照常命中。
+- 旧插件没有记下被替换的原值，所以模型以前回复里的 `[EMAIL]` 这类标签无法还原，会原样留在历史里。之后的新回复会正常还原。
 
 ## 开发
 

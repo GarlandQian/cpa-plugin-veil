@@ -22,11 +22,14 @@ func resetMasking(t *testing.T) {
 	t.Helper()
 	masking.Lock()
 	dir, v, m, st := masking.dir, masking.vault, masking.masker, masking.streams
+	key, explicit, noted := masking.key, masking.explicitKey, masking.shadowNoted
 	masking.dir, masking.vault, masking.masker, masking.streams = "", nil, nil, nil
+	masking.key, masking.explicitKey, masking.shadowNoted = nil, false, false
 	masking.Unlock()
 	t.Cleanup(func() {
 		masking.Lock()
 		masking.dir, masking.vault, masking.masker, masking.streams = dir, v, m, st
+		masking.key, masking.explicitKey, masking.shadowNoted = key, explicit, noted
 		masking.Unlock()
 	})
 }

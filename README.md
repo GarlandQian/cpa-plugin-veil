@@ -77,15 +77,65 @@ BUILD_DIR=dist make build
 
 ## Use with CLIProxyAPI
 
-Place the shared library in your CLIProxyAPI plugin directory. The gitleaks
-rules are embedded in the binary, so no extra files are required:
+### From the plugin store
 
-```text
-veil/
-└── veil.so        # or veil.dylib / veil.dll
+Veil is not in the official plugin store, but CLIProxyAPI v8 can add plugin sources with `plugins.store-sources` (v7
+does not have this setting yet). Add Veil's source to `config.yaml`:
+
+```yaml
+plugins:
+  enabled: true
+  dir: "plugins"
+  store-sources:
+    - "https://raw.githubusercontent.com/GarlandQian/cpa-plugin-veil/main/registry.json"
 ```
 
-Then enable the `veil` plugin in CLIProxyAPI.
+CLIProxyAPI reloads the config by itself, and Veil then shows up in the plugin store. Install it from the plugin store
+in the management panel, or through the Management API:
+
+```bash
+curl -X POST "http://127.0.0.1:8317/v0/management/plugin-store/veil/install" \
+  -H "Authorization: Bearer <management key>"
+```
+
+The store downloads the zip for your platform from this repository's latest release, checks it against
+`checksums.txt`, installs it as `plugins/<os>/<arch>/veil-v<version>.dylib` (`.so` on Linux, `.dll` on Windows) and
+sets `plugins.configs.veil.enabled` to `true`. No restart is needed.
+
+### By hand
+
+1. Download `veil_<version>_<os>_<arch>.zip` for your platform from
+   [Releases](https://github.com/GarlandQian/cpa-plugin-veil/releases), for example `veil_0.4.1_darwin_arm64.zip` on
+   an Apple silicon Mac. You can check it against `checksums.txt` from the same page:
+
+   ```bash
+   shasum -a 256 -c checksums.txt --ignore-missing   # sha256sum on Linux
+   ```
+
+2. Unzip `veil.so` / `veil.dylib` / `veil.dll` into `<os>/<arch>/` under the plugin directory (`plugins.dir`,
+   `plugins` by default), where the plugin store installs plugins too:
+
+   ```text
+   plugins/
+   └── darwin/
+       └── arm64/
+           └── veil.dylib   # veil.so on Linux, veil.dll on Windows
+   ```
+
+   `plugins/` itself works as well. CLIProxyAPI looks for plugins only in these two places, not in other
+   subdirectories. The plugin ID is the file name, so keep it `veil` to match the `plugins.configs.veil` key.
+
+3. Enable the plugin in `config.yaml` (see [Configuration](#configuration)) and restart CLIProxyAPI. A
+   `veil loaded ... rules` line in the startup log means it loaded; `GET /v0/management/plugins` also shows
+   `effective_enabled: true`.
+
+The gitleaks rules are embedded in the binary, so no extra rule files are required. On CLIProxyAPI v8, configure
+`key` as described below to keep placeholders stable across restarts. v8 loads a temporary copy of the library,
+so its loaded location cannot hold `veil.key` or locate rules next to the installed library. Set `base_dir` when
+you need those files. On v7, Veil still creates and reuses `veil.key` next to the library by default.
+
+`key` and `base_dir` arrived in v0.4.1. v0.4.0 does not have them and changes placeholders on every CPA v8
+restart, so upgrade before relying on them.
 
 Plugin metadata:
 
@@ -131,7 +181,9 @@ Plugin fields:
 
 | Field           | Type   | Default | Description                                                                                  |
 |-----------------|--------|---------|----------------------------------------------------------------------------------------------|
-| `gitleaks_toml` | string | `""`    | A gitleaks rule file that replaces the built-in rules. Relative to the plugin directory.     |
+| `key`          | string | `""`    | Secret placeholder key: 64 hexadecimal characters encoding 32 random bytes. See below.      |
+| `base_dir`     | string | `""`    | Directory for relative rules, sidecar rules and `veil.key` when `key` is unset. Relative to CPA's working directory. |
+| `gitleaks_toml` | string | `""`    | A gitleaks rule file that replaces the built-in rules. Relative to `base_dir`, or the original plugin directory when known. |
 | `rules_toml`    | string | `""`    | A gitleaks rule file added to the built-in rules; see [Rules](#rules).                      |
 | `disabled_rules`| array  | `[]`    | Rule IDs to turn off.                                                                        |
 | `categories`    | object | `{}`    | Categories to turn on or off; see [Rules](#rules).                                           |
@@ -141,8 +193,55 @@ Plugin fields:
 | `skip_models`   | array  | `[]`    | Models that should skip masking.                                                             |
 | `skip_formats`  | array  | `[]`    | Source formats that should skip masking.                                                     |
 
-When `gitleaks_toml` is empty and no `rules/gitleaks.toml` sidecar file exists,
+When `gitleaks_toml` is empty and no `rules/gitleaks.toml` sidecar file exists in the resolved base directory,
 the plugin uses the rules embedded in the binary at build time.
+
+### Keeping placeholders stable across restarts
+
+Generate a key once with `openssl rand -hex 32`, then save the result in the CPA config you already persist:
+
+```yaml
+plugins:
+  enabled: true
+  configs:
+    veil:
+      enabled: true
+      key: "<paste the 64 hexadecimal characters here>"
+```
+
+Keep this key secret and unchanged. It is independent of client API keys and is never sent upstream. With the
+embedded rules, Docker needs only the existing persistent CPA config; no additional directory mount is needed.
+
+`key` takes precedence over `veil.key` and does not read or write a key file. Without `key`, Veil loads or creates
+`veil.key` (mode 0600) in `base_dir`, or the original library directory on v7. If no persistent directory is known
+(as on v8 without `base_dir`), or the key file cannot be used, Veil masks with an in-memory key and logs a warning
+or error: placeholders then change on restart. It never writes a key into a recognized CPA shadow directory.
+
+To preserve placeholders from v0.4.0 on v7, copy the contents of your existing `veil.key` into `key`, or set
+`base_dir` to the directory containing that file. Both preserve its exact key bytes. Do not generate a replacement
+key during that migration. A v8 key already deleted with its old shadow directory cannot be recovered.
+
+Hot reloads keep the Vault and active streams. Moving the same key from `veil.key` into `key` works on reload;
+changing the key, removing an explicit key, or changing the directory used for a file key requires a CPA restart.
+Such a reload is rejected with a log message and the previous valid configuration remains active.
+
+### External rule files on CPA v8
+
+Set `base_dir` to the original directory containing your rules, for example:
+
+```yaml
+plugins:
+  configs:
+    veil:
+      base_dir: plugins/darwin/arm64
+      rules_toml: rules/extra.toml
+```
+
+This also finds `rules/gitleaks.toml` under that directory when `gitleaks_toml` is empty. `base_dir` must exist and
+is resolved against the CPA process's working directory, not the location of `config.yaml`. Absolute
+`gitleaks_toml` and `rules_toml` paths work without `base_dir`. If v8 has not supplied the original plugin directory,
+relative rule paths without `base_dir` are rejected; Veil does not guess a directory or silently load rules from
+the working directory. With no external rules configured, it uses its embedded rules.
 
 ### Blocking and warning
 
@@ -229,9 +328,10 @@ Beyond what the rules find, Veil masks a value wherever it reappears:
 ### Placeholders and caller scope
 
 A placeholder is `{{KIND_xxxxxxxx}}`: the kind (`EMAIL`, `SECRET`, `PASSWORD`, ... see [Rules](#rules)) and eight
-characters of an HMAC of the value. The HMAC key is generated on first start and kept in `veil.key` (mode 0600) in the
-plugin directory, so placeholders survive restarts. Treat `veil.key` as sensitive: whoever holds it can confirm a
-guessed value against a placeholder. Deleting it changes every placeholder.
+characters of an HMAC of the value. The same key and caller scope produce the same placeholder across restarts;
+see [Keeping placeholders stable across restarts](#keeping-placeholders-stable-across-restarts) for key storage.
+Treat both `key` and `veil.key` as sensitive: whoever holds the key can confirm a guessed value against a
+placeholder. Rotating or losing it changes every placeholder.
 
 Each client API key is its own caller scope: the same value gets a different placeholder for another key, and a
 placeholder never restores for a client that did not cause it. Veil reads the key from `Authorization: Bearer`,
@@ -239,6 +339,10 @@ placeholder never restores for a client that did not cause it. Veil reads the ke
 includes Gemini clients passing their key as the `?key=` query parameter, which plugins cannot see.
 
 The mapping from placeholders back to values lives only in memory and holds the 200,000 most recently used values.
+Even with a stable key, a restart loses these mappings. Re-sending original text rebuilds them with the same
+placeholders; history kept only by the provider (including compaction or `previous_response_id`) cannot rebuild
+them on its own, so old placeholders can reach the client unrestored. Keeping the key does not persist the Vault
+or guarantee a prompt-cache hit; it avoids changing the placeholders solely because of a restart.
 
 ### Stand-ins for user names and public IP addresses
 
@@ -371,7 +475,7 @@ rules/gitleaks.toml
 At runtime the plugin resolves rules in this order:
 
 1. `gitleaks_toml` config value, if set (it replaces the built-in rules; use `rules_toml` to add to them)
-2. `rules/gitleaks.toml` sidecar next to the shared library
+2. `rules/gitleaks.toml` under `base_dir`, or next to the original shared library when its directory is known
 3. The rules embedded at build time (default)
 
 Update embedded rules and rebuild:
@@ -381,20 +485,38 @@ make update-rules
 make build
 ```
 
-Relative paths are resolved from the plugin directory.
+Relative paths are resolved from `base_dir`, or the original plugin directory when known. On CPA v8, set
+`base_dir` or use absolute paths; see [External rule files on CPA v8](#external-rule-files-on-cpa-v8).
 
 ## Migrating from privacyfilter
 
-1. Replace the `privacyfilter` shared library with `veil.so` / `veil.dylib` / `veil.dll` in its own `veil/` plugin
-   directory.
-2. Rename the config key from `plugins.configs.privacyfilter` to `plugins.configs.veil`. `gitleaks_toml`,
+1. Delete the old library, `privacyfilter.so` / `privacyfilter.dylib` / `privacyfilter.dll`: under
+   `plugins/<os>/<arch>/` if the plugin store installed it, usually under `plugins/` if you did. Do not skip this:
+   with both plugins loaded, the old one may turn values into labels such as `[EMAIL]` first, and Veil cannot
+   restore those.
+2. Install Veil as in [Use with CLIProxyAPI](#use-with-cliproxyapi).
+3. Rename the config key from `plugins.configs.privacyfilter` to `plugins.configs.veil`. `gitleaks_toml`,
    `skip_models` and `skip_formats` keep their meaning.
-3. Delete `replacement` and `replacement_labels`. Veil ignores them and logs
+4. Delete `replacement` and `replacement_labels`. Veil ignores them and logs
    `veil ignores removed config field(s): ...` at startup until they are gone.
-4. Expect different hits: values are now replaced by placeholders and restored in responses; IP addresses are no
-   longer masked by default (turn on the `ip` category for public ones); emails at documentation domains such as
-   `example.com`, ID numbers with a wrong check digit and phone numbers that read as order ids are left alone; tool
-   call arguments and tool results are masked too.
+5. Restart CLIProxyAPI.
+
+Expect different hits: values are now replaced by placeholders and restored in responses; IP addresses are no longer
+masked by default (turn on the `ip` category for public ones); emails at documentation domains such as `example.com`,
+ID numbers with a wrong check digit and phone numbers that read as order ids are left alone; tool call arguments and
+tool results are masked too.
+
+### Existing conversations
+
+Conversations you had before keep working after the switch. The old plugin changed only the requests sent upstream,
+never the responses, so your client's history holds the original text, and Veil replaces the values in it with
+placeholders before it goes out. Two things to know:
+
+- On the first request after the switch, the upstream sees `{{EMAIL_…}}` where the history used to say `[EMAIL]`, so
+  that conversation misses the prompt cache once and its whole history is written to the cache again. From then on
+  a value keeps its placeholder and the cache matches as usual.
+- The old plugin never kept the values it replaced, so labels such as `[EMAIL]` in the model's earlier replies cannot
+  be restored and stay in the history as they are. New replies are restored as usual.
 
 ## Development
 

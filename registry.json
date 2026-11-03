@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "plugins": [
+    {
+      "id": "veil",
+      "name": "Veil",
+      "description": "Swaps secrets and personal data in model requests for reversible placeholders before they reach upstream providers, and restores the original values in responses, streamed or not.",
+      "author": "GarlandQian",
+      "repository": "https://github.com/GarlandQian/cpa-plugin-veil",
+      "homepage": "https://github.com/GarlandQian/cpa-plugin-veil",
+      "license": "MIT",
+      "tags": ["Interceptor", "Security"],
+      "locales": {
+        "zh-CN": {
+          "description": "在模型请求到达上游之前，把密钥和个人信息换成可还原的占位符，并在回复（包括流式回复）中换回原值。"
+        }
+      }
+    }
+  ]
+}

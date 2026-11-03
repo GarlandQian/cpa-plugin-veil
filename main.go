@@ -21,8 +21,9 @@ func buildPlugin(configYAML []byte, pluginDir string) (pluginapi.Plugin, error) 
 			"removed_fields": removed,
 		})
 	}
-	if pluginDir == "" {
-		pluginDir = inferPluginDir()
+	pluginDir, errDir := resolvePluginDir(cfg.BaseDir, pluginDir)
+	if errDir != nil {
+		return pluginapi.Plugin{}, errDir
 	}
 
 	d, errDetector := newDetector(pluginDir, cfg)
@@ -33,7 +34,14 @@ func buildPlugin(configYAML []byte, pluginDir string) (pluginapi.Plugin, error) 
 	if errActions != nil {
 		return pluginapi.Plugin{}, errActions
 	}
-	masker, v, streams := maskerFor(pluginDir, d, actions)
+	key, errKey := cfg.configuredKey()
+	if errKey != nil {
+		return pluginapi.Plugin{}, errKey
+	}
+	masker, v, streams, errState := maskerFor(pluginDir, key, d, actions)
+	if errState != nil {
+		return pluginapi.Plugin{}, errState
+	}
 	p := &veilPlugin{
 		cfg:       cfg,
 		pluginDir: pluginDir,
@@ -61,6 +69,16 @@ func pluginMetadata() pluginapi.Metadata {
 		Author:           "GarlandQian",
 		GitHubRepository: "https://github.com/GarlandQian/cpa-plugin-veil",
 		ConfigFields: []pluginapi.ConfigField{
+			{
+				Name:        "key",
+				Type:        pluginapi.ConfigFieldTypeString,
+				Description: "Secret placeholder key: 64 hexadecimal characters (32 random bytes). Keep it in config.yaml for stable placeholders across restarts; changing it requires a restart.",
+			},
+			{
+				Name:        "base_dir",
+				Type:        pluginapi.ConfigFieldTypeString,
+				Description: "Persistent directory for relative rule paths, rules/gitleaks.toml and veil.key (when key is unset). Relative to the host working directory. Set this when the host loads a shadow copy.",
+			},
 			{
 				Name:        "gitleaks_toml",
 				Type:        pluginapi.ConfigFieldTypeString,
