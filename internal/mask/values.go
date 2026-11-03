@@ -5,6 +5,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/GarlandQian/cpa-plugin-veil/internal/detect"
+	"github.com/GarlandQian/cpa-plugin-veil/internal/vault"
 )
 
 // Value is one value a request had, as a Masking record tells it: by what it
@@ -157,4 +158,35 @@ func snip(text string, a, b int) string {
 		end += size
 	}
 	return text[start:end]
+}
+
+// Preview returns text as the upstream would get it under m's policy, and
+// the values found, without touching the Vault: nothing is recorded, Known
+// values and Sent forms are neither read nor changed, and each Placeholder
+// is the one the Default scope would have, for show.
+func (m *Masker) Preview(text string) (string, []Value) {
+	var hits []span
+	for _, h := range m.detector.Detect(text) {
+		hits = append(hits, span{h.Start, h.End, string(h.Kind), h.Rule})
+	}
+	hits = outsidePlaceholders(text, hits)
+	if len(hits) == 0 {
+		return text, nil
+	}
+	reps := make([]string, len(hits))
+	var b strings.Builder
+	prev := 0
+	for i, s := range hits {
+		reps[i] = m.vault.Peek(vault.DefaultScope, s.kind, text[s.start:s.end])
+		if m.action(s.kind) == Warn {
+			continue
+		}
+		b.WriteString(text[prev:s.start])
+		b.WriteString(reps[i])
+		prev = s.end
+	}
+	b.WriteString(text[prev:])
+	values := newValueSet()
+	values.addField(text, "", hits, reps, m.action, nil, false)
+	return b.String(), values.list
 }

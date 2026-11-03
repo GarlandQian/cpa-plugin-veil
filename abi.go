@@ -109,6 +109,7 @@ type abiCapabilities struct {
 	RequestInterceptor     bool `json:"request_interceptor"`
 	ResponseInterceptor    bool `json:"response_interceptor"`
 	StreamChunkInterceptor bool `json:"response_stream_interceptor"`
+	ManagementAPI          bool `json:"management_api"`
 }
 
 type abiHostLogRequest struct {
@@ -324,6 +325,18 @@ func handleVeilABIMethod(ctx context.Context, method string, request []byte) (ou
 		}
 		resp, errCall := p.InterceptStreamChunk(withHostCallbackID(ctx, req.HostCallbackID), req.StreamChunkInterceptRequest)
 		return abiOKEnvelopeWithError(resp, errCall)
+	case pluginabi.MethodManagementRegister:
+		var req pluginapi.ManagementRegistrationRequest
+		if errDecode := json.Unmarshal(request, &req); errDecode != nil {
+			return nil, errDecode
+		}
+		return abiOKEnvelope(managementRoutes(req.ResourceBasePath))
+	case pluginabi.MethodManagementHandle:
+		var req abiManagementRequest
+		if errDecode := json.Unmarshal(request, &req); errDecode != nil {
+			return nil, errDecode
+		}
+		return abiOKEnvelope(p.handleManagement(req.ManagementRequest))
 	default:
 		return abiErrorEnvelope("unknown_method", "unknown method: "+method), nil
 	}
@@ -365,7 +378,7 @@ func newABIRegistration(metadata pluginapi.Metadata) abiRegistration {
 	return abiRegistration{
 		SchemaVersion: pluginabi.SchemaVersion,
 		Metadata:      metadata,
-		Capabilities:  abiCapabilities{RequestInterceptor: true, ResponseInterceptor: true, StreamChunkInterceptor: true},
+		Capabilities:  abiCapabilities{RequestInterceptor: true, ResponseInterceptor: true, StreamChunkInterceptor: true, ManagementAPI: true},
 	}
 }
 
