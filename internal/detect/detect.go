@@ -275,3 +275,18 @@ func mergeSpans(spans []span) []span {
 	}
 	return merged
 }
+
+// KnownKind reports whether kind is one of Veil's own Kinds.
+func KnownKind(kind string) bool {
+	if Kind(kind) == KindTerm {
+		return true
+	}
+	for _, c := range Categories {
+		for _, k := range c.Kinds {
+			if string(k) == kind {
+				return true
+			}
+		}
+	}
+	return false
+}

@@ -27,8 +27,10 @@ type veilPlugin struct {
 	vault     *vault.Vault
 	streams   *streamRegistry
 	clean     *bodySet
-	// records keeps the Masking records; nil when they are off
+	// records keeps the Masking records, and links finds the record a
+	// response belongs to; nil when records are off
 	records *records.Store
+	links   *recordLinks
 }
 
 var (
@@ -100,12 +102,21 @@ func (p *veilPlugin) interceptRequest(ctx context.Context, req pluginapi.Request
 			"warned_fields": report.WarnedPaths,
 		})
 	}
-	p.record(req, report, "", start)
+	key, recorded := p.record(req, report, "", start)
 	if masked == nil {
 		p.clean.add(sum)
+		if recorded {
+			p.links.put(sum, key)
+		}
 		return resp, nil
 	}
-	p.clean.add(bodySum(scope, masked))
+	maskedSum := bodySum(scope, masked)
+	p.clean.add(maskedSum)
+	if recorded {
+		// The host hands the response this body back, as the request the
+		// response answers.
+		p.links.put(maskedSum, key)
+	}
 
 	// The host text formatter only prints a fixed set of field names, so the
 	// summary is repeated in the message.
@@ -122,10 +133,11 @@ func (p *veilPlugin) interceptRequest(ctx context.Context, req pluginapi.Request
 }
 
 // record keeps a Masking record of a request that had a value or did not
-// reach the upstream; stopped says why it did not.
-func (p *veilPlugin) record(req pluginapi.RequestInterceptRequest, report mask.Report, stopped string, start time.Time) {
+// reach the upstream; stopped says why it did not. It returns the record's
+// key, if it kept one.
+func (p *veilPlugin) record(req pluginapi.RequestInterceptRequest, report mask.Report, stopped string, start time.Time) (int64, bool) {
 	if p.records == nil || (len(report.Values) == 0 && stopped == "") {
-		return
+		return 0, false
 	}
 	r := records.Record{
 		Time:    start,
@@ -156,7 +168,27 @@ func (p *veilPlugin) record(req pluginapi.RequestInterceptRequest, report mask.R
 			r.Snips[v.Placeholder] = v.Snip
 		}
 	}
-	p.records.Add(r)
+	return p.records.Add(r)
+}
+
+// recordOf returns the key of the Masking record of the request a response
+// answers, known by the bodies the host hands the response back.
+func (p *veilPlugin) recordOf(scope string, bodies ...[]byte) (int64, bool) {
+	if p.records == nil || p.links == nil {
+		return 0, false
+	}
+	sums := make([][sha256.Size]byte, 0, len(bodies))
+	for _, body := range bodies {
+		if len(body) > 0 {
+			sums = append(sums, bodySum(scope, body))
+		}
+	}
+	return p.links.take(sums...)
+}
+
+// restored adds to a Masking record what its response put back.
+func (p *veilPlugin) restored(key int64, t *restore.Tally) {
+	p.records.Restore(key, t.Back, t.Unrestored)
 }
 
 // stop turns a request into a Stopped request and says why in the log.
@@ -181,7 +213,16 @@ func (p *veilPlugin) InterceptResponse(ctx context.Context, req pluginapi.Respon
 	if len(req.Body) == 0 {
 		return resp, nil
 	}
-	resp.Body = p.restorer.Body(vault.ScopeOf(req.RequestHeaders), req.Body)
+	scope := vault.ScopeOf(req.RequestHeaders)
+	key, recorded := p.recordOf(scope, req.OriginalRequest, req.RequestBody)
+	var tally *restore.Tally
+	if recorded {
+		tally = &restore.Tally{}
+	}
+	resp.Body = p.restorer.BodyTally(scope, req.Body, tally)
+	if recorded {
+		p.restored(key, tally)
+	}
 	return resp, nil
 }
 
@@ -199,7 +240,11 @@ func (p *veilPlugin) InterceptStreamChunk(ctx context.Context, req pluginapi.Str
 	key := bodySum(scope, req.RequestBody)
 	if req.ChunkIndex == pluginapi.StreamChunkHeaderInitIndex {
 		if p.vault.HasScope(scope) {
-			p.streams.start(key, func(hold bool) *restore.Stream { return p.restorer.NewStream(scope, hold) })
+			var finish func(*restore.Stream)
+			if record, ok := p.recordOf(scope, req.OriginalRequest, req.RequestBody); ok {
+				finish = func(s *restore.Stream) { p.restored(record, s.Tally()) }
+			}
+			p.streams.start(key, func(hold bool) *restore.Stream { return p.restorer.NewStream(scope, hold) }, finish)
 		}
 		return resp, nil
 	}

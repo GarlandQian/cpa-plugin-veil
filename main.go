@@ -52,7 +52,7 @@ func buildPlugin(configYAML []byte, pluginDir string) (pluginapi.Plugin, error) 
 		clean:     newBodySet(),
 	}
 	if cfg.recordsOn() {
-		p.records = recordStore(pluginDir)
+		p.records, p.links = recordStore(pluginDir)
 	}
 
 	return pluginapi.Plugin{

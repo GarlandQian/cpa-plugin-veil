@@ -55,6 +55,45 @@ type Record struct {
 	// Snips are, by Placeholder, the text around its first place; in memory
 	// only, for the newest records.
 	Snips map[string]string `json:"snips,omitempty"`
+	// Restored is what the response put back, once it is done.
+	Restored *Restored `json:"restored,omitempty"`
+	// Patch marks a line on disk that adds Restored to the record of its Key
+	// written before it.
+	Patch bool `json:"patch,omitempty"`
+}
+
+// Restored is what the responses to a request put back.
+type Restored struct {
+	// Back are, by Placeholder or Stand-in, the places restored.
+	Back map[string]int `json:"back,omitempty"`
+	// Unrestored are the Placeholders the responses had that the Vault did
+	// not hold, such as ones from provider-held history after a restart.
+	Unrestored map[string]int `json:"unrestored,omitempty"`
+	Time       time.Time      `json:"time"`
+}
+
+// merge returns a new Restored with o's counts added to r's, so a record
+// already handed out keeps what it had.
+func (r *Restored) merge(o Restored) *Restored {
+	out := &Restored{Back: map[string]int{}, Unrestored: map[string]int{}, Time: o.Time}
+	for _, from := range []*Restored{r, &o} {
+		if from == nil {
+			continue
+		}
+		for p, n := range from.Back {
+			out.Back[p] += n
+		}
+		for p, n := range from.Unrestored {
+			out.Unrestored[p] += n
+		}
+	}
+	if len(out.Back) == 0 {
+		out.Back = nil
+	}
+	if len(out.Unrestored) == 0 {
+		out.Unrestored = nil
+	}
+	return out
 }
 
 // Store keeps records. It is safe for concurrent use.
@@ -70,10 +109,12 @@ type Store struct {
 	disk diskState
 }
 
-// item is a record to keep, or a flush to answer once those before it are.
+// item is a record to keep, what a response restored, or a flush to answer
+// once those before it are.
 type item struct {
-	rec  Record
-	done chan struct{}
+	rec      Record
+	restored *Restored // for the record rec.Key
+	done     chan struct{}
 }
 
 // New returns a Store keeping records in memory only, until SetDir.
@@ -109,20 +150,31 @@ func (s *Store) Dropped() int64 {
 	return s.dropped.Load()
 }
 
-// Add hands r to be kept, giving it its Key and, where unset, its Time. It
-// never waits: when too many records wait already, r is dropped, counted,
-// and Add returns false.
-func (s *Store) Add(r Record) bool {
+// Add hands r to be kept, giving it its Key and, where unset, its Time, and
+// returns the Key. It never waits: when too many records wait already, r is
+// dropped, counted, and Add returns false.
+func (s *Store) Add(r Record) (int64, bool) {
 	if r.Time.IsZero() {
 		r.Time = s.clock()
 	}
 	r.Key = s.nextKey(r.Time)
 	select {
 	case s.queue <- item{rec: r}:
-		return true
+		return r.Key, true
 	default:
 		s.dropped.Add(1)
-		return false
+		return 0, false
+	}
+}
+
+// Restore adds what a response restored to the record with key. Like Add, it
+// never waits, and drops what does not fit.
+func (s *Store) Restore(key int64, back, unrestored map[string]int) {
+	r := &Restored{Back: back, Unrestored: unrestored, Time: s.clock()}
+	select {
+	case s.queue <- item{rec: Record{Key: key}, restored: r}:
+	default:
+		s.dropped.Add(1)
 	}
 }
 
@@ -146,11 +198,14 @@ func (s *Store) nextKey(t time.Time) int64 {
 
 func (s *Store) run() {
 	for it := range s.queue {
-		if it.done != nil {
+		switch {
+		case it.done != nil:
 			close(it.done)
-			continue
+		case it.restored != nil:
+			s.patch(it.rec.Key, *it.restored)
+		default:
+			s.keep(it.rec)
 		}
-		s.keep(it.rec)
 	}
 }
 
@@ -167,6 +222,24 @@ func (s *Store) keep(r Record) {
 	}
 	if s.dir != "" {
 		s.write(r)
+	}
+}
+
+// patch adds what a response restored to the record with key, in memory and
+// on disk.
+func (s *Store) patch(key int64, r Restored) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	at := time.UnixMicro(key)
+	for i := len(s.ring) - 1; i >= 0; i-- {
+		if s.ring[i].Key == key {
+			s.ring[i].Restored = s.ring[i].Restored.merge(r)
+			at = s.ring[i].Time
+			break
+		}
+	}
+	if s.dir != "" {
+		s.write(Record{Key: key, Time: at, Patch: true, Restored: &r})
 	}
 }
 

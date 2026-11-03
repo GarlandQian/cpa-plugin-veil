@@ -25,7 +25,7 @@ func TestMemoryKeepsTheNewestAndTheirSnips(t *testing.T) {
 	s := New()
 	now := time.Now()
 	for i := 0; i < keepRecords+5; i++ {
-		if !s.Add(record("c", "EMAIL", fmt.Sprintf("{{EMAIL_%08d}}", i), now)) {
+		if _, ok := s.Add(record("c", "EMAIL", fmt.Sprintf("{{EMAIL_%08d}}", i), now)); !ok {
 			t.Fatal("a record was dropped with room to spare")
 		}
 		if i%100 == 99 {
@@ -52,10 +52,10 @@ func TestMemoryKeepsTheNewestAndTheirSnips(t *testing.T) {
 
 func TestAFullQueueDropsAndCounts(t *testing.T) {
 	s := &Store{queue: make(chan item, 1), clock: time.Now} // no writer running
-	if !s.Add(record("c", "EMAIL", "{{EMAIL_a}}", time.Now())) {
+	if _, ok := s.Add(record("c", "EMAIL", "{{EMAIL_a}}", time.Now())); !ok {
 		t.Fatal("the first record was dropped")
 	}
-	if s.Add(record("c", "EMAIL", "{{EMAIL_b}}", time.Now())) || s.Dropped() != 1 {
+	if _, ok := s.Add(record("c", "EMAIL", "{{EMAIL_b}}", time.Now())); ok || s.Dropped() != 1 {
 		t.Fatalf("a record past the queue was not dropped: %d", s.Dropped())
 	}
 }
@@ -251,5 +251,37 @@ func TestKeysGrowWithinOneMicrosecond(t *testing.T) {
 	a, b := s.nextKey(at), s.nextKey(at)
 	if b <= a {
 		t.Fatalf("keys %d then %d", a, b)
+	}
+}
+
+func TestRestoreAddsToTheRecordInMemoryAndOnDisk(t *testing.T) {
+	s := New()
+	s.SetDir(t.TempDir())
+	key, _ := s.Add(record("c", "EMAIL", "{{EMAIL_a}}", time.Now()))
+	s.Restore(key, map[string]int{"{{EMAIL_a}}": 2}, nil)
+	s.Restore(key, map[string]int{"{{EMAIL_a}}": 1}, map[string]int{"{{EMAIL_gonegone}}": 1})
+	s.Flush()
+	check := func(where string, r Record, ok bool) {
+		t.Helper()
+		if !ok || r.Restored == nil || r.Restored.Back["{{EMAIL_a}}"] != 3 || r.Restored.Unrestored["{{EMAIL_gonegone}}"] != 1 {
+			t.Fatalf("%s: record = %+v (%v)", where, r.Restored, ok)
+		}
+	}
+	r, ok := s.Get(key)
+	check("memory", r, ok)
+
+	s.mu.Lock()
+	s.ring = nil
+	s.mu.Unlock()
+	r, ok = s.Get(key)
+	check("disk", r, ok)
+	list, _ := s.List(0, 10, Filter{})
+	if len(list) != 1 {
+		t.Fatalf("a patch was listed as a record: %d records", len(list))
+	}
+	check("list", list[0], true)
+	sum := s.Summary(1)
+	if sum.Requests != 1 || sum.Restored != 3 || sum.Unrestored != 1 {
+		t.Fatalf("summary = %+v", sum)
 	}
 }

@@ -26,6 +26,7 @@ var masking = struct {
 	masker      *mask.Masker
 	streams     *streamRegistry
 	records     *records.Store
+	links       *recordLinks
 }{}
 
 // recordsOnDisk says Masking records go to disk where Veil has a persistent
@@ -33,18 +34,19 @@ var masking = struct {
 var recordsOnDisk = true
 
 // recordStore returns the process's Masking records, kept on disk under dir
-// when it is a persistent directory.
-func recordStore(dir string) *records.Store {
+// when it is a persistent directory, and the links from responses to them.
+func recordStore(dir string) (*records.Store, *recordLinks) {
 	masking.Lock()
 	defer masking.Unlock()
 	if masking.records == nil {
 		masking.records = records.New()
+		masking.links = newRecordLinks()
 	}
 	if !recordsOnDisk {
 		dir = ""
 	}
 	masking.records.SetDir(dir)
-	return masking.records
+	return masking.records, masking.links
 }
 
 // maskerFor keeps the Vault, Sent forms and active streams on reload. A key
