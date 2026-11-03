@@ -8,12 +8,14 @@ import (
 
 	"github.com/GarlandQian/cpa-plugin-veil/internal/detect"
 	"github.com/GarlandQian/cpa-plugin-veil/internal/mask"
+	"github.com/GarlandQian/cpa-plugin-veil/internal/records"
 	"github.com/GarlandQian/cpa-plugin-veil/internal/vault"
 )
 
 // masking is the state that outlives a config reload: the Vault, so
 // Placeholders handed out before the reload still restore, the Sent forms, so
-// prompt prefixes stay the same, and the streams in flight.
+// prompt prefixes stay the same, the streams in flight and the Masking
+// records.
 var masking = struct {
 	sync.Mutex
 	dir         string
@@ -23,7 +25,27 @@ var masking = struct {
 	vault       *vault.Vault
 	masker      *mask.Masker
 	streams     *streamRegistry
+	records     *records.Store
 }{}
+
+// recordsOnDisk says Masking records go to disk where Veil has a persistent
+// directory; the tests keep them in memory unless they test the disk.
+var recordsOnDisk = true
+
+// recordStore returns the process's Masking records, kept on disk under dir
+// when it is a persistent directory.
+func recordStore(dir string) *records.Store {
+	masking.Lock()
+	defer masking.Unlock()
+	if masking.records == nil {
+		masking.records = records.New()
+	}
+	if !recordsOnDisk {
+		dir = ""
+	}
+	masking.records.SetDir(dir)
+	return masking.records
+}
 
 // maskerFor keeps the Vault, Sent forms and active streams on reload. A key
 // change needs a restart rather than discarding mappings under live requests.

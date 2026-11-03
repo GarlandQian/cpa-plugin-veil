@@ -29,6 +29,13 @@ type veilConfig struct {
 	SkipModels    []string          `yaml:"skip_models"`
 	SkipFormats   []string          `yaml:"skip_formats"`
 	Actions       map[string]string `yaml:"actions"`
+	// Records keeps a Masking record of each request; on unless false.
+	Records *bool `yaml:"records"`
+}
+
+// recordsOn says Masking records are kept.
+func (cfg *veilConfig) recordsOn() bool {
+	return cfg.Records == nil || *cfg.Records
 }
 
 // termConfig is a Term, written as the word alone or with its options:

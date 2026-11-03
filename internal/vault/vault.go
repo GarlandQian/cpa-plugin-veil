@@ -94,33 +94,56 @@ const standInTries = 8
 // it restores: a Stand-in for a user name or a public IP address, a
 // Placeholder for any other Kind.
 func (v *Vault) Placeholder(scope, kind, value string) string {
+	p, _ := v.Mint(scope, kind, value)
+	return p
+}
+
+// Mint is Placeholder, and also says whether this call recorded value for
+// the first time in scope: a value no request of the scope had before.
+func (v *Vault) Mint(scope, kind, value string) (string, bool) {
 	if head, ok := standInKinds[kind]; ok {
-		if s, ok := v.standIn(scope, kind, value, head); ok {
-			return s
+		if s, created, ok := v.standIn(scope, kind, value, head); ok {
+			return s, created
 		}
 	}
 	return v.placeholder(scope, kind, value)
 }
 
+// Peek returns what value goes upstream as in scope without recording it,
+// for a value a Masking record must tell apart but that never restores:
+// one sent as written, or one in a Stopped request.
+func (v *Vault) Peek(scope, kind, value string) string {
+	if head, ok := standInKinds[kind]; ok {
+		return v.standInCandidate(scope, kind, value, head, 0)
+	}
+	return "{{" + kind + "_" + v.hash(scope, kind, value)[:hashLengths[0]] + "}}"
+}
+
+// standInCandidate is the i-th Stand-in value may take.
+func (v *Vault) standInCandidate(scope, kind, value, head string, i int) string {
+	mac := hmac.New(sha256.New, v.key)
+	mac.Write([]byte(scope))
+	mac.Write([]byte{0})
+	mac.Write([]byte("stand-in"))
+	mac.Write([]byte{0})
+	mac.Write([]byte(kind))
+	mac.Write([]byte{0})
+	mac.Write([]byte(value))
+	mac.Write([]byte{byte(i)})
+	sum := mac.Sum(nil)
+	letters := make([]byte, 8)
+	for j := range letters {
+		letters[j] = 'a' + sum[j]%26
+	}
+	return head + string(letters)
+}
+
 // standIn returns value's Stand-in, made from the same key and scope as a
-// Placeholder, or false when every candidate is another value's.
-func (v *Vault) standIn(scope, kind, value, head string) (string, bool) {
+// Placeholder, and whether it was recorded just now, or false when every
+// candidate is another value's.
+func (v *Vault) standIn(scope, kind, value, head string) (string, bool, bool) {
 	for i := 0; i < standInTries; i++ {
-		mac := hmac.New(sha256.New, v.key)
-		mac.Write([]byte(scope))
-		mac.Write([]byte{0})
-		mac.Write([]byte("stand-in"))
-		mac.Write([]byte{0})
-		mac.Write([]byte(kind))
-		mac.Write([]byte{0})
-		mac.Write([]byte(value))
-		mac.Write([]byte{byte(i)})
-		sum := mac.Sum(nil)
-		letters := make([]byte, 8)
-		for j := range letters {
-			letters[j] = 'a' + sum[j]%26
-		}
-		candidate := head + string(letters)
+		candidate := v.standInCandidate(scope, kind, value, head, i)
 
 		v.mu.Lock()
 		e, taken := v.entries[slot{scope, candidate}]
@@ -132,15 +155,15 @@ func (v *Vault) standIn(scope, kind, value, head string) (string, bool) {
 			}
 			v.standIns[scope][candidate] = true
 			v.mu.Unlock()
-			return candidate, true
+			return candidate, true, true
 		case e.kind == kind && e.value == value:
 			e.used.Store(v.clock.Add(1))
 			v.mu.Unlock()
-			return candidate, true
+			return candidate, false, true
 		}
 		v.mu.Unlock()
 	}
-	return "", false
+	return "", false, false
 }
 
 // IsStandIn reports whether text is a Stand-in of scope, so a detection
@@ -172,14 +195,19 @@ func (v *Vault) StandInPrefix(scope, prefix string) bool {
 	return false
 }
 
-func (v *Vault) placeholder(scope, kind, value string) string {
+// hash is the base32 HMAC a Placeholder of value is cut from.
+func (v *Vault) hash(scope, kind, value string) string {
 	mac := hmac.New(sha256.New, v.key)
 	mac.Write([]byte(scope))
 	mac.Write([]byte{0})
 	mac.Write([]byte(kind))
 	mac.Write([]byte{0})
 	mac.Write([]byte(value))
-	hash := strings.ToLower(encoding.EncodeToString(mac.Sum(nil)))
+	return strings.ToLower(encoding.EncodeToString(mac.Sum(nil)))
+}
+
+func (v *Vault) placeholder(scope, kind, value string) (string, bool) {
+	hash := v.hash(scope, kind, value)
 
 	v.mu.Lock()
 	defer v.mu.Unlock()
@@ -188,11 +216,11 @@ func (v *Vault) placeholder(scope, kind, value string) string {
 		e, ok := v.entries[slot{scope, p}]
 		if !ok {
 			v.add(scope, p, kind, value)
-			return p
+			return p, true
 		}
 		if e.kind == kind && e.value == value {
 			e.used.Store(v.clock.Add(1))
-			return p
+			return p, false
 		}
 	}
 	// Every length is taken by another value: a full 256-bit collision.
