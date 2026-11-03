@@ -35,6 +35,12 @@ func PlaceholderSpans(text string) [][]int {
 	return placeholderPattern.FindAllStringIndex(text, -1)
 }
 
+// IsPlaceholder reports whether s is a Placeholder exactly as Veil writes one.
+func IsPlaceholder(s string) bool {
+	m := placeholderPattern.FindStringIndex(s)
+	return m != nil && m[0] == 0 && m[1] == len(s)
+}
+
 var encoding = base32.StdEncoding.WithPadding(base32.NoPadding)
 
 // KnownMinLen is the shortest value masked wherever it reappears. Shorter
@@ -244,6 +250,13 @@ func (v *Vault) HasScope(scope string) bool {
 	v.mu.RLock()
 	defer v.mu.RUnlock()
 	return v.scopes[scope] > 0
+}
+
+// HasKind reports whether a Placeholder has been minted for kind.
+func (v *Vault) HasKind(kind string) bool {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+	return v.kinds[kind]
 }
 
 // Kinds returns every Kind a Placeholder has been minted for.

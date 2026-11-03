@@ -127,6 +127,10 @@ type Day struct {
 	Distinct int    `json:"distinct"` // different values
 	Warned   int    `json:"warned"`   // places sent as written
 	Stopped  int    `json:"stopped"`  // requests that did not reach the upstream
+	// Restored is the places responses had restored, and Unrestored the
+	// Placeholders they held that could not be.
+	Restored   int `json:"restored"`
+	Unrestored int `json:"unrestored"`
 }
 
 // Count is one Kind's, caller's, model's or rule's share.
@@ -151,19 +155,21 @@ type Seen struct {
 
 // Summary is what masking did over some days.
 type Summary struct {
-	Days      []Day   `json:"days"` // the oldest first, every day of them
-	Requests  int     `json:"requests"`
-	N         int     `json:"n"`
-	Distinct  int     `json:"distinct"`
-	Warned    int     `json:"warned"`
-	Stopped   int     `json:"stopped"`
-	Kinds     []Count `json:"kinds"`
-	Callers   []Count `json:"callers"`
-	Models    []Count `json:"models"`
-	Rules     []Count `json:"rules"`
-	Values    []Seen  `json:"values"` // the most masked first, at most topValues
-	Dropped   int64   `json:"dropped"`
-	Persisted bool    `json:"persisted"`
+	Days       []Day   `json:"days"` // the oldest first, every day of them
+	Requests   int     `json:"requests"`
+	N          int     `json:"n"`
+	Distinct   int     `json:"distinct"`
+	Warned     int     `json:"warned"`
+	Stopped    int     `json:"stopped"`
+	Restored   int     `json:"restored"`
+	Unrestored int     `json:"unrestored"`
+	Kinds      []Count `json:"kinds"`
+	Callers    []Count `json:"callers"`
+	Models     []Count `json:"models"`
+	Rules      []Count `json:"rules"`
+	Values     []Seen  `json:"values"` // the most masked first, at most topValues
+	Dropped    int64   `json:"dropped"`
+	Persisted  bool    `json:"persisted"`
 }
 
 // topValues is how many values a Summary lists.
@@ -201,6 +207,14 @@ func (a *agg) add(r Record) {
 	a.day.Requests++
 	if r.Stopped != "" {
 		a.day.Stopped++
+	}
+	if r.Restored != nil {
+		for _, n := range r.Restored.Back {
+			a.day.Restored += n
+		}
+		for _, n := range r.Restored.Unrestored {
+			a.day.Unrestored += n
+		}
 	}
 	seenKinds, seenRules := map[string]bool{}, map[string]bool{}
 	for _, v := range r.Values {
@@ -261,6 +275,8 @@ func (a *agg) merge(b *agg) {
 	a.day.N += b.day.N
 	a.day.Warned += b.day.Warned
 	a.day.Stopped += b.day.Stopped
+	a.day.Restored += b.day.Restored
+	a.day.Unrestored += b.day.Unrestored
 	for p := range b.distinct {
 		a.distinct[p] = true
 	}
@@ -318,6 +334,7 @@ func (s *Store) Summary(days int) Summary {
 	}
 	out.Requests, out.N, out.Distinct = total.day.Requests, total.day.N, total.day.Distinct
 	out.Warned, out.Stopped = total.day.Warned, total.day.Stopped
+	out.Restored, out.Unrestored = total.day.Restored, total.day.Unrestored
 	out.Kinds = counts(total.kinds)
 	out.Callers = counts(total.callers)
 	out.Models = counts(total.models)

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/GarlandQian/cpa-plugin-veil/internal/detect"
 	"github.com/GarlandQian/cpa-plugin-veil/internal/fields"
 	"github.com/GarlandQian/cpa-plugin-veil/internal/jsontree"
 	"github.com/GarlandQian/cpa-plugin-veil/internal/vault"
@@ -38,20 +39,20 @@ func isWord(b byte) bool {
 
 // Text returns text with every Placeholder of scope replaced by its value.
 func (r *Restorer) Text(scope, text string) (string, bool) {
-	return r.replace(scope, text, false)
+	return r.replace(scope, text, false, nil)
 }
 
-// replace restores text; escape writes each value as it must appear inside a
-// JSON string.
-func (r *Restorer) replace(scope, text string, escape bool) (string, bool) {
-	out, placeholders := r.placeholders(scope, text, escape)
-	out, standIns := r.standIns(scope, out, escape)
+// replace restores text, counting into t; escape writes each value as it must
+// appear inside a JSON string.
+func (r *Restorer) replace(scope, text string, escape bool, t *Tally) (string, bool) {
+	out, placeholders := r.placeholders(scope, text, escape, t)
+	out, standIns := r.standIns(scope, out, escape, t)
 	return out, placeholders || standIns
 }
 
 // standIns restores the Stand-ins of scope in text, in any case and only as
 // whole words.
-func (r *Restorer) standIns(scope, text string, escape bool) (string, bool) {
+func (r *Restorer) standIns(scope, text string, escape bool, t *Tally) (string, bool) {
 	if len(text) < 8 || !r.vault.HasStandIns(scope) {
 		return text, false
 	}
@@ -62,6 +63,7 @@ func (r *Restorer) standIns(scope, text string, escape bool) (string, bool) {
 			return word
 		}
 		changed = true
+		t.back(strings.ToLower(word))
 		if escape {
 			quoted := jsontree.AppendString(nil, value)
 			return string(quoted[1 : len(quoted)-1])
@@ -72,7 +74,7 @@ func (r *Restorer) standIns(scope, text string, escape bool) (string, bool) {
 }
 
 // placeholders restores the Placeholders of scope in text.
-func (r *Restorer) placeholders(scope, text string, escape bool) (string, bool) {
+func (r *Restorer) placeholders(scope, text string, escape bool, t *Tally) (string, bool) {
 	if !strings.Contains(text, "_") {
 		return text, false
 	}
@@ -93,10 +95,17 @@ func (r *Restorer) placeholders(scope, text string, escape bool) (string, bool) 
 		}
 		kind := strings.ToUpper(text[m[2]:m[3]])
 		hash := strings.ToLower(text[m[4]:m[5]])
-		value, ok := r.vault.Lookup(scope, "{{"+kind+"_"+hash+"}}")
+		placeholder := "{{" + kind + "_" + hash + "}}"
+		value, ok := r.vault.Lookup(scope, placeholder)
 		if !ok {
+			// Written as Veil writes one, of a Kind Veil masks, yet not held:
+			// one the Vault forgot, or of another caller.
+			if t != nil && strings.HasPrefix(text[start:end], "{{") && strings.HasSuffix(text[start:end], "}}") && vault.IsPlaceholder(placeholder) && (detect.KnownKind(kind) || r.vault.HasKind(kind)) {
+				t.miss(placeholder)
+			}
 			continue
 		}
+		t.back(placeholder)
 		b.WriteString(text[prev:start])
 		if escape {
 			quoted := jsontree.AppendString(nil, value)
@@ -118,6 +127,11 @@ func (r *Restorer) placeholders(scope, text string, escape bool) (string, bool) 
 // reasoning, identifiers and the rest of the bytes as they came; any other
 // UTF-8 body is restored as plain text.
 func (r *Restorer) Body(scope string, body []byte) []byte {
+	return r.BodyTally(scope, body, nil)
+}
+
+// BodyTally is Body, counting what it restores into t.
+func (r *Restorer) BodyTally(scope string, body []byte, t *Tally) []byte {
 	if !r.vault.HasScope(scope) {
 		return nil
 	}
@@ -126,14 +140,14 @@ func (r *Restorer) Body(scope string, body []byte) []byte {
 		if !utf8.Valid(body) {
 			return nil
 		}
-		if out, ok := r.Text(scope, string(body)); ok {
+		if out, ok := r.replace(scope, string(body), false, t); ok {
 			return []byte(out)
 		}
 		return nil
 	}
 	set := fields.Walk(doc)
 	for _, f := range set.Fields {
-		if out, ok := r.Text(scope, f.Text); ok {
+		if out, ok := r.replace(scope, f.Text, false, t); ok {
 			f.Doc.SetString(f.Value, out)
 		}
 	}

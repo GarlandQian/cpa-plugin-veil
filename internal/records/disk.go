@@ -155,8 +155,9 @@ func days(dir string) []dayFile {
 	return out
 }
 
-// read calls fn with each record of a day's file, in the order written. A
-// line that does not parse, such as one cut short, is skipped.
+// read calls fn with each record of a day's file, in the order written,
+// each with what the patch lines after it say its response restored. A line
+// that does not parse, such as one cut short, is skipped.
 func read(path string, fn func(Record)) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -165,14 +166,27 @@ func read(path string, fn func(Record)) {
 	defer f.Close()
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 64<<10), lineMax)
+	var all []Record
+	at := map[int64]int{}
 	for sc.Scan() {
 		line := bytes.TrimSpace(sc.Bytes())
 		if len(line) == 0 {
 			continue
 		}
 		var r Record
-		if json.Unmarshal(line, &r) == nil {
-			fn(r)
+		if json.Unmarshal(line, &r) != nil {
+			continue
 		}
+		if r.Patch {
+			if i, ok := at[r.Key]; ok && r.Restored != nil {
+				all[i].Restored = all[i].Restored.merge(*r.Restored)
+			}
+			continue
+		}
+		at[r.Key] = len(all)
+		all = append(all, r)
+	}
+	for _, r := range all {
+		fn(r)
 	}
 }

@@ -31,6 +31,9 @@ type Stream struct {
 	eventLine    []byte // an event line waiting for its data line
 	held         *heldEvent
 	swallowBlank bool // the held event's blank line has yet to arrive
+
+	// tally counts what the events that went out had restored.
+	tally Tally
 }
 
 type heldEvent struct {
@@ -38,6 +41,9 @@ type heldEvent struct {
 	full      []byte // the data restored with its tails left as they came
 	cut       []byte // the data restored without its tails
 	tails     map[string]string
+	// fullTally and cutTally count what full and cut restored; only the one
+	// that goes out counts for the stream
+	fullTally, cutTally *Tally
 }
 
 // NewStream returns a Stream for a response in scope.
@@ -49,6 +55,13 @@ func (r *Restorer) NewStream(scope string, hold bool) *Stream {
 // chunk.
 func (s *Stream) StopHolding() {
 	s.hold = false
+}
+
+// Tally returns what the events delivered so far had restored.
+func (s *Stream) Tally() *Tally {
+	var t Tally
+	t.Add(&s.tally)
+	return &t
 }
 
 // Chunk returns what to deliver in place of chunk, which may be nothing, and
@@ -148,20 +161,23 @@ func (s *Stream) event(b *bytes.Buffer, eventLine, payload, ending []byte) bool 
 		}
 		if continues {
 			s.render(b, held.eventLine, held.cut)
+			s.tally.Add(held.cutTally)
 			for ctx, tail := range held.tails {
 				ev.byCtx[ctx].Text = tail + ev.byCtx[ctx].Text
 			}
 		} else {
 			s.render(b, held.eventLine, held.full)
+			s.tally.Add(held.fullTally)
 		}
 	}
 
 	r := s.restore(ev, !isFinal(ev.doc, ev.typ))
 	if len(r.tails) > 0 {
-		s.held = &heldEvent{eventLine: eventLine, full: r.full, cut: r.cut, tails: r.tails}
+		s.held = &heldEvent{eventLine: eventLine, full: r.full, cut: r.cut, tails: r.tails, fullTally: r.fullTally, cutTally: r.cutTally}
 		s.swallowBlank = true
 		return false
 	}
+	s.tally.Add(r.fullTally)
 	b.Write(eventLine)
 	b.WriteString("data:")
 	if r.full == nil {
@@ -196,18 +212,23 @@ func (s *Stream) bare(ev streamEvent, chunk []byte) ([]byte, bool) {
 		}
 		if continues {
 			payloads = append(payloads, held.cut)
+			s.tally.Add(held.cutTally)
 			for ctx, tail := range held.tails {
 				ev.byCtx[ctx].Text = tail + ev.byCtx[ctx].Text
 			}
 		} else {
 			payloads = append(payloads, held.full)
+			s.tally.Add(held.fullTally)
 		}
 	}
 	final := isFinal(ev.doc, ev.typ)
 	r := s.restore(ev, !final)
+	if len(r.tails) == 0 {
+		s.tally.Add(r.fullTally)
+	}
 	switch {
 	case len(r.tails) > 0:
-		s.held = &heldEvent{full: r.full, cut: r.cut, tails: r.tails}
+		s.held = &heldEvent{full: r.full, cut: r.cut, tails: r.tails, fullTally: r.fullTally, cutTally: r.cutTally}
 	case r.full != nil:
 		payloads = append(payloads, r.full)
 	default:
@@ -223,6 +244,7 @@ func (s *Stream) bare(ev streamEvent, chunk []byte) ([]byte, bool) {
 func (s *Stream) release(b *bytes.Buffer) {
 	if s.held != nil {
 		s.render(b, s.held.eventLine, s.held.full)
+		s.tally.Add(s.held.fullTally)
 		s.held = nil
 		s.swallowBlank = false
 	}
@@ -242,7 +264,7 @@ func (s *Stream) render(b *bytes.Buffer, eventLine, data []byte) {
 // raw restores a line that is not a JSON data line, such as a piece of a
 // Gemini JSON array stream; values are escaped for the JSON they land in.
 func (s *Stream) raw(b *bytes.Buffer, content []byte) {
-	if out, ok := s.r.replace(s.scope, string(content), true); ok {
+	if out, ok := s.r.replace(s.scope, string(content), true, &s.tally); ok {
 		b.WriteString(out)
 		return
 	}
@@ -288,6 +310,7 @@ func (s *Stream) restoreData(payload []byte, name string, hold bool) (r restored
 		return restored{out: b.Bytes()}
 	}
 	r = s.restore(ev, hold)
+	s.tally.Add(r.fullTally)
 	if r.full == nil {
 		r.out = payload
 	} else {
@@ -297,10 +320,12 @@ func (s *Stream) restoreData(payload []byte, name string, hold bool) (r restored
 }
 
 type restored struct {
-	full  []byte // nil when nothing changed
-	cut   []byte
-	tails map[string]string
-	out   []byte
+	// fullTally and cutTally count what full and cut restored
+	fullTally, cutTally *Tally
+	full                []byte // nil when nothing changed
+	cut                 []byte
+	tails               map[string]string
+	out                 []byte
 }
 
 // restore restores the fields of one event. With hold, a top-level field that
@@ -314,7 +339,9 @@ func (s *Stream) restore(ev streamEvent, hold bool) restored {
 		tail, hits bool
 	}
 	var tops []top
-	var r restored
+	r := restored{fullTally: &Tally{}, cutTally: &Tally{}}
+	// strings inside a complete JSON argument go out in full and cut alike
+	var nested Tally
 	ctxOf := map[*fields.Field]string{}
 	for ctx, f := range ev.byCtx {
 		ctxOf[f] = ctx
@@ -322,7 +349,7 @@ func (s *Stream) restore(ev streamEvent, hold bool) restored {
 	for _, f := range ev.set.Fields {
 		if f.Doc != ev.doc {
 			// A string inside a complete JSON argument.
-			if out, ok := s.r.Text(s.scope, f.Text); ok {
+			if out, ok := s.r.replace(s.scope, f.Text, false, &nested); ok {
 				f.Doc.SetString(f.Value, out)
 			}
 			continue
@@ -330,22 +357,30 @@ func (s *Stream) restore(ev streamEvent, hold bool) restored {
 		escape := isJSONFragment(f.Path, ev.typ)
 		t := top{f: f, full: f.Text}
 		t.original, _ = ev.doc.Text(f.Value)
-		if out, ok := s.r.replace(s.scope, f.Text, escape); ok {
+		var full Tally
+		if out, ok := s.r.replace(s.scope, f.Text, escape, &full); ok {
 			t.full = out
 		}
+		r.fullTally.Add(&full)
 		if at := s.partialTail(f.Text); hold && at >= 0 {
 			t.tail = true
 			t.cut = f.Text[:at]
-			if out, ok := s.r.replace(s.scope, t.cut, escape); ok {
+			var cut Tally
+			if out, ok := s.r.replace(s.scope, t.cut, escape, &cut); ok {
 				t.cut = out
 			}
+			r.cutTally.Add(&cut)
 			if r.tails == nil {
 				r.tails = map[string]string{}
 			}
 			r.tails[ctxOf[f]] = f.Text[at:]
+		} else {
+			r.cutTally.Add(&full)
 		}
 		tops = append(tops, t)
 	}
+	r.fullTally.Add(&nested)
+	r.cutTally.Add(&nested)
 
 	apply := func(cut bool) {
 		ev.set.Commit()

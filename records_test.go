@@ -142,3 +142,56 @@ func TestRecordsOnDiskHoldNoValues(t *testing.T) {
 		t.Fatalf("day file = %s", raw)
 	}
 }
+
+func TestResponsesAddWhatTheyRestoredToTheRecord(t *testing.T) {
+	i := newConfiguredInterceptor(t, "")
+	p := i.(*veilPlugin)
+	headers := bearer("k")
+	masked := intercept(t, i, pluginapi.RequestInterceptRequest{Headers: headers, Body: []byte(`{"input":"mail ` + recordedEmail + `"}`)})
+	placeholder := emailPlaceholder.FindString(string(masked))
+	gone := "{{EMAIL_aaaaaaaa}}"
+	resp, err := p.InterceptResponse(context.Background(), pluginapi.ResponseInterceptRequest{
+		RequestHeaders:  headers,
+		OriginalRequest: masked,
+		Body:            []byte(`{"output_text":"sent to ` + placeholder + `, not ` + gone + `"}`),
+	})
+	if err != nil || !strings.Contains(string(resp.Body), recordedEmail) {
+		t.Fatalf("response not restored: %s %v", resp.Body, err)
+	}
+	got := recordsOf(t, i)
+	if len(got) != 1 || got[0].Restored == nil || got[0].Restored.Back[placeholder] != 1 || got[0].Restored.Unrestored[gone] != 1 {
+		t.Fatalf("record restored = %+v", got[0].Restored)
+	}
+	// A second response to the same request is not linked twice.
+	p.InterceptResponse(context.Background(), pluginapi.ResponseInterceptRequest{RequestHeaders: headers, OriginalRequest: masked, Body: []byte(`{"output_text":"` + placeholder + `"}`)})
+	if got := recordsOf(t, i); got[0].Restored.Back[placeholder] != 1 {
+		t.Fatalf("a second response counted: %+v", got[0].Restored)
+	}
+}
+
+func TestStreamsAddWhatTheyRestoredToTheRecord(t *testing.T) {
+	i := newConfiguredInterceptor(t, "")
+	p := i.(*veilPlugin)
+	headers := bearer("k")
+	masked := intercept(t, i, pluginapi.RequestInterceptRequest{Headers: headers, Body: []byte(`{"messages":[{"role":"user","content":"mail ` + recordedEmail + `"}]}`)})
+	placeholder := emailPlaceholder.FindString(string(masked))
+	req := pluginapi.StreamChunkInterceptRequest{RequestHeaders: headers, OriginalRequest: masked, RequestBody: masked, ChunkIndex: pluginapi.StreamChunkHeaderInitIndex}
+	if _, err := p.InterceptStreamChunk(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+	var chunks []string
+	for _, piece := range []string{"to ", placeholder[:7], placeholder[7:], " ok"} {
+		chunks = append(chunks, deltaEvent(piece)...)
+	}
+	chunks = append(chunks, "event: message_stop\n", `data: {"type":"message_stop"}`+"\n", "\n")
+	for n, c := range chunks {
+		req.ChunkIndex, req.Body = n, []byte(c)
+		if _, err := p.InterceptStreamChunk(context.Background(), req); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := recordsOf(t, i)
+	if len(got) != 1 || got[0].Restored == nil || got[0].Restored.Back[placeholder] != 1 {
+		t.Fatalf("record restored = %+v", got[0].Restored)
+	}
+}
