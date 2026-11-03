@@ -52,6 +52,67 @@ func TestTextLeavesOtherTokensAlone(t *testing.T) {
 	}
 }
 
+// A Placeholder's braces mark where it starts and ends, so a word may touch
+// it there: masking itself leaves one against the text around a value.
+func TestTextRestoresBracedPlaceholdersAgainstWords(t *testing.T) {
+	r, v := newRestorer(t)
+	p := v.Placeholder("s", "EMAIL", "a@b.com")
+	core := strings.Trim(p, "{}")
+	for written, want := range map[string]string{
+		p + "next":               "a@b.comnext",
+		"next" + p:               "nexta@b.com",
+		"x" + p + "y":            "xa@b.comy",
+		p + "Mobile:":            "a@b.comMobile:",
+		"9" + p + "_9":           "9a@b.com_9",
+		"{{ " + core + " }}next": "a@b.comnext",
+		"x{" + core + "}":        "xa@b.com",
+	} {
+		if got, ok := r.Text("s", written); !ok || got != want {
+			t.Errorf("%q restored to %q, want %q", written, got, want)
+		}
+	}
+}
+
+func TestBodyRestoresPlaceholdersAgainstWords(t *testing.T) {
+	r, v := newRestorer(t)
+	p := v.Placeholder("", "EMAIL", "a@b.com")
+	args, _ := json.Marshal(map[string]string{"to": p + "next"})
+	for name, body := range map[string]map[string]any{
+		"chat completions": {"choices": []any{map[string]any{"message": map[string]any{
+			"content":    p + "next",
+			"tool_calls": []any{map[string]any{"function": map[string]any{"name": "send", "arguments": string(args)}}},
+		}}}},
+		"responses": {"output": []any{map[string]any{"type": "message", "content": []any{
+			map[string]any{"type": "output_text", "text": "next" + p},
+		}}}},
+	} {
+		raw, _ := json.Marshal(body)
+		out := r.Body("", raw)
+		if out == nil {
+			t.Errorf("%s: nothing restored", name)
+			continue
+		}
+		if strings.Contains(string(out), "EMAIL_") || !strings.Contains(string(out), "a@b.com") {
+			t.Errorf("%s: %s", name, out)
+		}
+		if name == "chat completions" {
+			var got struct {
+				Choices []struct {
+					Message struct {
+						ToolCalls []struct {
+							Function struct{ Arguments string }
+						} `json:"tool_calls"`
+					}
+				}
+			}
+			var call map[string]string
+			if err := json.Unmarshal(out, &got); err != nil || json.Unmarshal([]byte(got.Choices[0].Message.ToolCalls[0].Function.Arguments), &call) != nil || call["to"] != "a@b.comnext" {
+				t.Errorf("tool call arguments: %s", out)
+			}
+		}
+	}
+}
+
 func TestBodyRestoresEveryFormat(t *testing.T) {
 	r, v := newRestorer(t)
 	email := v.Placeholder("", "EMAIL", "a@b.com")
