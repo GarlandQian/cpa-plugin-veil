@@ -32,6 +32,8 @@ Typical use cases:
 - Masks emails, phone numbers, secrets, connection strings, certificates, and similar sensitive data with stable
   placeholders, kept apart per client API key
 - Restores the placeholders in model responses, tool calls included, so the client sees and runs the real values
+- Shows what each request had masked under the management panel's "脱敏记录" (Masking records) menu, never the
+  values themselves, CPA-Manager-Plus included
 - Uses built-in Gitleaks rules from `rules/gitleaks.toml`
 - Supports custom Gitleaks rule files
 - Handles OpenAI Chat / Completions, OpenAI Responses, Claude, Gemini, and Gemini CLI request bodies
@@ -105,7 +107,7 @@ sets `plugins.configs.veil.enabled` to `true`. No restart is needed.
 ### By hand
 
 1. Download `veil_<version>_<os>_<arch>.zip` for your platform from
-   [Releases](https://github.com/GarlandQian/cpa-plugin-veil/releases), for example `veil_0.4.2_darwin_arm64.zip` on
+   [Releases](https://github.com/GarlandQian/cpa-plugin-veil/releases), for example `veil_0.5.0_darwin_arm64.zip` on
    an Apple silicon Mac. You can check it against `checksums.txt` from the same page:
 
    ```bash
@@ -401,6 +403,65 @@ Supported request shapes include:
   "input": "My GitHub token is ghp_xxx"
 }
 ```
+
+## Masking records
+
+Veil keeps a Masking record of each request that had a value masked, warned about or blocked, and of each Stopped
+request. A "脱敏记录" (Masking records) entry appears in management panels that show plugin menus, such as
+CPA-Manager-Plus, and the page below can be opened directly too. It has:
+
+- **Overview**: requests, places masked, different values, values sent as written, Stopped requests, places the
+  responses restored and Placeholders they held that could not be restored; requests per day; shares by Kind, caller,
+  model and rule; the most masked values.
+- **Records**: newest first, filtered by Kind, caller, model or Action, or Stopped requests only.
+- **A record**: each value's Placeholder or Stand-in, Kind, the rule that found it, a hint (its first character, or a
+  key's prefix), length, count, Action, fields and whether it was new; the context as the upstream saw it; how many
+  places the response restored and which Placeholders it could not.
+- **Clear records**: deletes the records only; conversations in progress keep restoring.
+- **Preview**: shows how a text would be masked under the current settings, keeping nothing and touching no
+  conversation.
+
+Records and the page **never hold a value**, and offer no way to see one (ADR-0005): holding the management key should
+not mean seeing every caller's secrets and personal data.
+
+Callers are told apart by client API key: the page shows the alias CPA-Manager-Plus has for the key, else the key's
+last four characters, and "unknown caller" for requests without a key. Veil keeps no key.
+
+### Storage
+
+- Memory holds the newest 1000 records, the newest 400 of them with context (40 characters either side of each
+  Placeholder, as the upstream got the text); context is in memory only.
+- With a persistent directory, records also go to `veil-records/` there, a file a day with mode 0600, kept 30 days and
+  100 MB in all, without context. The directory is `base_dir`, or on CPA v7 without it the plugin library's directory.
+  On CPA v8 without `base_dir` records live in memory and are gone when CPA restarts.
+- Records are written in the background and never make a request wait; when the queue is full a record is dropped,
+  and the page says how many were.
+- "New" is judged from the mappings in memory and starts over when CPA restarts.
+
+To keep no records, set `records: false`:
+
+```yaml
+plugins:
+  configs:
+    veil:
+      records: false
+```
+
+### Page and API
+
+The page is `/v0/resource/plugins/veil/index.html`. CLIProxyAPI does not authenticate plugin pages, so the page holds
+no data and reads the records from Management API routes behind the management key:
+
+| Route | What it does |
+|---|---|
+| `GET /v0/management/plugins/veil/summary?days=7` | A summary of the last days (1 to 30) |
+| `GET /v0/management/plugins/veil/records` | The records, with `before`, `limit`, `kind`, `caller`, `model`, `action`, `stopped=1` |
+| `GET /v0/management/plugins/veil/record?key=` | One record, with its context and what was restored |
+| `POST /v0/management/plugins/veil/clear` | Clears the records |
+| `POST /v0/management/plugins/veil/preview` | Previews `{"text": "..."}`, up to 64 KB |
+
+Opened from CPA-Manager-Plus, the page reads the management key the panel saved ("remember" on) and follows the
+panel's theme and language; without a saved key it asks for one, kept for that tab only.
 
 ## Rules
 
