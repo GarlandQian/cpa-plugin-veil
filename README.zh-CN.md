@@ -101,7 +101,7 @@ curl -X POST "http://127.0.0.1:8317/v0/management/plugin-store/veil/install" \
 ### 手动安装
 
 1. 从 [Releases](https://github.com/GarlandQian/cpa-plugin-veil/releases) 下载对应平台的 `veil_<版本>_<系统>_<架构>.zip`，
-   例如 Apple 芯片的 Mac 用 `veil_0.6.0_darwin_arm64.zip`。可以用同一页的 `checksums.txt` 校验：
+   例如 Apple 芯片的 Mac 用 `veil_0.6.1_darwin_arm64.zip`。可以用同一页的 `checksums.txt` 校验：
 
    ```bash
    shasum -a 256 -c checksums.txt --ignore-missing   # Linux 上用 sha256sum
