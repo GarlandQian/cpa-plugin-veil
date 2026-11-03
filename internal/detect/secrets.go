@@ -114,6 +114,7 @@ type secretRule struct {
 	entropy     float64
 	secretGroup int
 	kind        Kind
+	allow       []allowlist // the rule's own gitleaks allowlists
 }
 
 type secretDetector struct {
@@ -122,25 +123,39 @@ type secretDetector struct {
 	keywords *keywordIndex
 	all      []string        // every rule ID loaded, disabled ones too
 	user     map[string]bool // the IDs of the rules the user added
+	// allow are the gitleaks files' own allowlists, for all their rules.
+	allow []allowlist
+	// noContext and noEntropy turn the context-secret and high-entropy
+	// rules off.
+	noContext, noEntropy bool
 }
 
-// gitleaks.toml 的最小结构；未知字段（allowlist 等）会被忽略。
+// gitleaks.toml 的最小结构；未知字段会被忽略。
 type tomlConfig struct {
-	Rules []struct {
-		ID          string   `toml:"id"`
-		Regex       string   `toml:"regex"`
-		Keywords    []string `toml:"keywords"`
-		Entropy     float64  `toml:"entropy"`
-		SecretGroup int      `toml:"secretGroup"`
-		Kind        string   `toml:"kind"`
+	Allowlist  *tomlAllowlist  `toml:"allowlist"`
+	Allowlists []tomlAllowlist `toml:"allowlists"`
+	Rules      []struct {
+		ID          string          `toml:"id"`
+		Regex       string          `toml:"regex"`
+		Keywords    []string        `toml:"keywords"`
+		Entropy     float64         `toml:"entropy"`
+		SecretGroup int             `toml:"secretGroup"`
+		Kind        string          `toml:"kind"`
+		Allowlist   *tomlAllowlist  `toml:"allowlist"`
+		Allowlists  []tomlAllowlist `toml:"allowlists"`
 	} `toml:"rules"`
 }
+
+// fixedRules are the rules of this file's own, not gitleaks', that
+// disabled_rules can turn off.
+var fixedRules = []string{"context-secret", "high-entropy"}
 
 // newSecretDetector loads the built-in gitleaks rules, falling back to a
 // small set when they are empty or none compiles, then the user's extra
 // rules, leaving out the disabled ones.
 func newSecretDetector(rules, extra []byte, disabled map[string]bool) (*secretDetector, error) {
-	sd := &secretDetector{user: map[string]bool{}}
+	sd := &secretDetector{user: map[string]bool{}, all: append([]string(nil), fixedRules...)}
+	sd.noContext, sd.noEntropy = disabled["context-secret"], disabled["high-entropy"]
 	if len(rules) > 0 {
 		if err := sd.load(rules, disabled, false); err != nil {
 			return nil, err
@@ -163,6 +178,7 @@ func (sd *secretDetector) load(raw []byte, disabled map[string]bool, user bool) 
 	if _, err := toml.Decode(string(raw), &cfg); err != nil {
 		return err
 	}
+	sd.allow = append(sd.allow, allowlists(cfg.Allowlist, cfg.Allowlists)...)
 	for _, r := range cfg.Rules {
 		if r.Regex == "" {
 			continue
@@ -196,7 +212,7 @@ func (sd *secretDetector) load(raw []byte, disabled map[string]bool, user bool) 
 		if user {
 			sd.user[r.ID] = true
 		}
-		sd.rules = append(sd.rules, secretRule{r.ID, re, kws, r.Entropy, r.SecretGroup, kind})
+		sd.rules = append(sd.rules, secretRule{r.ID, re, kws, r.Entropy, r.SecretGroup, kind, allowlists(r.Allowlist, r.Allowlists)})
 	}
 	return nil
 }
@@ -224,7 +240,7 @@ func (sd *secretDetector) loadBuiltin(disabled map[string]bool) {
 		if b.id == "private-key" {
 			kind = KindPrivateKey
 		}
-		sd.rules = append(sd.rules, secretRule{b.id, regexp.MustCompile(b.pat), b.kws, 0, 0, kind})
+		sd.rules = append(sd.rules, secretRule{b.id, regexp.MustCompile(b.pat), b.kws, 0, 0, kind, nil})
 	}
 }
 
@@ -241,15 +257,15 @@ func (sd *secretDetector) detect(text string) []span {
 			continue
 		}
 		for _, m := range r.re.FindAllStringSubmatchIndex(text, -1) {
-			s, e := m[0], m[1]
-			if g := r.secretGroup; g > 0 && 2*g+1 < len(m) && m[2*g] >= 0 {
-				s, e = m[2*g], m[2*g+1]
-			}
+			s, e := secretOf(m, r.secretGroup)
 			if s < 0 || s >= e {
 				continue
 			}
 			if r.entropy > 0 && shannonEntropy(text[s:e]) < r.entropy {
 				continue // 复刻 gitleaks 的熵阈值，压低误报
+			}
+			if sd.allowed(r, text, s, e, m[0], m[1]) {
+				continue
 			}
 			// 命中含 URL 或域名前缀（generic-api-key 把 api.x.com:path 一起吃的情形）
 			// 或明显是模板/UUID/hash/业务 ID/占位符/JSON 噪声时跳过。
@@ -267,29 +283,44 @@ func (sd *secretDetector) detect(text string) []span {
 	}
 	// 上下文口令：只脱掉 value（第 2 个分组）
 	for _, m := range reContextSecret.FindAllStringSubmatchIndex(text, -1) {
+		if sd.noContext {
+			break
+		}
 		if len(m) >= 6 && m[4] >= 0 {
 			value := text[m[4]:m[5]]
-			// 模板变量（${TOKEN} / {{ X }} 等）不是真值，跳过；代码里给密钥起的名字、
-			// 版本号、路径、文件行号也不是（见 fieldvalue.go）
-			if isTemplateVar(value) || namesASecret(value) || versionValue(value) || pathValue(value) || lineRef(value) {
-				continue
-			}
-			// 低熵短串（"REPLACE_ME" / "TODO" / "null" / "abc" 等占位符）跳过
-			if len(value) <= 16 && shannonEntropy(value) < 3.0 {
-				continue
-			}
 			// 口令类关键词归 PASSWORD，其余（密钥、token 等）归 SECRET
 			kind := KindSecret
 			switch strings.ToLower(text[m[2]:m[3]]) {
 			case "密码", "口令", "password", "passwd", "pwd":
 				kind = KindPassword
 			}
+			// 模板变量（${TOKEN} / {{ X }} 等）不是真值，跳过；代码里给密钥起的名字、
+			// 版本号、路径、文件行号、代码表达式也不是（见 fieldvalue.go）
+			if isTemplateVar(value) || namesASecret(value) || versionValue(value) || pathValue(value) || lineRef(value) ||
+				codeValue(value, kind == KindPassword) {
+				continue
+			}
+			// 低熵短串（"REPLACE_ME" / "TODO" / "null" / "abc" 等占位符）跳过
+			if len(value) <= 16 && shannonEntropy(value) < 3.0 {
+				continue
+			}
 			spans = append(spans, span{m[4], m[5], kind, "context-secret"})
 		}
 	}
 	// 高熵兜底
 	for _, m := range reEntropyToken.FindAllStringIndex(text, -1) {
+		if sd.noEntropy {
+			break
+		}
 		s, e := m[0], m[1]
+		// NAME=value is one run of the token's characters; the value is
+		// the candidate, its name never a part of it.
+		if i := strings.IndexByte(text[s:e], '='); i > 0 && s+i+1 < e && text[s+i+1] != '=' && identRe.MatchString(text[s:s+i]) {
+			s += i + 1
+			if e-s < 16 {
+				continue
+			}
+		}
 		cand := text[s:e]
 
 		strong := hasStrongSecretContext(text, s, e)
@@ -311,6 +342,37 @@ func (sd *secretDetector) detect(text string) []span {
 		}
 	}
 	return spans
+}
+
+// secretOf is where the secret of a gitleaks match m is: its secretGroup,
+// or as gitleaks has it when that is unset, the first capture group that
+// took something, or else the whole match.
+func secretOf(m []int, group int) (int, int) {
+	if group > 0 {
+		if 2*group+1 < len(m) && m[2*group] >= 0 {
+			return m[2*group], m[2*group+1]
+		}
+		return m[0], m[1]
+	}
+	for g := 1; 2*g+1 < len(m); g++ {
+		if m[2*g] >= 0 && m[2*g] < m[2*g+1] {
+			return m[2*g], m[2*g+1]
+		}
+	}
+	return m[0], m[1]
+}
+
+// allowed says an allowlist of rule r, or of its file, lets the finding
+// text[s:e] of the match text[ms:me] through.
+func (sd *secretDetector) allowed(r *secretRule, text string, s, e, ms, me int) bool {
+	for _, lists := range [][]allowlist{r.allow, sd.allow} {
+		for _, a := range lists {
+			if a.allows(text, s, e, ms, me) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // isOnPathOrURLBoundary 判断 [start,end) 是否处于路径 / URL / 哈希等"非密钥"上下文。
@@ -362,13 +424,20 @@ func hasStrongSecretContext(text string, start, end int) bool {
 		return true
 	}
 	region := text[lo:end]
-	locs := reSecretContext.FindAllStringIndex(region, -1)
-	if len(locs) == 0 {
+	candStartInRegion := start - lo
+	// Only a keyword that starts before the candidate, or at its start as in
+	// token=AbCd…, can name it; one inside it is a part of a longer name,
+	// as docs/adr/0015-windows-credential-manager has one.
+	var last []int
+	for _, loc := range reSecretContext.FindAllStringIndex(region, -1) {
+		if loc[0] <= candStartInRegion {
+			last = loc
+		}
+	}
+	if last == nil {
 		return false
 	}
-	last := locs[len(locs)-1]
-	candStartInRegion := start - lo
-	// 关键词结束 >= 候选起点 → 紧贴或落在候选串里 → 强。
+	// 关键词结束 >= 候选起点 → 紧贴或跨过候选起点 → 强。
 	// 也包含 api keyxxx 这种关键词跨过候选起点的情况，避免下面切片起点大于终点。
 	if last[1] >= candStartInRegion {
 		return true

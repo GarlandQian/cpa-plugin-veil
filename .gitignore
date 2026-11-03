@@ -8,4 +8,5 @@ test-output*
 .idea/
 *.iml
 *.log
-*.tmp
+*.tmp*.test
+*.prof

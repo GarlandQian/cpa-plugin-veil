@@ -170,3 +170,42 @@ func identWords(v string) []string {
 	}
 	return out
 }
+
+var callRe = regexp.MustCompile(`^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*\(`)
+
+// codeValue says v, after a secret's name, is code and not a value: a call
+// (const token = gate.issue()), a reference (config.token), the end of a
+// parameter list, nothing at all where the line ends in an escape
+// (KEY: \nnext), or, unless a password's, a type (token: IncomingToken).
+func codeValue(v string, password bool) bool {
+	if strings.HasPrefix(v, `\`) || callRe.MatchString(v) || strings.HasSuffix(v, ")") && !strings.Contains(v, "(") {
+		return true
+	}
+	if strings.Contains(v, ".") && identRe.MatchString(v) {
+		return true
+	}
+	return !password && typeName(v)
+}
+
+// typeName says v is a name code gives a type or a variable: words of
+// letters run together in camelCase, IncomingToken or myToken, each a word
+// one can say. A password can look like one (SunnyDay), so it is never
+// taken for one.
+func typeName(v string) bool {
+	if strings.IndexFunc(v, func(r rune) bool { return !(r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z') }) >= 0 {
+		return false
+	}
+	words := identWords(v)
+	if len(words) < 2 {
+		return false
+	}
+	for i, w := range words {
+		if len(w) < 3 && !(i == 0 && len(w) == 2) || !strings.ContainsAny(strings.ToLower(w), "aeiouy") {
+			return false
+		}
+		if len(w) > 1 && strings.ToUpper(w) == w {
+			return false
+		}
+	}
+	return true
+}

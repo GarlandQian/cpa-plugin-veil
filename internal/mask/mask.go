@@ -6,9 +6,12 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"errors"
+	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/GarlandQian/cpa-plugin-veil/internal/detect"
 	"github.com/GarlandQian/cpa-plugin-veil/internal/fields"
@@ -110,6 +113,58 @@ func tally(counts map[string]int, paths *[]string, kind, path string) {
 	}
 }
 
+// parallelMin is how much text a request must have to detect for its
+// fields to be detected side by side; less goes quicker on one core.
+const parallelMin = 64 << 10
+
+// detectAll finds the values of the fields todo, by their index in fs.
+// Detecting is most of what masking a request seen for the first time
+// costs, an agent's long history say, and each field's is its own, so the
+// fields are detected side by side, the longest first.
+func (m *Masker) detectAll(fs []*fields.Field, todo []int) [][]span {
+	out := make([][]span, len(fs))
+	one := func(i int) {
+		f := fs[i]
+		if detect.SecretField(fieldKey(f.Path), f.Text) {
+			// A field named for a secret holds one whatever it looks like:
+			// {"api_key": "…"} with a value no rule knows.
+			out[i] = []span{{0, len(f.Text), string(detect.KindSecret), RuleSecretField}}
+			return
+		}
+		var hits []span
+		for _, h := range m.detector.Detect(f.Text) {
+			hits = append(hits, span{h.Start, h.End, string(h.Kind), h.Rule})
+		}
+		out[i] = hits
+	}
+	size := 0
+	for _, i := range todo {
+		size += len(fs[i].Text)
+	}
+	workers := min(runtime.GOMAXPROCS(0), len(todo))
+	if size < parallelMin || workers < 2 {
+		for _, i := range todo {
+			one(i)
+		}
+		return out
+	}
+	order := slices.Clone(todo)
+	sort.SliceStable(order, func(a, b int) bool { return len(fs[order[a]].Text) > len(fs[order[b]].Text) })
+	var next atomic.Int64
+	var wg sync.WaitGroup
+	for range workers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for n := int(next.Add(1)) - 1; n < len(order); n = int(next.Add(1)) - 1 {
+				one(order[n])
+			}
+		}()
+	}
+	wg.Wait()
+	return out
+}
+
 // minFieldLen is the shortest string worth looking at: nothing Veil detects
 // is shorter.
 const minFieldLen = 4
@@ -151,29 +206,27 @@ func (m *Masker) Mask(scope string, body []byte) ([]byte, Report, error) {
 		hits []span
 	}
 	spans := make([][]span, len(w.Fields))
-	fresh := map[int]*pending{}
-	// minted are the Placeholders this request recorded for the first time
-	minted := map[string]bool{}
+	keys := make([][sha256.Size]byte, len(w.Fields))
+	var todo []int // the fields to detect
 	for i, f := range w.Fields {
 		if len(f.Text) < minFieldLen {
 			continue
 		}
-		key := sentKey(scope, f.Text)
-		if frozen, ok := m.sent.get(key); ok {
+		keys[i] = sentKey(scope, f.Text)
+		if frozen, ok := m.sent.get(keys[i]); ok {
 			spans[i] = frozen
 			continue
 		}
-		var hits []span
-		if detect.SecretField(fieldKey(f.Path), f.Text) {
-			// A field named for a secret holds one whatever it looks like:
-			// {"api_key": "…"} with a value no rule knows.
-			hits = []span{{0, len(f.Text), string(detect.KindSecret), RuleSecretField}}
-		} else {
-			for _, h := range m.detector.Detect(f.Text) {
-				hits = append(hits, span{h.Start, h.End, string(h.Kind), h.Rule})
-			}
-		}
-		hits = outsidePlaceholders(f.Text, hits)
+		todo = append(todo, i)
+	}
+	detected := m.detectAll(w.Fields, todo)
+
+	fresh := map[int]*pending{}
+	// minted are the Placeholders this request recorded for the first time
+	minted := map[string]bool{}
+	for _, i := range todo {
+		f := w.Fields[i]
+		hits := outsidePlaceholders(f.Text, detected[i])
 		hits = m.notStandIns(scope, f.Text, hits)
 		// Minting makes the value Known, so it is masked across the request.
 		for _, h := range hits {
@@ -183,13 +236,16 @@ func (m *Masker) Mask(scope string, body []byte) ([]byte, Report, error) {
 				}
 			}
 		}
-		fresh[i] = &pending{key: key, hits: hits}
+		fresh[i] = &pending{key: keys[i], hits: hits}
 	}
 	for i, p := range fresh {
 		f := w.Fields[i]
 		var known []span
 		for _, k := range m.vault.KnownMatches(scope, f.Text) {
-			known = append(known, span{k.Start, k.End, k.Kind, RuleKnown})
+			// A value allowed since it became Known is let through too.
+			if !m.detector.Allowed(f.Text[k.Start:k.End]) {
+				known = append(known, span{k.Start, k.End, k.Kind, RuleKnown})
+			}
 		}
 		spans[i] = merge(p.hits, outsidePlaceholders(f.Text, known))
 	}

@@ -101,7 +101,7 @@ curl -X POST "http://127.0.0.1:8317/v0/management/plugin-store/veil/install" \
 ### 手动安装
 
 1. 从 [Releases](https://github.com/GarlandQian/cpa-plugin-veil/releases) 下载对应平台的 `veil_<版本>_<系统>_<架构>.zip`，
-   例如 Apple 芯片的 Mac 用 `veil_0.5.1_darwin_arm64.zip`。可以用同一页的 `checksums.txt` 校验：
+   例如 Apple 芯片的 Mac 用 `veil_0.6.0_darwin_arm64.zip`。可以用同一页的 `checksums.txt` 校验：
 
    ```bash
    shasum -a 256 -c checksums.txt --ignore-missing   # Linux 上用 sha256sum
@@ -178,7 +178,7 @@ plugins:
 | `disabled_rules`| array  | `[]` | 要关闭的规则 ID                                                    |
 | `categories`    | object | `{}` | 打开或关闭类别，见[规则](#规则)                                             |
 | `terms`         | array  | `[]` | 始终掩码的用户词，类型为 `TERM`                                          |
-| `allow`         | array  | `[]` | 永不掩码的值                                                       |
+| `allow`         | array  | `[]` | 永不掩码的值，已知值也包括在内                                     |
 | `actions`       | object | `{}` | 按类型（`EMAIL`、`SECRET` 等）指定处理方式：`mask`（默认）、`block` 或 `warn` |
 | `skip_models`   | array  | `[]` | 命中的模型不做掩码                                                 |
 | `skip_formats`  | array  | `[]` | 命中的来源格式不做掩码                                               |
@@ -478,6 +478,9 @@ kind = "TICKET"
 ```text
 rules/gitleaks.toml
 ```
+
+和 gitleaks 一样，一条规则只替换它的密钥部分（`secretGroup`，没写时取第一个捕获组），并遵守规则自己和文件的 allowlist：
+`regexes`（按 `regexTarget` 匹配密钥、整个匹配或所在行）、`stopwords` 和 `condition`。`paths` 和 `commits` 不会匹配，因为请求里没有文件路径和提交。
 
 运行时按以下顺序解析规则：
 

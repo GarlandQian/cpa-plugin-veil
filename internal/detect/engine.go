@@ -176,13 +176,19 @@ func (r *rule) takes(s string, a, b int, ok func(string) bool) bool {
 	if b <= a {
 		return false
 	}
-	if r.bound != "" && (a > 0 && strings.IndexByte(r.bound, s[a-1]) >= 0 || b < len(s) && strings.IndexByte(r.bound, s[b]) >= 0) {
+	if r.bound != "" && (a > 0 && strings.IndexByte(r.bound, s[a-1]) >= 0 && !escaped(s, a-1) || b < len(s) && strings.IndexByte(r.bound, s[b]) >= 0) {
 		return false
 	}
 	if ok != nil && !ok(s[a:b]) {
 		return false
 	}
 	return r.at == nil || r.at(s, a, b)
+}
+
+// escaped says s[i] is the letter of an escape, \n or \t as JSON written
+// out as text has them, and so no part of a word.
+func escaped(s string, i int) bool {
+	return i > 0 && s[i-1] == '\\' && strings.IndexByte("nrtbf", s[i]) >= 0
 }
 
 // lowerASCII is s with its ASCII letters in lower case, as long as s, so a

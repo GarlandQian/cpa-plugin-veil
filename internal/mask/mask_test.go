@@ -2,7 +2,9 @@ package mask
 
 import (
 	"encoding/json"
+	"fmt"
 	"regexp"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -168,6 +170,48 @@ func TestKnownValueIsMaskedInLaterRequests(t *testing.T) {
 	}
 	if other := mask(t, m, "other", `{"input":"run it with Xk9-hunter2-Qz7 now"}`); !strings.Contains(other, "Xk9-hunter2-Qz7") {
 		t.Fatalf("a known value crossed into another Caller scope: %s", other)
+	}
+}
+
+// A request large enough for its fields to be detected side by side is
+// masked as it is on one core: the same Placeholders in the same places.
+func TestParallelDetectingMasksAsOneCoreDoes(t *testing.T) {
+	var items []string
+	for i := 0; i < 200; i++ {
+		items = append(items, fmt.Sprintf(`{"role":"user","content":"turn %d: mail ops-%d@acme-corp.cn, password: Xk9-hunter%d-Qz7. %s"}`,
+			i, i%7, i%5, strings.Repeat("The logs are below for context. ", 20)))
+	}
+	body := `{"messages":[` + strings.Join(items, ",") + `]}`
+	if len(body) < 2*parallelMin {
+		t.Fatalf("the body is too short to be detected side by side: %d", len(body))
+	}
+	one := func() string {
+		m, _ := newMasker(t)
+		return mask(t, m, "", body)
+	}
+	defer runtime.GOMAXPROCS(runtime.GOMAXPROCS(1))
+	serial := one()
+	runtime.GOMAXPROCS(8)
+	if parallel := one(); parallel != serial {
+		t.Fatal("masking side by side differs from masking on one core")
+	}
+	if strings.Contains(serial, "@acme-corp.cn") || strings.Contains(serial, "hunter") {
+		t.Fatalf("a value went through: %.300s", serial)
+	}
+}
+
+// A value allowed once it is Known stops being masked where no rule finds
+// it, as it would have been had it been allowed from the start.
+func TestAllowedKnownValueIsLetThrough(t *testing.T) {
+	m, _ := newMasker(t)
+	mask(t, m, "", `{"input":"password: Xk9-hunter2-Qz7"}`)
+	d, err := detect.New(nil, detect.Options{Allow: []string{"xk9-HUNTER2-qz7"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m = m.WithPolicy(d, nil)
+	if got := mask(t, m, "", `{"input":"run it with Xk9-hunter2-Qz7 now"}`); !strings.Contains(got, "Xk9-hunter2-Qz7") {
+		t.Fatalf("an allowed Known value was masked: %s", got)
 	}
 }
 
