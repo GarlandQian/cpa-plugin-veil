@@ -12,9 +12,10 @@ import (
 // forgets it, which covers streams the client or upstream abandoned.
 const streamIdleTimeout = 10 * time.Minute
 
-// streamRegistry tells the chunks of concurrent streams apart. The host gives
-// no stream ID, so a stream is known by its Caller scope and request body,
-// and by the index of the chunk it expects next.
+// streamRegistry tells the chunks of concurrent streams apart. A stream is
+// known by its request's ID where the host gives one (CPA v8), else by its
+// Caller scope and request body, and by the index of the chunk it expects
+// next.
 type streamRegistry struct {
 	mu        sync.Mutex
 	streams   map[[sha256.Size]byte][]*streamEntry
@@ -41,15 +42,23 @@ func newStreamRegistry() *streamRegistry {
 	return &streamRegistry{streams: make(map[[sha256.Size]byte][]*streamEntry)}
 }
 
-// start registers a new stream. A second stream of the same scope and body
-// while the first is live cannot be told apart from it chunk for chunk, so
-// both stop holding and are restored line by line.
-func (r *streamRegistry) start(key [sha256.Size]byte, open func(hold bool) *restore.Stream, finish func(*restore.Stream)) {
+// start registers a new stream. A key unique to its request belongs to the
+// new stream alone; one an earlier stream of it still has is that stream's
+// no more. A second stream of the same scope and body while the first is
+// live cannot be told apart from it chunk for chunk, so both stop holding
+// and are restored line by line.
+func (r *streamRegistry) start(key [sha256.Size]byte, unique bool, open func(hold bool) *restore.Stream, finish func(*restore.Stream)) {
 	now := time.Now()
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.sweep(now)
 	live := r.streams[key]
+	if unique {
+		for _, e := range live {
+			e.done()
+		}
+		live = nil
+	}
 	for _, e := range live {
 		e.stream.StopHolding()
 	}

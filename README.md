@@ -107,7 +107,7 @@ sets `plugins.configs.veil.enabled` to `true`. No restart is needed.
 ### By hand
 
 1. Download `veil_<version>_<os>_<arch>.zip` for your platform from
-   [Releases](https://github.com/GarlandQian/cpa-plugin-veil/releases), for example `veil_0.6.0_darwin_arm64.zip` on
+   [Releases](https://github.com/GarlandQian/cpa-plugin-veil/releases), for example `veil_0.6.1_darwin_arm64.zip` on
    an Apple silicon Mac. You can check it against `checksums.txt` from the same page:
 
    ```bash
@@ -376,9 +376,13 @@ Streamed responses are restored too. A model streams a placeholder in pieces, so
 may be the start of one (`{{`, `{{EMA`, `EMAIL_ab`...), Veil holds that event back until the next event of the same
 block shows how it continues, then sends both with the value restored. Ping events pass by a held event; any other
 event releases it unchanged, and the last event of a block is never held. Events go out whole and in order, so the
-SSE framing, event names and sequence numbers the client sees are those the provider sent. If two streams of the same
-client and request body run at once, Veil cannot tell their chunks apart and restores each chunk on its own, so a
-placeholder split across chunks in those streams reaches the client unrestored.
+SSE framing, event names and sequence numbers the client sees are those the provider sent.
+
+On CLIProxyAPI v8, Veil takes the request bodies once per stream, when it starts, and knows its chunks by the
+request's ID after that, so a long conversation costs a stream no more than a short one. On CLIProxyAPI v7, which gives
+neither, every chunk comes with the request bodies, and if two streams of the same client and request body run at
+once, Veil cannot tell their chunks apart and restores each chunk on its own, so a placeholder split across chunks in
+those streams reaches the client unrestored.
 
 Common `skip_formats` values are the host's source format names, such as `openai`, `openai-response`, `claude`,
 `gemini`, `gemini-cli`, `openai-image`, and `openai-video`.

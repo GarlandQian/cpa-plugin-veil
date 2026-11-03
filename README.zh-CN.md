@@ -101,7 +101,7 @@ curl -X POST "http://127.0.0.1:8317/v0/management/plugin-store/veil/install" \
 ### 手动安装
 
 1. 从 [Releases](https://github.com/GarlandQian/cpa-plugin-veil/releases) 下载对应平台的 `veil_<版本>_<系统>_<架构>.zip`，
-   例如 Apple 芯片的 Mac 用 `veil_0.6.0_darwin_arm64.zip`。可以用同一页的 `checksums.txt` 校验：
+   例如 Apple 芯片的 Mac 用 `veil_0.6.1_darwin_arm64.zip`。可以用同一页的 `checksums.txt` 校验：
 
    ```bash
    shasum -a 256 -c checksums.txt --ignore-missing   # Linux 上用 sha256sum
@@ -344,8 +344,9 @@ Veil 从 `Authorization: Bearer`、`x-api-key` 或 `x-goog-api-key` 读取 key�
 （`{{`、`{{EMA`、`EMAIL_ab` 等）时，Veil 会先扣住这个事件，等同一个块的下一个事件到来、看清后续内容后，把两者一起发出并还原其中的值。
 ping 事件可以越过被扣住的事件先发出；其他事件到来时，被扣住的事件原样放出；一个块的最后一个事件不会被扣住。
 事件总是完整、按顺序发出，客户端看到的 SSE 分帧、事件名和序号都与上游发出的一致。
-如果同一个客户端用完全相同的请求体同时开了两个流，Veil 无法区分它们的分块，只能逐块单独还原，
-这时被切到不同分块里的占位符会原样到达客户端。
+在 CLIProxyAPI v8 上，Veil 只在流开始时接收一次请求体，之后按请求 ID 认出它的分块，所以再长的对话，流式还原的开销也和短对话一样。
+CLIProxyAPI v7 不提供请求 ID，每个分块都带着请求体；如果同一个客户端用完全相同的请求体同时开了两个流，Veil 无法区分它们的分块，
+只能逐块单独还原，这时被切到不同分块里的占位符会原样到达客户端。
 
 `skip_formats` 的常见取值是宿主的来源格式名，例如 `openai`、`openai-response`、`claude`、`gemini`、`gemini-cli`、`openai-image`、`openai-video`。
 

@@ -1,10 +1,13 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
+	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginabi"
 	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginapi"
 )
 
@@ -75,7 +78,7 @@ func streamedText(t *testing.T, stream string) string {
 	return b.String()
 }
 
-func maskedPlaceholder(t *testing.T, p *veilPlugin, key string) string {
+func maskedPlaceholder(t testing.TB, p *veilPlugin, key string) string {
 	t.Helper()
 	body := intercept(t, p, pluginapi.RequestInterceptRequest{Headers: bearer(key), Body: []byte(`{"messages":[{"role":"user","content":"mail test@acme-corp.cn"}]}`)})
 	placeholder := emailPlaceholder.FindString(string(body))
@@ -150,15 +153,25 @@ type v8Stream struct {
 	t      *testing.T
 	plugin *veilPlugin
 	req    pluginapi.StreamChunkInterceptRequest
+	id     string // the request's ID, as schema 5 has the payload chunks without the bodies
 	next   int
 	out    []string
 }
 
+// openV8Stream opens a stream as CPA v8 hands it to a schema 1 plugin: no
+// request ID, the request bodies with every chunk.
 func openV8Stream(t *testing.T, p *veilPlugin, scopeKey string, requestBody []byte) *v8Stream {
+	return openV8StreamOf(t, p, scopeKey, requestBody, "")
+}
+
+// openV8StreamOf opens a stream as CPA v8 hands it to a plugin of schema 5
+// when id is set: the request bodies with the header-init call only, its
+// request's ID with every chunk.
+func openV8StreamOf(t *testing.T, p *veilPlugin, scopeKey string, requestBody []byte, id string) *v8Stream {
 	t.Helper()
-	s := &v8Stream{t: t, plugin: p, req: pluginapi.StreamChunkInterceptRequest{RequestHeaders: bearer(scopeKey), OriginalRequest: requestBody, RequestBody: requestBody}}
+	s := &v8Stream{t: t, plugin: p, id: id, req: pluginapi.StreamChunkInterceptRequest{RequestHeaders: bearer(scopeKey), OriginalRequest: requestBody, RequestBody: requestBody}}
 	s.req.ChunkIndex = pluginapi.StreamChunkHeaderInitIndex
-	if _, err := p.InterceptStreamChunk(nil, s.req); err != nil {
+	if _, err := p.interceptStreamChunk(nil, s.req, id); err != nil {
 		t.Fatal(err)
 	}
 	return s
@@ -167,10 +180,13 @@ func openV8Stream(t *testing.T, p *veilPlugin, scopeKey string, requestBody []by
 func (s *v8Stream) send(line string) {
 	s.t.Helper()
 	req := s.req
+	if s.id != "" {
+		req.OriginalRequest, req.RequestBody = nil, nil
+	}
 	req.Body = []byte(line)
 	req.ChunkIndex = s.next
 	s.next++
-	resp, err := s.plugin.InterceptStreamChunk(nil, req)
+	resp, err := s.plugin.interceptStreamChunk(nil, req, s.id)
 	if err != nil {
 		s.t.Fatal(err)
 	}
@@ -281,5 +297,156 @@ func TestV8ConcurrentStreamsKeepTheirEventLines(t *testing.T) {
 		if text, _ := s.frames(); text != "to test@acme-corp.cn" {
 			t.Fatalf("%s stream text %q", name, text)
 		}
+	}
+}
+
+// On CPA v8 a plugin of schema 5 gets the request bodies with a stream's
+// header-init call only, and its request's ID with every chunk: a stream is
+// known by that ID, holds Placeholders cut across chunks, and two identical
+// requests at once are two streams, each holding.
+func TestStreamsKnownByRequestID(t *testing.T) {
+	p := newConfiguredInterceptor(t, "").(*veilPlugin)
+	placeholder := maskedPlaceholder(t, p, "k")
+	body := []byte(`{"input":"same"}`)
+	lines := responsesV8Lines("to "+placeholder+" ok", 4)
+	a := openV8StreamOf(t, p, "k", body, "req-a")
+	b := openV8StreamOf(t, p, "k", body, "req-b")
+	for i := range lines {
+		a.send(lines[i])
+		b.send(lines[i])
+	}
+	for name, s := range map[string]*v8Stream{"first": a, "second": b} {
+		if text, _ := s.frames(); text != "to test@acme-corp.cn ok" {
+			t.Fatalf("%s stream text %q", name, text)
+		}
+	}
+	if n := len(p.streams.streams); n != 0 {
+		t.Fatalf("%d streams left after both ended", n)
+	}
+}
+
+// The host offers its schema at plugin.register; Veil takes 5 where the
+// host has it, so payload chunks come without the bodies, and the original
+// one on CPA v7, which offers none.
+func TestRegisterTakesTheHostsSchema(t *testing.T) {
+	resetMasking(t)
+	veilABIState.Lock()
+	previous := veilABIState.plugin
+	veilABIState.Unlock()
+	t.Cleanup(func() {
+		veilABIState.Lock()
+		veilABIState.plugin = previous
+		veilABIState.Unlock()
+	})
+	dir := t.TempDir()
+	for host, want := range map[uint32]uint32{0: 1, 1: 1, 2: 1, 3: 3, 4: 4, 5: 5, 10: 5} {
+		raw, err := json.Marshal(abiLifecycleRequest{PluginDir: dir, SchemaVersion: host})
+		if err != nil {
+			t.Fatal(err)
+		}
+		out, err := handleVeilRegister(context.Background(), pluginabi.MethodPluginRegister, raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := decodeRegistration(t, out).SchemaVersion; got != want {
+			t.Errorf("host schema %d: registered with %d, want %d", host, got, want)
+		}
+	}
+}
+
+// A chunk as CPA v8 encodes it for a plugin of schema 5, without the bodies,
+// finds its stream by the RequestID field.
+func TestStreamChunkEnvelopeCarriesTheRequestID(t *testing.T) {
+	p := newConfiguredInterceptor(t, "").(*veilPlugin)
+	placeholder := maskedPlaceholder(t, p, "k")
+	veilABIState.Lock()
+	previous := veilABIState.plugin
+	veilABIState.plugin = p
+	veilABIState.Unlock()
+	t.Cleanup(func() {
+		veilABIState.Lock()
+		veilABIState.plugin = previous
+		veilABIState.Unlock()
+	})
+	headers := map[string][]string{"Authorization": {"Bearer k"}}
+	s := &v8Stream{t: t}
+	for i, line := range append([]string{""}, responsesV8Lines("to "+placeholder+" ok", 4)...) {
+		req := map[string]any{"RequestID": "r1", "RequestHeaders": headers, "Body": []byte(line), "ChunkIndex": i - 1}
+		if i == 0 {
+			req["RequestBody"] = []byte(`{"input":"x"}`)
+		}
+		raw, err := json.Marshal(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out, err := handleVeilABIMethod(context.Background(), pluginabi.MethodResponseInterceptStreamChunk, raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var env struct {
+			OK     bool                                   `json:"ok"`
+			Result pluginapi.StreamChunkInterceptResponse `json:"result"`
+		}
+		if err := json.Unmarshal(out, &env); err != nil || !env.OK {
+			t.Fatalf("envelope %s: %v", out, err)
+		}
+		switch {
+		case i == 0, env.Result.DropChunk:
+		case len(env.Result.Body) > 0:
+			s.out = append(s.out, string(env.Result.Body))
+		default:
+			s.out = append(s.out, line)
+		}
+	}
+	if text, _ := s.frames(); text != "to test@acme-corp.cn ok" {
+		t.Fatalf("text %q", text)
+	}
+}
+
+// BenchmarkLongHistoryStream is what one stream of 106 chunks of a request
+// with an agent's 3.7 MB history costs Veil through the ABI: with the
+// request bodies in every chunk, as a schema 1 plugin gets them, or in the
+// header-init call only, the chunks known by the request's ID.
+func BenchmarkLongHistoryStream(b *testing.B) {
+	p := newConfiguredInterceptor(b, "").(*veilPlugin)
+	maskedPlaceholder(b, p, "k")
+	veilABIState.Lock()
+	previous := veilABIState.plugin
+	veilABIState.plugin = p
+	veilABIState.Unlock()
+	b.Cleanup(func() {
+		veilABIState.Lock()
+		veilABIState.plugin = previous
+		veilABIState.Unlock()
+	})
+	history := []byte(`{"input":"` + strings.Repeat("an old turn of the conversation, ", 112_000) + `"}`)
+	lines := responsesV8Lines(strings.Repeat("summary ", 34), 8)
+	headers := map[string][]string{"Authorization": {"Bearer k"}}
+	for _, schema := range []int{1, 5} {
+		b.Run(fmt.Sprintf("schema %d", schema), func(b *testing.B) {
+			envelopes := make([][]byte, 0, len(lines)+1)
+			for i, line := range append([]string{""}, lines...) {
+				req := map[string]any{"RequestHeaders": headers, "Body": []byte(line), "ChunkIndex": i - 1}
+				if schema == 5 {
+					req["RequestID"] = "r1"
+				}
+				if i == 0 || schema < 3 {
+					req["OriginalRequest"], req["RequestBody"] = history, history
+				}
+				raw, err := json.Marshal(req)
+				if err != nil {
+					b.Fatal(err)
+				}
+				envelopes = append(envelopes, raw)
+			}
+			b.ResetTimer()
+			for range b.N {
+				for _, raw := range envelopes {
+					if _, err := handleVeilABIMethod(context.Background(), pluginabi.MethodResponseInterceptStreamChunk, raw); err != nil {
+						b.Fatal(err)
+					}
+				}
+			}
+		})
 	}
 }
