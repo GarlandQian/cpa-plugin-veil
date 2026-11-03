@@ -118,6 +118,22 @@ func TestManagementAnswersWithoutValues(t *testing.T) {
 	}
 }
 
+// The page loads nothing from anywhere else: CPA serves it to anyone, and a
+// management panel embeds it.
+func TestRecordsPageIsSelfContained(t *testing.T) {
+	page := string(recordsPage)
+	for _, bad := range []string{"<script src", "<link", "@import", "src=\"http", "url(http"} {
+		if strings.Contains(page, bad) {
+			t.Errorf("the page loads %q from elsewhere", bad)
+		}
+	}
+	for _, want := range []string{"cli-proxy-auth", "enc::v2::", "data-cpamp-plugin-host", "/v0/management/plugins/", "api-key-aliases"} {
+		if !strings.Contains(page, want) {
+			t.Errorf("the page lacks %q", want)
+		}
+	}
+}
+
 func TestManagementWithRecordsOff(t *testing.T) {
 	p := newConfiguredInterceptor(t, "records: false\n").(*veilPlugin)
 	if status, out, _ := manage(t, p, http.MethodGet, "/v0/management/plugins/veil/summary", nil, ""); status != http.StatusOK || out["enabled"] != false {
