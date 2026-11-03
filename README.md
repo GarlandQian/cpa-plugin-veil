@@ -107,7 +107,7 @@ sets `plugins.configs.veil.enabled` to `true`. No restart is needed.
 ### By hand
 
 1. Download `veil_<version>_<os>_<arch>.zip` for your platform from
-   [Releases](https://github.com/GarlandQian/cpa-plugin-veil/releases), for example `veil_0.5.0_darwin_arm64.zip` on
+   [Releases](https://github.com/GarlandQian/cpa-plugin-veil/releases), for example `veil_0.5.1_darwin_arm64.zip` on
    an Apple silicon Mac. You can check it against `checksums.txt` from the same page:
 
    ```bash
