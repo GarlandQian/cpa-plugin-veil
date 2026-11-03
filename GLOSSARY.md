@@ -15,7 +15,7 @@ Replacing a Placeholder or Stand-in in an incoming response with the original va
 _Avoid_: unmask, rehydrate, decode
 
 **Placeholder** (占位符):
-What a sensitive value goes upstream as, shaped `{{KIND_xxxxxxxx}}`; the same value always gets the same Placeholder within a Caller scope, across restarts too.
+What a sensitive value goes upstream as, shaped `{{KIND_xxxxxxxx}}`; the same value of the same Kind gets the same Placeholder within a Caller scope while its key stays the same, across restarts too.
 _Avoid_: label, replacement, token
 
 **Stand-in** (替身):
@@ -48,7 +48,7 @@ The Caller scope shared by requests whose client identity Veil cannot see, isola
 _Avoid_: global bucket, global scope
 
 **Vault** (映射):
-The in-memory store that maps Placeholders and Stand-ins back to their original values, partitioned by Caller scope.
+The in-memory store that maps Placeholders and Stand-ins back to their original values, partitioned by Caller scope. Only values it currently holds can be restored.
 _Avoid_: map, cache, store, bucket
 
 ### Streaming and signatures

@@ -104,6 +104,7 @@ func decodeRegistration(t *testing.T, raw []byte) abiRegistration {
 }
 
 func TestReconfigureKeepsPreviousConfigOnInvalidConfig(t *testing.T) {
+	resetMasking(t)
 	veilABIState.Lock()
 	previous := veilABIState.plugin
 	veilABIState.plugin = nil
