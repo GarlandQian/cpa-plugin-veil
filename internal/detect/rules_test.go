@@ -41,6 +41,10 @@ func TestCategoriesFindTheirKinds(t *testing.T) {
 		{"secrets", "key AIzaSyD-1234567890abcdefghijklmnop_qrst in config", "SECRET=AIzaSyD-1234567890abcdefghijklmnop_qrst"},
 		{"secrets", "-----BEGIN RSA PRIVATE KEY-----\nMIIEow\n-----END RSA PRIVATE KEY-----", "PRIVATE_KEY=-----BEGIN RSA PRIVATE KEY-----\nMIIEow\n-----END RSA PRIVATE KEY-----"},
 		{"personal", "mail alice@acme-corp.cn", "EMAIL=alice@acme-corp.cn"},
+		{"personal", "mail _alice@acme-corp.cn_ now", "EMAIL=alice@acme-corp.cn"},
+		{"personal", "**__alice@acme-corp.cn__**", "EMAIL=alice@acme-corp.cn"},
+		{"personal", "联系 alice@acme-corp.cn_。", "EMAIL=alice@acme-corp.cn"},
+		{"personal", "mail first_last@acme-corp.cn", "EMAIL=first_last@acme-corp.cn"},
 		{"personal", "我的手机号是 13800138000", "PHONE=13800138000"},
 		{"personal", "身份证 110105199003077438", "ID_CARD=110105199003077438"},
 		{"personal", "card 4111 1111 1111 1111", "BANK_CARD=4111 1111 1111 1111"},
@@ -102,6 +106,7 @@ func TestFalsePositives(t *testing.T) {
 		"uuid 550e8400-e29b-41d4-a716-446655440000",        // a UUID
 		"see AGENTS.md@main or user@example.com",           // a doc file and a documentation domain
 		"git@github.com:acme/app.git",                      // git's user
+		"y = x@self.in_proj + q@self.to_q",                 // matrix products with attributes that start like a domain
 		"icon@2x.png and memcpy@GLIBC_2.14",                // a scaled image and a linker symbol
 		"Chrome/120.0.6099.109 version 1.2.3.4",            // versions
 		"dns 8.8.8.8 and 192.168.1.10",                     // a resolver and a private address
