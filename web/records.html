@@ -36,7 +36,7 @@
   button:disabled { opacity: .5; cursor: default; }
   button:focus-visible, [tabindex]:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, summary:focus-visible { outline: 2px solid var(--v-accent); outline-offset: 3px; }
   code, pre, .mono, .original-value { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.5px; }
-  .wrap, .detail-wrap { max-width: 1240px; margin: 0 auto; padding: 30px 32px 48px; }
+  .wrap, .detail-wrap { max-width: 1240px; margin: 0 auto; padding: 24px 28px 48px; }
   header { display: flex; align-items: center; gap: 16px; margin-bottom: 26px; }
   .brand { display: flex; align-items: center; gap: 13px; min-width: 0; flex: 1; }
   .brand-mark { display: grid; place-items: center; width: 44px; height: 44px; flex: none; border: 1px solid color-mix(in srgb, var(--v-accent) 22%, var(--v-border)); border-radius: 13px; color: var(--v-accent); background: color-mix(in srgb, var(--v-accent) 7%, var(--v-surface)); }
@@ -129,16 +129,18 @@
   .seen:last-child { border-bottom: 0; }
   .seen .right { text-align: right; font-size: 12px; color: var(--v-text-2); }
   .record-shell { padding: 0; overflow: hidden; }
-  .filters { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 16px 20px; border-bottom: 1px solid var(--v-border); }
+  .filters { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 12px 18px; border-bottom: 1px solid var(--v-border); }
   .filter-label { display: flex; align-items: center; gap: 7px; margin-left: auto; color: var(--v-text-2); font-size: 13px; white-space: nowrap; }
   select, input[type=text], input[type=password], textarea { background: var(--v-surface); border: 1px solid var(--v-border); border-radius: 7px; padding: 6px 10px; max-width: 100%; }
   select { min-height: 36px; }
   .filters select { min-width: 125px; max-width: 220px; flex: 1; }
   input[type=checkbox] { accent-color: var(--v-accent); }
   textarea { width: 100%; min-height: 185px; padding: 16px; resize: vertical; line-height: 1.8; }
-  .records-head, .rec { display: grid; grid-template-columns: 115px minmax(0, 1fr) minmax(145px, .65fr) minmax(140px, .65fr) 18px; gap: 20px; align-items: center; }
-  .records-head { padding: 11px 22px; border-bottom: 1px solid var(--v-border); color: var(--v-text-3); font-size: 12px; background: color-mix(in srgb, var(--v-surface-2) 50%, var(--v-surface)); }
-  .rec { border-bottom: 1px solid var(--v-border); padding: 19px 22px; cursor: pointer; min-width: 0; }
+  .records-head, .rec { display: grid; grid-template-columns: 100px minmax(0, 1fr) minmax(200px, .9fr) 150px 18px; gap: 18px; align-items: center; }
+  .records-head { padding: 10px 18px; border-bottom: 1px solid var(--v-border); color: var(--v-text-3); font-size: 12px; background: color-mix(in srgb, var(--v-surface-2) 35%, var(--v-surface)); }
+  /* CPAMP styles every [role=button] as a raised button. Rows keep their own
+     surface and typography while retaining keyboard and screen-reader access. */
+  .rec { border: 0; border-bottom: 1px solid var(--v-border); border-radius: 0; background: transparent; color: var(--v-text); font-weight: 400; line-height: 1.6; padding: 14px 18px; cursor: pointer; min-width: 0; }
   .rec:last-child { border-bottom: 0; }
   .rec:hover, .rec:focus-visible { background: color-mix(in srgb, var(--v-accent) 3%, var(--v-surface)); }
   .rec > div { min-width: 0; }
@@ -153,6 +155,8 @@
   .rec-glimpse { color: var(--v-text-2); font-size: 12px; margin-top: 5px; max-width: 100%; }
   .rec-glimpse .ph { color: inherit; background: none; padding: 0; }
   .rec-chevron { color: var(--v-text-3); }
+  .rec-values .tags { gap: 5px 12px; }
+  .rec-values .tag { background: none; padding: 0; }
   .list-foot { display: flex; align-items: center; justify-content: center; gap: 12px; padding: 14px; border-top: 1px solid var(--v-border); }
   .new-records { width: 100%; padding: 10px 16px; border: 0; border-bottom: 1px solid var(--v-border); color: var(--v-accent); background: color-mix(in srgb, var(--v-accent) 6%, var(--v-surface)); font-size: 13px; }
   .preview-card { max-width: 900px; }
@@ -161,47 +165,51 @@
   #previewOut:not(:empty) { border-top: 1px solid var(--v-border); margin-top: 24px; padding-top: 24px; }
   .detail-open > .wrap { display: none; }
   .detail-wrap { display: block; }
-  .panel { min-width: 0; }
-  .panel-head { position: sticky; top: 0; z-index: 3; display: flex; align-items: center; gap: 14px; background: var(--v-bg); padding: 12px 0 18px; margin: -12px 0 10px; border-bottom: 1px solid var(--v-border); }
-  .panel-head h2 { flex: 1; font-size: 14px; font-weight: 500; color: var(--v-text-2); margin: 0; }
+  /* Avoid the host's broad [class*=panel] background rule on layout wrappers. */
+  .detail-layout { min-width: 0; }
+  .detail-header { position: sticky; top: 0; z-index: 3; display: flex; align-items: center; gap: 14px; background: var(--v-bg); padding: 10px 0 14px; margin: -10px 0 18px; border-bottom: 1px solid var(--v-border); }
+  .detail-header h2 { flex: 1; font-size: 13px; font-weight: 500; color: var(--v-text-2); margin: 0; }
   .detail-navigation { display: flex; gap: 6px; }
   .detail-navigation .btn { width: 34px; padding: 5px; }
-  .request-summary { padding: 22px 24px; }
-  .detail-route { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; margin-bottom: 12px; }
-  .detail-route strong { font-size: 19px; letter-spacing: -.3px; }
+  .request-summary { padding: 0 0 18px; border-bottom: 1px solid var(--v-border); }
+  .detail-route { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; margin-bottom: 10px; }
+  .detail-route strong { font-size: 18px; font-weight: 600; letter-spacing: -.3px; }
   .detail-route .icon { color: var(--v-text-3); width: 15px; }
-  .lead { font-size: 14px; margin: 0 0 8px; }
-  .facts { display: flex; flex-wrap: wrap; gap: 8px 24px; padding-top: 15px; margin-top: 16px; border-top: 1px solid var(--v-border); color: var(--v-text-2); font-size: 12px; }
+  .lead { font-size: 13px; margin: 0 0 5px; }
+  .response-note { color: var(--v-text-2); font-size: 12px; margin: 0; }
+  .facts { display: flex; flex-wrap: wrap; gap: 6px 20px; margin-top: 12px; color: var(--v-text-2); font-size: 12px; }
   .facts span b { color: var(--v-text-3); font-weight: 400; margin-right: 8px; }
-  .detail-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 25px 0 15px; }
-  .detail-toolbar h2 { font-size: 17px; margin: 0; }
+  .detail-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 20px 0 14px; }
+  .detail-toolbar h2 { font-size: 15px; margin: 0; }
   .detail-toolbar p { margin: 3px 0 0; color: var(--v-text-2); font-size: 12px; }
-  .detail-grid { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 20px; align-items: start; }
-  .context-card { padding: 0; overflow: hidden; }
-  .context-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 13px 18px; border-bottom: 1px solid var(--v-border); }
+  .detail-grid { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 20px; align-items: start; }
+  .context-card { padding: 0; overflow: hidden; margin-bottom: 12px; border-radius: 8px; }
+  .context-header { display: flex; align-items: baseline; flex-wrap: wrap; justify-content: space-between; gap: 4px 10px; padding: 10px 14px; border-bottom: 1px solid var(--v-border); }
   .context-header .mono { color: var(--v-text-3); font-size: 11px; overflow-wrap: anywhere; }
-  .context-text { padding: 22px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13.5px; line-height: 2; }
+  .context-text { padding: 16px; white-space: pre-wrap; overflow-wrap: anywhere; font: 12.5px/1.85 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
   .context-pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .context-pair > div { min-width: 0; }
   .context-pair > div + div { border-left: 1px solid var(--v-border); }
-  .context-pair .context-label { padding: 11px 18px; background: var(--v-surface-2); border-bottom: 1px solid var(--v-border); color: var(--v-text-2); font-size: 12px; }
+  .context-pair .context-label { padding: 8px 14px; background: var(--v-surface-2); border-bottom: 1px solid var(--v-border); color: var(--v-text-2); font-size: 12px; }
   .context-foot { color: var(--v-text-3); font-size: 12px; padding: 0 18px 15px; }
   .context-stack.picking .ph:not(.lit) { opacity: .4; }
   .context-stack .ph.lit { outline: 1px solid var(--kc, var(--v-accent)); outline-offset: 2px; }
   .value-aside { display: flex; flex-direction: column; gap: 10px; }
   .value-aside > h3 { font-size: 13px; color: var(--v-text-2); margin: 0 0 3px; font-weight: 500; }
-  .vcard { min-width: 0; border: 1px solid var(--v-border); border-radius: 9px; padding: 16px; background: var(--v-surface); margin-bottom: 14px; }
+  .values-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; align-items: start; }
+  .values-grid .vcard { margin: 0; }
+  .vcard { min-width: 0; border: 1px solid var(--v-border); border-radius: 8px; padding: 13px; background: var(--v-surface); margin-bottom: 14px; }
   .value-aside .vcard { margin: 0; }
   .vcard.selected { border-color: color-mix(in srgb, var(--kc) 65%, var(--v-border)); box-shadow: 0 0 0 1px color-mix(in srgb, var(--kc) 20%, transparent); }
-  .value-select { display: block; width: 100%; padding: 0; background: none; border: 0; color: inherit; text-align: left; }
+  .value-select { display: block; width: 100%; padding: 0; background: none; border: 0; border-radius: 0; color: inherit; text-align: left; }
   .vhead { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
   .vhead .kind { flex: 1; }
-  .value-hint { font: 12px/1.7 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--v-text-2); margin: 11px 0 3px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .value-hint { font: 12px/1.7 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--v-text-2); margin: 8px 0 3px; white-space: pre-wrap; overflow-wrap: anywhere; }
   .value-placeholder { font-size: 11.5px; color: var(--v-accent); overflow-wrap: anywhere; }
   .value-original { margin: 12px 0; border-top: 1px solid var(--v-border); padding-top: 10px; }
   .value-original .small { margin-bottom: 4px; }
   .original-value { white-space: pre-wrap; overflow-wrap: anywhere; }
-  .value-meta { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 12px; margin: 12px 0 0; font-size: 12px; }
+  .value-meta { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 10px; margin: 10px 0 0; font-size: 12px; }
   .value-meta dt { color: var(--v-text-3); }
   .value-meta dd { margin: 0; min-width: 0; overflow-wrap: anywhere; color: var(--v-text-2); }
   .vline { display: grid; grid-template-columns: 6em minmax(0, 1fr); gap: 10px; margin-top: 8px; font-size: 13px; }
@@ -225,6 +233,7 @@
     .records-head .response-col, .rec .response-col { display: none; }
     .rec-inline-state { display: block; margin-top: 5px; }
     .detail-grid { grid-template-columns: minmax(0, 1fr) 270px; gap: 16px; }
+    .values-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .context-pair { grid-template-columns: minmax(0, 1fr); }
     .context-pair > div + div { border-left: 0; border-top: 1px solid var(--v-border); }
     .stat { padding: 18px; }
@@ -248,7 +257,7 @@
     .filters select { min-width: 0; width: calc(50% - 4px); flex: auto; max-width: none; }
     .filter-label { margin: 3px 0 0; flex: 1; }
     .records-head { display: none; }
-    .rec { grid-template-columns: minmax(0, 1fr) auto; gap: 8px 12px; padding: 17px 16px; }
+    .rec { grid-template-columns: minmax(0, 1fr) auto; gap: 6px 12px; padding: 14px 16px; }
     .rec-clock { grid-column: 1; display: flex; align-items: baseline; gap: 8px; }
     .rec-main { grid-column: 1; grid-row: 2; }
     .rec-values { grid-column: 1; grid-row: 3; }
@@ -259,19 +268,21 @@
     .page-heading p { font-size: 12px; }
     .empty { min-height: 340px; padding: 36px 22px; }
     .empty h3 { font-size: 18px; }
-    .panel-head h2 { font-size: 12px; }
-    .panel-head { gap: 8px; }
-    .panel-head .btn { padding: 5px 9px; }
-    .request-summary { padding: 18px; }
+    .detail-header h2 { font-size: 12px; }
+    .detail-header { gap: 8px; flex-wrap: wrap; }
+    .detail-header .btn { padding: 5px 9px; }
+    .request-summary { padding-bottom: 16px; }
     .detail-toolbar { align-items: flex-start; }
-    .context-text { padding: 18px; }
+    .context-text { padding: 14px; }
     .value-aside { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .value-aside > h3 { grid-column: 1 / -1; }
     .preview-actions { align-items: flex-start; }
   }
   @media (max-width: 460px) {
-    .value-aside { grid-template-columns: minmax(0, 1fr); }
+    .value-aside, .values-grid { grid-template-columns: minmax(0, 1fr); }
     .title span { max-width: 255px; display: block; }
+    .detail-header h2 { order: 1; flex-basis: 100%; }
+    .detail-header > .btn { margin-right: auto; }
     .detail-navigation { gap: 3px; }
     .detail-navigation .btn { width: 30px; }
     .detail-route strong { font-size: 17px; }
@@ -362,8 +373,8 @@
 </div>
 
 <section id="detail" class="detail-wrap hidden" aria-labelledby="detailTitle">
-  <div class="panel">
-    <div class="panel-head"><button id="detailClose" class="btn ghost" data-t="backToRequests"></button><h2 id="detailTitle"></h2><button id="detailLiveToggle" class="live-toggle" type="button" aria-pressed="true"><span class="live-dot"></span><span class="live-label"></span></button><div class="detail-navigation"><button id="detailPrev" class="btn" type="button"></button><button id="detailNext" class="btn" type="button"></button></div></div>
+  <div class="detail-layout">
+    <div class="detail-header"><button id="detailClose" class="btn ghost" data-t="backToRequests"></button><h2 id="detailTitle"></h2><button id="detailLiveToggle" class="live-toggle" type="button" aria-pressed="true"><span class="live-dot"></span><span class="live-label"></span></button><div class="detail-navigation"><button id="detailPrev" class="btn" type="button"></button><button id="detailNext" class="btn" type="button"></button></div></div>
     <div id="detailBody"></div>
   </div>
 </section>
@@ -386,7 +397,7 @@
       liveHint: "每 3 秒更新；点击暂停", resumeLive: "点击恢复实时更新", updatedAt: "更新于 {n}", newRecords: "有 {n} 条新记录，点击查看",
       backToRequests: "返回记录", newerRequest: "上一个请求", olderRequest: "下一个请求",
       contextTitle: "请求上下文", valuesTitle: "命中值", contextHint: "点击右侧的值，查看它在片段中的位置。", snippetsN: "{n} 个片段",
-      noContextTitle: "这条记录没有可用上下文", noContextText: "片段仅保留在当前实例的内存中。右侧仍可查看类型、位置和处理方式。",
+      noContextTitle: "这条记录没有可用上下文", noContextText: "片段仅保留在当前实例的内存中。仍可查看命中值、位置和处理方式。",
       snippetN: "片段 {n}", originalCount: "已读取 {n} 个原值", viewRules: "规则与误报处理", previewNote: "仅在当前 CPA 检测，不发送给模型，不保存结果。",
       tabOverview: "总览", tabRecords: "请求记录", tabPreview: "试一试", refresh: "刷新", clear: "清空记录",
       loginTitle: "连接 CPA 管理接口", loginHint: "没有读到管理面板保存的密钥，请输入管理密钥。它只保存在这个标签页里。",
@@ -459,7 +470,7 @@
       liveHint: "Updates every 3 seconds; click to pause", resumeLive: "Click to resume live updates", updatedAt: "Updated {n}", newRecords: "{n} new records — click to view",
       backToRequests: "Back to records", newerRequest: "Newer request", olderRequest: "Older request",
       contextTitle: "Request context", valuesTitle: "Detected values", contextHint: "Select a value to highlight its places in the snippets.", snippetsN: "{n} snippets",
-      noContextTitle: "No context available for this record", noContextText: "Snippets live in the current instance's memory only. Kinds, places and actions are still available in the value panel.",
+      noContextTitle: "No context available for this record", noContextText: "Snippets live in the current instance's memory only. You can still inspect the values, places and actions.",
       snippetN: "Snippet {n}", originalCount: "{n} originals available", viewRules: "Rules and false positives", previewNote: "Checked by this CPA only. Nothing is sent to a model or saved.",
       tabOverview: "Overview", tabRecords: "Requests", tabPreview: "Try it", refresh: "Refresh", clear: "Clear records",
       loginTitle: "Connect to the CPA Management API", loginHint: "No key saved by the management panel was found. Enter the management key; it stays in this tab only.",
@@ -1236,12 +1247,8 @@
     });
     return groups.filter(function (g, i) { return !groups.some(function (other, j) { return i !== j && other.text.length > g.text.length && other.text.indexOf(g.text) >= 0; }); });
   }
-  function contextPanel(r, known, d) {
-    var stack = el("div", { class: "context-stack" }), groups = snippetGroups(r);
-    if (!groups.length) {
-      stack.appendChild(el("div", { class: "card" }, emptyState("search", t("noContextTitle"), t("noContextText"))));
-      return stack;
-    }
+  function contextPanel(groups, known, d) {
+    var stack = el("div", { class: "context-stack" });
     groups.forEach(function (g, i) {
       var card = el("section", { class: "card context-card" }, el("div", { class: "context-header" }, el("span", { class: "small", text: g.path ? place(g.path) : t("snippetN", i + 1) }), el("span", { class: "mono", title: g.path, text: g.path })));
       var safe = el("div", { class: "context-text" }, context(g.text, known, false));
@@ -1298,32 +1305,36 @@
     var focusOriginals = document.activeElement && document.activeElement.id === "originalsToggle";
     var body = clear(byId("detailBody"));
     byId("detailTitle").textContent = t("detailTitle", when(r.time));
-    var values = r.values || [], known = valuesOf(r), back = (r.restored && r.restored.back) || {};
+    var values = r.values || [], known = valuesOf(r), back = (r.restored && r.restored.back) || {}, groups = snippetGroups(r);
 
-    var lead = el("div", { class: "card request-summary" }, el("div", { class: "detail-route" }, el("strong", { text: callerName(r.caller) }), icon("arrow"), el("strong", { text: r.model || "—" }), el("span", { class: "tag", text: FORMATS[r.format] || r.format || "—" })));
+    var lead = el("section", { class: "request-summary" }, el("div", { class: "detail-route" }, el("strong", { text: callerName(r.caller) }), icon("arrow"), el("strong", { text: r.model || "—" }), el("span", { class: "tag", text: FORMATS[r.format] || r.format || "—" })));
     var masked = 0, maskedValues = 0, warned = 0;
     values.forEach(function (v) { if (v.action === "mask") { masked += v.n; maskedValues++; } else if (v.action === "warn") warned += v.n; });
     if (r.stopped) lead.appendChild(el("p", { class: "lead", text: t("leadStopped", stoppedText(r.stopped)) }));
     else {
       lead.appendChild(el("p", { class: "lead", text: t("leadMasked", { k: fmt(maskedValues), n: fmt(masked) }) + (warned ? " " + t("leadWarned", fmt(warned)) : "") }));
-      lead.appendChild(el("p", { class: "muted", style: "margin:-4px 0 10px", text: !r.restored ? t("leadNoResp") : backCount(r) ? t("leadBack", fmt(backCount(r))) : t("leadBackNone") }));
+      lead.appendChild(el("p", { class: "response-note", text: !r.restored ? t("leadNoResp") : backCount(r) ? t("leadBack", fmt(backCount(r))) : t("leadBackNone") }));
     }
     var fact = function (label, text) { return el("span", null, el("b", { text: label }), text); };
     lead.appendChild(el("div", { class: "facts" },
-      fact(t("fCaller"), callerName(r.caller)), fact(t("fModel"), r.model || "—"),
-      fact(t("fFormat"), FORMATS[r.format] || r.format || "—"), fact(t("fTook"), took(r.took)), fact(t("fKey"), String(r.key))));
+      fact(t("fTook"), took(r.took)), fact(t("fKey"), String(r.key))));
     body.appendChild(lead);
 
     var heading = el("div", { class: "detail-toolbar" },
-      el("div", null, el("h2", { text: t("contextTitle") }), el("p", { text: t("contextHint") })));
+      el("div", null, el("h2", { text: groups.length ? t("contextTitle") : t("valuesTitle") + " · " + fmt(values.length) }), el("p", { text: groups.length ? t("contextHint") : t("noContextTitle") + (lang === "zh" ? "。" : ". ") + t("noContextText") })));
     if (values.length) heading.appendChild(el("button", { id: "originalsToggle", class: "btn", type: "button", "aria-pressed": String(d.showOriginals), text: d.showOriginals ? t("hideOriginals") : t("showOriginals"), title: t("originalsHint"), onclick: function () { toggleOriginals(d); } }));
     body.appendChild(heading);
     if (d.loadingOriginals) body.appendChild(el("p", { class: "muted small", role: "status", text: t("originalsLoading") }));
     if (d.originalsError) body.appendChild(el("p", { class: "notice error", role: "alert", text: t("originalsFailed") }));
-    var aside = el("aside", { class: "value-aside" }, el("h3", { text: t("valuesTitle") + " · " + fmt(values.length) }));
-    if (!values.length) aside.appendChild(el("p", { class: "muted", text: t("noValues") }));
-    values.forEach(function (v, index) { aside.appendChild(valueCard(v, r, known, d, index)); });
-    body.appendChild(el("div", { class: "detail-grid" }, contextPanel(r, known, d), aside));
+    if (groups.length) {
+      var aside = el("aside", { class: "value-aside" }, el("h3", { text: t("valuesTitle") + " · " + fmt(values.length) }));
+      values.forEach(function (v, index) { aside.appendChild(valueCard(v, r, known, d, index)); });
+      body.appendChild(el("div", { class: "detail-grid" }, contextPanel(groups, known, d), aside));
+    } else if (values.length) {
+      var grid = el("div", { class: "values-grid" });
+      values.forEach(function (v, index) { grid.appendChild(valueCard(v, r, known, d, index)); });
+      body.appendChild(grid);
+    } else body.appendChild(el("p", { class: "muted", text: t("noValues") }));
 
     if (r.restored) {
       var others = Object.keys(back).filter(function (p) { return !known[p]; });
