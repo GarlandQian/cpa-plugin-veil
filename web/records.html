@@ -8,173 +8,276 @@
 <style>
   :root {
     color-scheme: light dark;
-    --v-bg: #f4f6fa; --v-surface: #ffffff; --v-surface-2: #f2f5f9; --v-text: #1f2933; --v-text-2: #52606d;
-    --v-text-3: #8a94a6; --v-border: rgba(15, 23, 42, 0.1); --v-accent: #3b82f6; --v-accent-contrast: #ffffff;
-    --v-danger: #e5484d; --v-warning: #d9822b; --v-success: #2f9e44; --v-radius: 10px;
+    --v-bg: #f7f9fa; --v-surface: #fff; --v-surface-2: #f1f4f6;
+    --v-text: #17232c; --v-text-2: #52616d; --v-text-3: #687985;
+    --v-border: #e3e9ed; --v-accent: #147d72; --v-accent-contrast: #fff;
+    --v-danger: #c84249; --v-warning: #a66b1b; --v-success: #19816c; --v-radius: 12px;
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --v-bg: #0f1218; --v-surface: #171b23; --v-surface-2: #1e232d; --v-text: #e6e9ef; --v-text-2: #b2bac7;
-      --v-text-3: #7d8696; --v-border: rgba(255, 255, 255, 0.1); --v-accent: #5b9dff;
+      --v-bg: #111518; --v-surface: #191e22; --v-surface-2: #22292e;
+      --v-text: #e8edf0; --v-text-2: #b5c1c9; --v-text-3: #93a2ad;
+      --v-border: #30393f; --v-accent: #6ad5bf; --v-accent-contrast: #112b25;
+      --v-danger: #f2868c; --v-warning: #dfb367; --v-success: #6ad5bf;
     }
   }
-  /* Inside CPA-Manager-Plus, its theme wins. */
+  /* Host colours retain their fallbacks if a panel omits a theme variable. */
   html[data-cpamp-plugin-host] {
-    --v-bg: var(--bg-secondary); --v-surface: var(--bg-primary); --v-surface-2: var(--bg-tertiary);
-    --v-text: var(--text-primary); --v-text-2: var(--text-secondary); --v-text-3: var(--text-tertiary);
-    --v-border: var(--border-color); --v-accent: var(--primary-color); --v-accent-contrast: var(--primary-contrast);
-    --v-danger: var(--danger-color); --v-warning: var(--warning-color); --v-success: var(--success-color);
-    --v-radius: var(--app-radius-md, 10px);
+    --v-bg: var(--bg-secondary, #111518); --v-surface: var(--bg-primary, #191e22); --v-surface-2: var(--bg-tertiary, #22292e);
+    --v-text: var(--text-primary, #e8edf0); --v-text-2: var(--text-secondary, #b5c1c9); --v-text-3: var(--text-secondary, #a6b4be);
+    --v-border: var(--border-color, #30393f); --v-accent: var(--primary-color, #6ad5bf); --v-accent-contrast: var(--primary-contrast, #112b25);
+    --v-danger: var(--danger-color, #f2868c); --v-warning: var(--warning-color, #dfb367); --v-success: var(--success-color, #6ad5bf);
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; }
-  body { background: var(--v-bg); color: var(--v-text); font: 14px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; }
-  code, pre, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.5px; }
+  body { background: var(--v-bg); color: var(--v-text); font: 14px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; }
   button, input, select, textarea { font: inherit; color: inherit; }
-  .wrap { max-width: 1100px; margin: 0 auto; padding: 16px; }
-  header { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; margin-bottom: 14px; }
-  .title { display: flex; flex-direction: column; margin-right: 8px; min-width: 0; }
-  .title h1 { font-size: 18px; margin: 0; line-height: 1.3; }
-  .title span { color: var(--v-text-3); font-size: 12px; }
-  .tabs { display: flex; gap: 4px; background: var(--v-surface-2); padding: 3px; border-radius: 9px; }
-  .tabs button { border: 0; background: transparent; padding: 5px 14px; border-radius: 7px; cursor: pointer; color: var(--v-text-2); white-space: nowrap; }
-  .tabs button[aria-selected="true"] { background: var(--v-surface); color: var(--v-text); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
-  .spacer { flex: 1; }
-  .actions { display: flex; gap: 8px; }
-  .btn { border: 1px solid var(--v-border); background: var(--v-surface); padding: 5px 12px; border-radius: 7px; cursor: pointer; white-space: nowrap; }
-  .btn:hover { border-color: var(--v-accent); }
+  button { cursor: pointer; }
+  button:disabled { opacity: .5; cursor: default; }
+  button:focus-visible, [tabindex]:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, summary:focus-visible { outline: 2px solid var(--v-accent); outline-offset: 3px; }
+  code, pre, .mono, .original-value { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.5px; }
+  .wrap, .detail-wrap { max-width: 1240px; margin: 0 auto; padding: 30px 32px 48px; }
+  header { display: flex; align-items: center; gap: 16px; margin-bottom: 26px; }
+  .brand { display: flex; align-items: center; gap: 13px; min-width: 0; flex: 1; }
+  .brand-mark { display: grid; place-items: center; width: 44px; height: 44px; flex: none; border: 1px solid color-mix(in srgb, var(--v-accent) 22%, var(--v-border)); border-radius: 13px; color: var(--v-accent); background: color-mix(in srgb, var(--v-accent) 7%, var(--v-surface)); }
+  .brand-mark svg { width: 24px; height: 24px; }
+  .title h1 { font-size: 22px; line-height: 1.3; letter-spacing: -.5px; margin: 0 0 3px; }
+  .title span { color: var(--v-text-2); font-size: 13px; }
+  .actions { display: flex; align-items: center; gap: 8px; flex: none; }
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 36px; border: 1px solid var(--v-border); background: var(--v-surface); padding: 6px 13px; border-radius: 8px; font-weight: 500; white-space: nowrap; }
+  .btn:hover { border-color: color-mix(in srgb, var(--v-accent) 50%, var(--v-border)); background: var(--v-surface-2); }
   .btn.primary { background: var(--v-accent); border-color: var(--v-accent); color: var(--v-accent-contrast); }
-  .btn.danger { color: var(--v-danger); }
-  .btn.small { padding: 1px 9px; font-size: 12px; }
-  .btn:disabled { opacity: .5; cursor: default; }
-  .card { background: var(--v-surface); border: 1px solid var(--v-border); border-radius: var(--v-radius); padding: 14px 16px; margin-bottom: 14px; min-width: 0; }
-  .card > h2, .card-head h2 { font-size: 14px; margin: 0 0 10px; font-weight: 600; }
-  .card-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
-  .card-head h2 { margin: 0; flex: 1; }
-  .sub { color: var(--v-text-3); font-size: 12px; margin: -6px 0 10px; }
-  .notice { border-left: 3px solid var(--v-warning); background: var(--v-surface); padding: 9px 12px; border-radius: 6px; margin-bottom: 14px; color: var(--v-text-2); }
-  .notice.error { border-color: var(--v-danger); }
-  .notice.ok { border-color: var(--v-success); }
+  .btn.ghost { background: transparent; border-color: transparent; }
+  .btn.danger { color: var(--v-text-2); }
+  .btn.danger:hover { color: var(--v-danger); border-color: var(--v-danger); }
+  .btn.small { min-height: 30px; font-size: 12.5px; padding: 3px 10px; }
+  .icon { width: 18px; height: 18px; flex: none; vertical-align: middle; }
+  .navigation { display: flex; align-items: center; justify-content: space-between; gap: 20px; border-bottom: 1px solid var(--v-border); margin-bottom: 26px; }
+  .tabs { display: flex; gap: 24px; }
+  .tabs button { position: relative; border: 0; background: none; color: var(--v-text-2); padding: 0 2px 13px; font-weight: 500; }
+  .tabs button[aria-selected="true"] { color: var(--v-accent); }
+  .tabs button[aria-selected="true"]::after { content: ""; position: absolute; bottom: -1px; left: 0; right: 0; height: 2px; background: var(--v-accent); border-radius: 2px; }
+  .live-controls { display: flex; align-items: center; gap: 12px; padding-bottom: 12px; }
+  .live-toggle { display: inline-flex; align-items: center; gap: 7px; border: 0; background: none; padding: 0; color: var(--v-text-2); font-size: 12px; }
+  .live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--v-text-3); }
+  .live-toggle[data-active="true"] .live-dot { background: var(--v-success); box-shadow: 0 0 0 3px color-mix(in srgb, var(--v-success) 12%, transparent); }
+  .live-toggle.error .live-dot { background: var(--v-warning); box-shadow: none; }
+  .updated { color: var(--v-text-3); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .page-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
+  .page-heading h2 { font-size: 18px; line-height: 1.4; margin: 0 0 5px; letter-spacing: -.25px; }
+  .page-heading p { margin: 0; color: var(--v-text-2); font-size: 13px; }
+  .count { display: inline-block; font-size: 12px; font-weight: 500; padding: 0 7px; border-radius: 5px; background: var(--v-surface-2); color: var(--v-text-2); margin-left: 8px; vertical-align: 2px; }
+  .card { min-width: 0; background: var(--v-surface); border: 1px solid var(--v-border); border-radius: var(--v-radius); padding: 22px; margin-bottom: 20px; }
+  .card > h2, .card-head h2 { font-size: 15px; margin: 0; font-weight: 600; }
+  .card-head { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 16px; }
+  .card-head h2 { flex: 1; }
+  .sub { color: var(--v-text-2); font-size: 12.5px; margin: 5px 0 18px; }
   .muted { color: var(--v-text-3); }
-  .small { font-size: 12px; }
+  .small { font-size: 12.5px; }
   .hidden { display: none !important; }
   .ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-
-  /* kinds: secrets red, personal data orange, devices and networks blue, the user's own green */
+  .notice { border: 1px solid var(--v-border); border-left: 3px solid var(--v-warning); padding: 10px 14px; border-radius: 8px; margin-bottom: 18px; color: var(--v-text-2); background: var(--v-surface); font-size: 13px; }
+  .notice.error { border-left-color: var(--v-danger); }
+  .notice.ok { border-left-color: var(--v-success); }
+  #notices:empty { display: none; }
   .g-secret { --kc: var(--v-danger); }
   .g-personal { --kc: var(--v-warning); }
-  .g-device { --kc: var(--v-accent); }
+  .g-device { --kc: #739bdb; }
   .g-custom { --kc: var(--v-success); }
-  .kind { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; font-weight: 500; }
-  .kind::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--kc, var(--v-text-3)); flex: none; }
-  .tag { display: inline-flex; align-items: center; gap: 4px; padding: 0 8px; border-radius: 999px; font-size: 12px; line-height: 22px; background: var(--v-surface-2); color: var(--v-text-2); white-space: nowrap; }
-  .tag.kc { background: color-mix(in srgb, var(--kc) 13%, transparent); color: var(--v-text); }
-  .tag.mask { color: var(--v-accent); }
+  .kind { display: inline-flex; align-items: center; gap: 7px; font-weight: 500; }
+  .kind::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--kc, var(--v-text-3)); flex: none; }
+  .tag { display: inline-flex; align-items: center; gap: 5px; border-radius: 5px; padding: 1px 7px; font-size: 12px; line-height: 22px; background: var(--v-surface-2); color: var(--v-text-2); white-space: nowrap; }
+  .tag.mask, .tag.new { color: var(--v-accent); }
   .tag.warn { color: var(--v-warning); }
   .tag.block, .tag.stopped { color: var(--v-danger); }
-  .tag.new { color: var(--v-success); }
-  .tags { display: flex; flex-wrap: wrap; gap: 6px; }
-  /* A Placeholder or Stand-in stays recognizable in the safe context. */
-  .ph { display: inline-block; padding: 0 5px; margin: 0 1px; border-radius: 4px; font-size: 12px; line-height: 18px; font-weight: 600; white-space: nowrap;
-        background: color-mix(in srgb, var(--kc, var(--v-accent)) 16%, transparent); color: var(--kc, var(--v-accent)); cursor: help; }
-  .quote { background: var(--v-surface-2); border-radius: 6px; padding: 8px 10px; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--v-text-2); }
-  .quote .ph { display: inline; white-space: pre-wrap; overflow-wrap: anywhere; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
-
-  /* overview */
-  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
-  .stat { background: var(--v-surface-2); border-radius: 8px; padding: 10px 12px; min-width: 0; }
-  .stat b { display: block; font-size: 24px; font-weight: 600; line-height: 1.25; font-variant-numeric: tabular-nums; }
-  .stat .label { font-weight: 500; }
+  .tags { display: flex; flex-wrap: wrap; gap: 5px; }
+  .ph { display: inline; padding: 1px 3px; border-radius: 3px; font: inherit; background: color-mix(in srgb, var(--kc, var(--v-accent)) 12%, transparent); color: var(--kc, var(--v-accent)); overflow-wrap: anywhere; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+  .ph.original { background: transparent; box-shadow: inset 0 -1px var(--kc, var(--v-accent)); }
+  .quote { border: 1px solid var(--v-border); background: var(--v-surface-2); border-radius: 8px; padding: 16px; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--v-text); font-size: 13px; line-height: 1.9; }
+  .empty { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; min-height: 340px; padding: 48px 24px; }
+  .empty-symbol { display: grid; place-items: center; width: 60px; height: 60px; color: var(--v-accent); background: color-mix(in srgb, var(--v-accent) 7%, var(--v-surface)); border: 1px solid color-mix(in srgb, var(--v-accent) 16%, var(--v-border)); border-radius: 18px; margin-bottom: 20px; }
+  .empty-symbol .icon { width: 28px; height: 28px; }
+  .empty h3 { font-size: 19px; margin: 0 0 9px; font-weight: 600; letter-spacing: -.3px; }
+  .empty p { max-width: 430px; color: var(--v-text-2); margin: 0 0 22px; }
+  .empty .btn { min-height: 38px; }
+  .empty-flow { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 12px; margin-top: 28px; color: var(--v-text-3); font-size: 12px; }
+  .empty-flow .icon { width: 13px; }
+  .stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border: 1px solid var(--v-border); background: var(--v-surface); border-radius: var(--v-radius); margin-bottom: 20px; overflow: hidden; }
+  .stats.has-warnings { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .stat { padding: 20px 24px; min-width: 0; border-right: 1px solid var(--v-border); }
+  .stat:last-child { border-right: 0; }
+  .stat b { display: block; font-size: 30px; font-weight: 600; line-height: 1.4; letter-spacing: -.7px; margin: 5px 0 3px; font-variant-numeric: tabular-nums; }
+  .stat .label { color: var(--v-text-2); font-size: 13px; }
   .stat .note { color: var(--v-text-3); font-size: 12px; }
   .stat .note.bad { color: var(--v-warning); }
-  .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; }
-  .grid2 > .card { margin-bottom: 0; }
-  .grid2 { margin-bottom: 14px; }
-  .bars { display: flex; align-items: flex-end; gap: 3px; height: 110px; padding-top: 6px; }
-  .bars div { flex: 1; min-width: 4px; background: var(--v-accent); opacity: .75; border-radius: 3px 3px 0 0; }
-  .bars div:hover { opacity: 1; }
-  .bars-x { display: flex; justify-content: space-between; gap: 3px; color: var(--v-text-3); font-size: 11px; margin-top: 4px; }
+  .overview-main { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 20px; }
+  .overview-main .card { margin-bottom: 20px; }
+  .grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+  .bars { display: flex; align-items: flex-end; gap: 8px; height: 150px; padding-top: 18px; border-bottom: 1px solid var(--v-border); }
+  .bars div { flex: 1; min-width: 0; background: color-mix(in srgb, var(--v-accent) 65%, var(--v-surface-2)); border-radius: 4px 4px 0 0; }
+  .bars div:hover { background: var(--v-accent); }
+  .bars-x { display: flex; justify-content: space-between; gap: 8px; color: var(--v-text-3); font-size: 11px; margin-top: 10px; }
   .bars-x span { flex: 1; text-align: center; min-width: 0; overflow: hidden; }
   .bars-x.ends span { flex: none; }
-  .share { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 12px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--v-border); }
-  .share:last-child { border-bottom: 0; }
-  .share .num { color: var(--v-text-2); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; text-align: right; }
-  .share .meter { grid-column: 1 / -1; height: 4px; border-radius: 2px; background: var(--v-surface-2); overflow: hidden; }
-  .share .meter i { display: block; height: 100%; background: var(--kc, var(--v-accent)); opacity: .7; }
+  .share { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 5px 12px; align-items: center; padding: 11px 0; border-bottom: 1px solid var(--v-border); }
+  .share:last-child { border-bottom: 0; padding-bottom: 0; }
+  .share .num { color: var(--v-text-2); font-size: 12px; font-variant-numeric: tabular-nums; text-align: right; }
+  .share .meter { grid-column: 1 / -1; height: 3px; border-radius: 2px; background: var(--v-surface-2); overflow: hidden; }
+  .share .meter i { display: block; height: 100%; background: var(--kc, var(--v-accent)); opacity: .8; }
   .share .why { grid-column: 1 / -1; color: var(--v-text-3); font-size: 12px; }
-  .seen { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 12px; padding: 8px 0; border-bottom: 1px solid var(--v-border); }
+  .seen { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 5px 16px; padding: 14px 0; border-bottom: 1px solid var(--v-border); }
   .seen:last-child { border-bottom: 0; }
-  .seen .right { text-align: right; font-size: 12px; color: var(--v-text-2); white-space: nowrap; }
-
-  /* records */
-  .filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
-  select, input[type=text], input[type=password], textarea { background: var(--v-surface); border: 1px solid var(--v-border); border-radius: 7px; padding: 5px 8px; max-width: 100%; }
-  textarea { width: 100%; min-height: 140px; resize: vertical; }
-  .rec { display: block; border-bottom: 1px solid var(--v-border); padding: 10px 6px; cursor: pointer; border-radius: 6px; min-width: 0; }
-  .rec:hover, .rec:focus-visible { background: var(--v-surface-2); outline: none; }
-  .rec-top { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
-  .rec-time { font-weight: 600; white-space: nowrap; }
-  .rec-who { color: var(--v-text-3); font-size: 12px; }
-  .rec-state { margin-left: auto; font-size: 12px; white-space: nowrap; color: var(--v-text-2); }
+  .seen .right { text-align: right; font-size: 12px; color: var(--v-text-2); }
+  .record-shell { padding: 0; overflow: hidden; }
+  .filters { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 16px 20px; border-bottom: 1px solid var(--v-border); }
+  .filter-label { display: flex; align-items: center; gap: 7px; margin-left: auto; color: var(--v-text-2); font-size: 13px; white-space: nowrap; }
+  select, input[type=text], input[type=password], textarea { background: var(--v-surface); border: 1px solid var(--v-border); border-radius: 7px; padding: 6px 10px; max-width: 100%; }
+  select { min-height: 36px; }
+  .filters select { min-width: 125px; max-width: 220px; flex: 1; }
+  input[type=checkbox] { accent-color: var(--v-accent); }
+  textarea { width: 100%; min-height: 185px; padding: 16px; resize: vertical; line-height: 1.8; }
+  .records-head, .rec { display: grid; grid-template-columns: 115px minmax(0, 1fr) minmax(145px, .65fr) minmax(140px, .65fr) 18px; gap: 20px; align-items: center; }
+  .records-head { padding: 11px 22px; border-bottom: 1px solid var(--v-border); color: var(--v-text-3); font-size: 12px; background: color-mix(in srgb, var(--v-surface-2) 50%, var(--v-surface)); }
+  .rec { border-bottom: 1px solid var(--v-border); padding: 19px 22px; cursor: pointer; min-width: 0; }
+  .rec:last-child { border-bottom: 0; }
+  .rec:hover, .rec:focus-visible { background: color-mix(in srgb, var(--v-accent) 3%, var(--v-surface)); }
+  .rec > div { min-width: 0; }
+  .rec-time { font-variant-numeric: tabular-nums; font-weight: 500; }
+  .rec-date { color: var(--v-text-3); font-size: 12px; }
+  .rec-who { font-weight: 500; }
+  .rec-model { color: var(--v-text-2); font-size: 12px; }
+  .rec-state { color: var(--v-text-3); font-size: 12px; }
+  .rec-state.good { color: var(--v-success); }
   .rec-state.bad { color: var(--v-danger); }
-  .rec-sum { margin: 4px 0 2px; }
-  .rec-glimpse { color: var(--v-text-3); font-size: 12.5px; }
-  .list-foot { margin-top: 10px; display: flex; align-items: center; gap: 10px; }
-
-  /* one record */
-  .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.35); display: flex; justify-content: flex-end; z-index: 10; }
-  .panel { width: min(780px, 100%); height: 100%; overflow: auto; background: var(--v-bg); padding: 16px; box-shadow: -4px 0 18px rgba(0,0,0,.15); }
-  .panel-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
-  .panel-head h2 { flex: 1; font-size: 16px; margin: 0; min-width: 0; }
-  .lead { font-size: 15px; margin: 0 0 10px; }
-  .facts { display: flex; flex-wrap: wrap; gap: 6px 18px; color: var(--v-text-2); font-size: 12.5px; }
-  .facts span b { color: var(--v-text-3); font-weight: 400; margin-right: 4px; }
-  .vcard { border: 1px solid var(--v-border); border-left: 3px solid var(--kc, var(--v-border)); border-radius: 8px; padding: 12px 14px; margin-bottom: 10px; background: var(--v-surface); }
+  .rec-inline-state { display: none; }
+  .rec-glimpse { color: var(--v-text-2); font-size: 12px; margin-top: 5px; max-width: 100%; }
+  .rec-glimpse .ph { color: inherit; background: none; padding: 0; }
+  .rec-chevron { color: var(--v-text-3); }
+  .list-foot { display: flex; align-items: center; justify-content: center; gap: 12px; padding: 14px; border-top: 1px solid var(--v-border); }
+  .new-records { width: 100%; padding: 10px 16px; border: 0; border-bottom: 1px solid var(--v-border); color: var(--v-accent); background: color-mix(in srgb, var(--v-accent) 6%, var(--v-surface)); font-size: 13px; }
+  .preview-card { max-width: 900px; }
+  .preview-actions { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 16px; }
+  .preview-note { color: var(--v-text-3); font-size: 12px; }
+  #previewOut:not(:empty) { border-top: 1px solid var(--v-border); margin-top: 24px; padding-top: 24px; }
+  .detail-open > .wrap { display: none; }
+  .detail-wrap { display: block; }
+  .panel { min-width: 0; }
+  .panel-head { position: sticky; top: 0; z-index: 3; display: flex; align-items: center; gap: 14px; background: var(--v-bg); padding: 12px 0 18px; margin: -12px 0 10px; border-bottom: 1px solid var(--v-border); }
+  .panel-head h2 { flex: 1; font-size: 14px; font-weight: 500; color: var(--v-text-2); margin: 0; }
+  .detail-navigation { display: flex; gap: 6px; }
+  .detail-navigation .btn { width: 34px; padding: 5px; }
+  .request-summary { padding: 22px 24px; }
+  .detail-route { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; margin-bottom: 12px; }
+  .detail-route strong { font-size: 19px; letter-spacing: -.3px; }
+  .detail-route .icon { color: var(--v-text-3); width: 15px; }
+  .lead { font-size: 14px; margin: 0 0 8px; }
+  .facts { display: flex; flex-wrap: wrap; gap: 8px 24px; padding-top: 15px; margin-top: 16px; border-top: 1px solid var(--v-border); color: var(--v-text-2); font-size: 12px; }
+  .facts span b { color: var(--v-text-3); font-weight: 400; margin-right: 8px; }
+  .detail-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 25px 0 15px; }
+  .detail-toolbar h2 { font-size: 17px; margin: 0; }
+  .detail-toolbar p { margin: 3px 0 0; color: var(--v-text-2); font-size: 12px; }
+  .detail-grid { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 20px; align-items: start; }
+  .context-card { padding: 0; overflow: hidden; }
+  .context-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 13px 18px; border-bottom: 1px solid var(--v-border); }
+  .context-header .mono { color: var(--v-text-3); font-size: 11px; overflow-wrap: anywhere; }
+  .context-text { padding: 22px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13.5px; line-height: 2; }
+  .context-pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .context-pair > div { min-width: 0; }
+  .context-pair > div + div { border-left: 1px solid var(--v-border); }
+  .context-pair .context-label { padding: 11px 18px; background: var(--v-surface-2); border-bottom: 1px solid var(--v-border); color: var(--v-text-2); font-size: 12px; }
+  .context-foot { color: var(--v-text-3); font-size: 12px; padding: 0 18px 15px; }
+  .context-stack.picking .ph:not(.lit) { opacity: .4; }
+  .context-stack .ph.lit { outline: 1px solid var(--kc, var(--v-accent)); outline-offset: 2px; }
+  .value-aside { display: flex; flex-direction: column; gap: 10px; }
+  .value-aside > h3 { font-size: 13px; color: var(--v-text-2); margin: 0 0 3px; font-weight: 500; }
+  .vcard { min-width: 0; border: 1px solid var(--v-border); border-radius: 9px; padding: 16px; background: var(--v-surface); margin-bottom: 14px; }
+  .value-aside .vcard { margin: 0; }
+  .vcard.selected { border-color: color-mix(in srgb, var(--kc) 65%, var(--v-border)); box-shadow: 0 0 0 1px color-mix(in srgb, var(--kc) 20%, transparent); }
+  .value-select { display: block; width: 100%; padding: 0; background: none; border: 0; color: inherit; text-align: left; }
   .vhead { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
-  .vhead .kind { font-size: 15px; }
-  .vhead .back { margin-left: auto; font-size: 12px; color: var(--v-success); white-space: nowrap; }
-  .vhead .back.none { color: var(--v-text-3); }
-  .vline { display: grid; grid-template-columns: 6.5em minmax(0, 1fr); gap: 8px; margin-top: 8px; }
+  .vhead .kind { flex: 1; }
+  .value-hint { font: 12px/1.7 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--v-text-2); margin: 11px 0 3px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .value-placeholder { font-size: 11.5px; color: var(--v-accent); overflow-wrap: anywhere; }
+  .value-original { margin: 12px 0; border-top: 1px solid var(--v-border); padding-top: 10px; }
+  .value-original .small { margin-bottom: 4px; }
+  .original-value { white-space: pre-wrap; overflow-wrap: anywhere; }
+  .value-meta { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 12px; margin: 12px 0 0; font-size: 12px; }
+  .value-meta dt { color: var(--v-text-3); }
+  .value-meta dd { margin: 0; min-width: 0; overflow-wrap: anywhere; color: var(--v-text-2); }
+  .vline { display: grid; grid-template-columns: 6em minmax(0, 1fr); gap: 10px; margin-top: 8px; font-size: 13px; }
   .vline > b { color: var(--v-text-3); font-weight: 400; overflow-wrap: anywhere; }
   .vline > div { min-width: 0; }
-  .original-value { white-space: pre-wrap; overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
-  .context-pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
-  .context-pair > div { min-width: 0; }
-  .context-pair .small { margin-bottom: 4px; }
-  .ph.original { background: transparent; box-shadow: inset 0 -1px var(--kc, var(--v-accent)); }
-  @media (max-width: 600px) {
-    .context-pair, .vline { grid-template-columns: minmax(0, 1fr); }
-    .vline { gap: 3px; }
-  }
-  details { margin-top: 10px; }
-  details > summary { cursor: pointer; color: var(--v-accent); font-size: 13px; width: max-content; max-width: 100%; }
-  details[open] > summary { margin-bottom: 6px; }
-  .fp { background: var(--v-surface-2); border-radius: 6px; padding: 10px 12px; font-size: 13px; }
-  .fp h4 { margin: 10px 0 4px; font-size: 13px; }
-  .fp h4:first-child { margin-top: 0; }
-  .fp p { margin: 0 0 6px; color: var(--v-text-2); }
+  details { margin-top: 14px; }
+  details > summary { cursor: pointer; color: var(--v-text-2); font-size: 12px; }
+  details[open] > summary { margin-bottom: 10px; }
+  .fp { background: var(--v-surface-2); border-radius: 6px; padding: 12px; font-size: 12px; }
+  .fp h4 { margin: 14px 0 5px; font-size: 12px; }
+  .fp p { margin: 0 0 8px; color: var(--v-text-2); }
   .snippet { display: flex; align-items: flex-start; gap: 8px; }
-  .snippet pre { flex: 1; min-width: 0; margin: 0; background: var(--v-surface); border: 1px solid var(--v-border); border-radius: 6px; padding: 6px 8px; overflow-x: auto; }
-  .tech { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 12px; font-size: 12.5px; }
+  .snippet pre { flex: 1; min-width: 0; margin: 0; background: var(--v-surface); border: 1px solid var(--v-border); border-radius: 6px; padding: 8px; overflow-x: auto; font-size: 11px; }
+  .tech { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 5px 10px; font-size: 12px; }
   .tech dt { color: var(--v-text-3); }
   .tech dd { margin: 0; overflow-wrap: anywhere; }
-  .login { max-width: 420px; margin: 60px auto; }
-  .login input { width: 100%; margin: 8px 0 12px; }
-
-  @media (max-width: 640px) {
-    .wrap { padding: 12px; }
-    .tabs { order: 3; width: 100%; }
-    .tabs button { flex: 1; padding: 5px 6px; }
-    .actions { margin-left: auto; }
-    .card { padding: 12px; }
-    .stats { grid-template-columns: 1fr 1fr; }
-    .stat b { font-size: 20px; }
-    .grid2 { grid-template-columns: minmax(0, 1fr); }
-    .rec-top { flex-wrap: wrap; }
-    .rec-state { margin-left: 0; }
-    .panel { padding: 12px; }
-    .vline { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  .login { max-width: 440px; margin: 12vh auto; padding: 30px; }
+  .login input { width: 100%; margin: 8px 0 20px; }
+  @media (max-width: 1000px) {
+    .records-head, .rec { grid-template-columns: 90px minmax(0, 1fr) minmax(130px, .6fr) 18px; gap: 16px; }
+    .records-head .response-col, .rec .response-col { display: none; }
+    .rec-inline-state { display: block; margin-top: 5px; }
+    .detail-grid { grid-template-columns: minmax(0, 1fr) 270px; gap: 16px; }
+    .context-pair { grid-template-columns: minmax(0, 1fr); }
+    .context-pair > div + div { border-left: 0; border-top: 1px solid var(--v-border); }
+    .stat { padding: 18px; }
   }
+  @media (max-width: 720px) {
+    .wrap, .detail-wrap { padding: 20px 16px 32px; }
+    header { flex-wrap: wrap; gap: 16px; margin-bottom: 20px; }
+    .title h1 { font-size: 20px; }
+    .title span { font-size: 12px; }
+    .brand-mark { width: 38px; height: 38px; border-radius: 10px; }
+    .actions { width: 100%; justify-content: flex-end; }
+    .navigation { flex-wrap: wrap; gap: 12px; }
+    .tabs { gap: 24px; }
+    .live-controls { width: 100%; justify-content: space-between; }
+    .overview-main, .grid2, .detail-grid { grid-template-columns: minmax(0, 1fr); }
+    .stats, .stats.has-warnings { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .stat:nth-child(2) { border-right: 0; }
+    .stat:nth-child(n+3) { border-top: 1px solid var(--v-border); }
+    .stat b { font-size: 27px; }
+    .filters { padding: 14px; gap: 8px; }
+    .filters select { min-width: 0; width: calc(50% - 4px); flex: auto; max-width: none; }
+    .filter-label { margin: 3px 0 0; flex: 1; }
+    .records-head { display: none; }
+    .rec { grid-template-columns: minmax(0, 1fr) auto; gap: 8px 12px; padding: 17px 16px; }
+    .rec-clock { grid-column: 1; display: flex; align-items: baseline; gap: 8px; }
+    .rec-main { grid-column: 1; grid-row: 2; }
+    .rec-values { grid-column: 1; grid-row: 3; }
+    .rec-chevron { grid-column: 2; grid-row: 2; }
+    .card { padding: 18px; }
+    .record-shell, .context-card { padding: 0; }
+    .page-heading { align-items: flex-start; }
+    .page-heading p { font-size: 12px; }
+    .empty { min-height: 340px; padding: 36px 22px; }
+    .empty h3 { font-size: 18px; }
+    .panel-head h2 { font-size: 12px; }
+    .panel-head { gap: 8px; }
+    .panel-head .btn { padding: 5px 9px; }
+    .request-summary { padding: 18px; }
+    .detail-toolbar { align-items: flex-start; }
+    .context-text { padding: 18px; }
+    .value-aside { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .value-aside > h3 { grid-column: 1 / -1; }
+    .preview-actions { align-items: flex-start; }
+  }
+  @media (max-width: 460px) {
+    .value-aside { grid-template-columns: minmax(0, 1fr); }
+    .title span { max-width: 255px; display: block; }
+    .detail-navigation { gap: 3px; }
+    .detail-navigation .btn { width: 30px; }
+    .detail-route strong { font-size: 17px; }
+    .facts { gap: 7px 14px; }
+  }
+  @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; } }
 </style>
 </head>
 <body>
@@ -190,72 +293,80 @@
 
   <div id="app" class="hidden">
     <header>
-      <div class="title"><h1 data-t="title"></h1><span data-t="tagline"></span></div>
-      <div class="tabs" role="tablist">
-        <button role="tab" data-tab="overview" data-t="tabOverview"></button>
-        <button role="tab" data-tab="records" data-t="tabRecords"></button>
-        <button role="tab" data-tab="preview" data-t="tabPreview"></button>
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 4.5 6v5.5c0 4.5 3.2 7.6 7.5 9.5 4.3-1.9 7.5-5 7.5-9.5V6Z"/><path d="m8.5 12 2.3 2.3 4.8-5"/></svg></div>
+        <div class="title"><h1 data-t="title"></h1><span data-t="tagline"></span></div>
       </div>
-      <div class="spacer"></div>
       <div class="actions">
         <button id="refresh" class="btn" data-t="refresh"></button>
-        <button id="clear" class="btn danger" data-t="clear"></button>
+        <button id="clear" class="btn ghost danger" data-t="clear"></button>
       </div>
     </header>
+    <div class="navigation">
+      <div class="tabs" role="tablist">
+        <button role="tab" data-tab="records" data-t="tabRecords" aria-controls="tab-records"></button>
+        <button role="tab" data-tab="overview" data-t="tabOverview" aria-controls="tab-overview"></button>
+        <button role="tab" data-tab="preview" data-t="tabPreview" aria-controls="tab-preview"></button>
+      </div>
+      <div class="live-controls">
+        <span id="updated" class="updated"></span>
+        <button id="liveToggle" class="live-toggle" type="button" aria-pressed="true"><span class="live-dot"></span><span id="liveLabel" class="live-label"></span></button>
+      </div>
+    </div>
     <div id="notices"></div>
 
-    <section id="tab-overview">
-      <div class="card">
-        <div class="card-head">
-          <h2 data-t="atAGlance"></h2>
-          <select id="days" aria-label="range">
-            <option value="1"></option><option value="7" selected></option><option value="30"></option>
-          </select>
-        </div>
-        <div id="stats" class="stats"></div>
-      </div>
-      <div class="card"><h2 data-t="trend"></h2><div id="bars" class="bars"></div><div id="barsX" class="bars-x"></div></div>
-      <div class="grid2">
-        <div class="card"><h2 data-t="byKind"></h2><p class="sub" data-t="byKindSub"></p><div id="byKind"></div></div>
-        <div class="card"><h2 data-t="byRule"></h2><p class="sub" data-t="byRuleSub"></p><div id="byRule"></div></div>
-        <div class="card"><h2 data-t="byCaller"></h2><div id="byCaller"></div></div>
-        <div class="card"><h2 data-t="byModel"></h2><div id="byModel"></div></div>
-      </div>
-      <div class="card"><h2 data-t="topValues"></h2><p class="sub" data-t="topValuesSub"></p><div id="topValues"></div></div>
-    </section>
-
-    <section id="tab-records" class="hidden">
-      <div class="card">
-        <div class="filters">
+    <section id="tab-records" role="tabpanel">
+      <div class="page-heading"><div><h2><span data-t="tabRecords"></span><span id="recordCount" class="count"></span></h2><p data-t="requestsHint"></p></div></div>
+      <div class="card record-shell">
+        <div id="filters" class="filters">
           <select id="fKind" aria-label="kind"></select>
           <select id="fCaller" aria-label="caller"></select>
           <select id="fModel" aria-label="model"></select>
           <select id="fAction" aria-label="action"></select>
-          <label><input id="fStopped" type="checkbox"> <span data-t="onlyStopped"></span></label>
+          <label class="filter-label"><input id="fStopped" type="checkbox"> <span data-t="onlyStopped"></span></label>
         </div>
+        <button id="newRecords" class="new-records hidden" type="button"></button>
+        <div id="recordsHead" class="records-head"><span data-t="columnTime"></span><span data-t="columnRequest"></span><span data-t="whatTitle"></span><span class="response-col" data-t="columnResponse"></span><span></span></div>
         <div id="recordsList"></div>
-        <div class="list-foot"><button id="more" class="btn hidden" data-t="more"></button><span id="listInfo" class="muted small"></span></div>
+        <div id="listFoot" class="list-foot"><button id="more" class="btn small hidden" data-t="more"></button><span id="listInfo" class="muted small"></span></div>
       </div>
     </section>
 
-    <section id="tab-preview" class="hidden">
-      <div class="card">
-        <h2 data-t="previewTitle"></h2>
-        <p class="muted" data-t="previewHint"></p>
+    <section id="tab-overview" class="hidden" role="tabpanel">
+      <div class="page-heading"><div><h2 data-t="atAGlance"></h2><p data-t="overviewHint"></p></div><select id="days" aria-label="range"><option value="1"></option><option value="7" selected></option><option value="30"></option></select></div>
+      <div id="overviewEmpty" class="card hidden"></div>
+      <div id="overviewData">
+        <div id="stats" class="stats"></div>
+        <div class="overview-main">
+          <div class="card"><h2 data-t="trend"></h2><div id="bars" class="bars"></div><div id="barsX" class="bars-x"></div></div>
+          <div class="card"><h2 data-t="byKind"></h2><p class="sub" data-t="byKindSub"></p><div id="byKind"></div></div>
+        </div>
+        <div class="grid2">
+          <div class="card"><h2 data-t="byCaller"></h2><div id="byCaller"></div></div>
+          <div class="card"><h2 data-t="byModel"></h2><div id="byModel"></div></div>
+        </div>
+        <details class="card" id="overviewRules"><summary data-t="byRule"></summary><p class="sub" data-t="byRuleSub"></p><div id="byRule"></div></details>
+        <div class="card"><h2 data-t="topValues"></h2><p class="sub" data-t="topValuesSub"></p><div id="topValues"></div></div>
+      </div>
+    </section>
+
+    <section id="tab-preview" class="hidden" role="tabpanel">
+      <div class="page-heading"><div><h2 data-t="previewTitle"></h2><p data-t="previewHint"></p></div></div>
+      <div class="card preview-card">
         <textarea id="previewText"></textarea>
-        <div style="margin:10px 0"><button id="previewRun" class="btn primary" data-t="previewRun"></button></div>
+        <div class="preview-actions"><span class="preview-note" data-t="previewNote"></span><button id="previewRun" class="btn primary" data-t="previewRun"></button></div>
         <div id="previewOut"></div>
       </div>
     </section>
   </div>
 </div>
 
-<div id="detail" class="overlay hidden">
-  <div class="panel" role="dialog" aria-modal="true" aria-labelledby="detailTitle">
-    <div class="panel-head"><h2 id="detailTitle"></h2><button id="detailClose" class="btn" data-t="close"></button></div>
+<section id="detail" class="detail-wrap hidden" aria-labelledby="detailTitle">
+  <div class="panel">
+    <div class="panel-head"><button id="detailClose" class="btn ghost" data-t="backToRequests"></button><h2 id="detailTitle"></h2><button id="detailLiveToggle" class="live-toggle" type="button" aria-pressed="true"><span class="live-dot"></span><span class="live-label"></span></button><div class="detail-navigation"><button id="detailPrev" class="btn" type="button"></button><button id="detailNext" class="btn" type="button"></button></div></div>
     <div id="detailBody"></div>
   </div>
-</div>
+</section>
 
 <script>
 "use strict";
@@ -263,15 +374,28 @@
   // ---- strings ----------------------------------------------------------
   var STR = {
     zh: {
-      title: "脱敏记录", tagline: "查看 Veil 如何处理敏感信息，以及当前内存中可查看的原值",
+      title: "脱敏记录", tagline: "查看敏感信息的替换、原值与还原。",
+      requestsHint: "按时间查看命中记录，点开请求检查上下文与原值。", overviewHint: "所选时间范围内的命中、请求与还原统计。",
+      columnTime: "时间", columnRequest: "调用方 / 模型", columnResponse: "还原情况",
+      emptyTitle: "还没有脱敏记录", emptyText: "包含敏感信息的请求经过 Veil 后，会自动出现在这里。也可以先试一段文字，看看哪些内容会被识别。",
+      overviewEmptyTitle: "这个时间范围内暂无数据", overviewEmptyText: "可以扩大时间范围，或在请求记录中查看已有记录。",
+      filteredEmptyTitle: "没有符合条件的请求", filteredEmptyText: "试着调整类型、调用方或模型筛选。", resetFilters: "清除筛选",
+      emptyDisabledTitle: "脱敏记录已关闭", emptyDisabledText: "在 CPA 配置中将 records 设为 true 后，新的命中记录会显示在这里。",
+      emptyDetect: "识别敏感信息", emptyMask: "替换后发出", emptyRestore: "回复中还原",
+      loadingRecords: "正在读取记录…", retry: "重试", liveOn: "实时更新", livePaused: "已暂停", liveRetry: "连接中断，正在重试",
+      liveHint: "每 3 秒更新；点击暂停", resumeLive: "点击恢复实时更新", updatedAt: "更新于 {n}", newRecords: "有 {n} 条新记录，点击查看",
+      backToRequests: "返回记录", newerRequest: "上一个请求", olderRequest: "下一个请求",
+      contextTitle: "请求上下文", valuesTitle: "命中值", contextHint: "点击右侧的值，查看它在片段中的位置。", snippetsN: "{n} 个片段",
+      noContextTitle: "这条记录没有可用上下文", noContextText: "片段仅保留在当前实例的内存中。右侧仍可查看类型、位置和处理方式。",
+      snippetN: "片段 {n}", originalCount: "已读取 {n} 个原值", viewRules: "规则与误报处理", previewNote: "仅在当前 CPA 检测，不发送给模型，不保存结果。",
       tabOverview: "总览", tabRecords: "请求记录", tabPreview: "试一试", refresh: "刷新", clear: "清空记录",
       loginTitle: "连接 CPA 管理接口", loginHint: "没有读到管理面板保存的密钥，请输入管理密钥。它只保存在这个标签页里。",
       managementKey: "管理密钥", connect: "连接", loginFailed: "密钥无效，或没有权限访问管理接口。", panelKeyFailed: "面板保存的密钥不能访问管理接口，请手动输入。",
-      day1: "今天", day7: "最近 7 天", day30: "最近 30 天", atAGlance: "概况", trend: "每天有多少请求带了敏感信息",
-      sFound: "处敏感信息", sFoundNote: "共 {n} 个不同的值", sRequests: "个请求", sRequestsNote: "带有敏感信息", sRequestsStopped: "其中 {n} 个被拦下，没有发出",
-      sBack: "处换回了原文", sBackNote: "在模型的回复里", sBackBad: "另有 {n} 处没能换回", sWarned: "处原样发出", sWarnedNote: "按配置只提醒、不替换",
-      byKind: "哪些类型的信息", byKindSub: "按被替换的次数排列", byRule: "是怎么认出来的", byRuleSub: "每条规则认出了多少处",
-      byCaller: "来自哪个调用方", byModel: "发往哪个模型", topValues: "反复出现的值", topValuesSub: "同一个值在多个请求里出现，看提示就能大致认出是哪一个",
+      day1: "今天", day7: "最近 7 天", day30: "最近 30 天", atAGlance: "概况", trend: "请求趋势",
+      sFound: "敏感信息命中", sFoundNote: "共 {n} 个不同的值", sRequests: "命中请求", sRequestsNote: "包含敏感信息", sRequestsStopped: "其中 {n} 个被拦下，没有发出",
+      sBack: "回复还原", sBackNote: "在回复中换回原文的次数", sBackBad: "另有 {n} 处没能换回", sWarned: "原样发出", sWarnedNote: "按配置只提醒、不替换",
+      byKind: "信息类型", byKindSub: "按命中次数排序", byRule: "识别规则", byRuleSub: "每条规则的命中次数",
+      byCaller: "调用方", byModel: "目标模型", topValues: "高频命中值", topValuesSub: "按出现次数排序，使用占位符区分每个值。",
       places: "{n} 处", requestsN: "{n} 个请求", none: "这段时间里还没有记录",
       allKinds: "全部类型", allCallers: "全部调用方", allModels: "全部模型", allActions: "全部处理方式",
       onlyStopped: "只看被拦下的", more: "加载更多", shown: "已显示 {n} 条",
@@ -289,7 +413,7 @@
       leadBack: "模型回复里出现的占位符，换回原文 {n} 处。", leadBackNone: "模型回复里没有用到这些占位符。", leadNoResp: "这条记录暂无还原统计，不能据此判断请求是否已完成。",
       fCaller: "调用方", fModel: "模型", fFormat: "接口", fTook: "脱敏用时", fKey: "记录编号",
       tookMs: "{n} 毫秒", tookS: "{n} 秒",
-      whatTitle: "认出了什么", noValues: "这个请求在脱敏前就被拦下，没有可以展示的值。",
+      whatTitle: "命中类型", noValues: "这个请求在脱敏前就被拦下，没有可以展示的值。",
       vWhy: "为什么", vWhere: "在哪里", vContext: "上下文", vBack: "回复中换回 {n} 处", vNoBack: "回复中没有用到",
       moreFields: "等 {n} 个位置", noSnip: "上下文只在内存里保留最近 400 条记录，这一条已经没有了。",
       ctxNote: "安全预览会隐藏所有已识别的值；仅提醒的值实际仍原样发给上游。",
@@ -323,7 +447,20 @@
       atMessage: "第 {n} 条消息", atItem: "第 {n} 项输入", atInput: "输入", atSystem: "系统提示词", atInstructions: "系统指令", atTools: "工具定义", atPrompt: "提示词"
     },
     en: {
-      title: "Masking records", tagline: "How Veil handled sensitive values, with originals available while still in memory",
+      title: "Masking records", tagline: "Track masking and restoration.",
+      requestsHint: "Browse detected requests. Open one to inspect its context and original values.", overviewHint: "Detections, requests and restorations in the selected period.",
+      columnTime: "Time", columnRequest: "Caller / model", columnResponse: "Restoration",
+      emptyTitle: "No masking records yet", emptyText: "Requests with sensitive values appear here after Veil handles them. Try a piece of text to see what Veil detects.",
+      overviewEmptyTitle: "No data in this period", overviewEmptyText: "Choose a wider period or browse existing request records.",
+      filteredEmptyTitle: "No requests match these filters", filteredEmptyText: "Try changing the kind, caller or model.", resetFilters: "Clear filters",
+      emptyDisabledTitle: "Masking records are off", emptyDisabledText: "Set records to true in the CPA configuration to see new detections here.",
+      emptyDetect: "Detect sensitive values", emptyMask: "Replace before sending", emptyRestore: "Restore in replies",
+      loadingRecords: "Loading records…", retry: "Retry", liveOn: "Live updates", livePaused: "Paused", liveRetry: "Connection lost, retrying",
+      liveHint: "Updates every 3 seconds; click to pause", resumeLive: "Click to resume live updates", updatedAt: "Updated {n}", newRecords: "{n} new records — click to view",
+      backToRequests: "Back to records", newerRequest: "Newer request", olderRequest: "Older request",
+      contextTitle: "Request context", valuesTitle: "Detected values", contextHint: "Select a value to highlight its places in the snippets.", snippetsN: "{n} snippets",
+      noContextTitle: "No context available for this record", noContextText: "Snippets live in the current instance's memory only. Kinds, places and actions are still available in the value panel.",
+      snippetN: "Snippet {n}", originalCount: "{n} originals available", viewRules: "Rules and false positives", previewNote: "Checked by this CPA only. Nothing is sent to a model or saved.",
       tabOverview: "Overview", tabRecords: "Requests", tabPreview: "Try it", refresh: "Refresh", clear: "Clear records",
       loginTitle: "Connect to the CPA Management API", loginHint: "No key saved by the management panel was found. Enter the management key; it stays in this tab only.",
       managementKey: "Management key", connect: "Connect", loginFailed: "The key is wrong or may not use the Management API.", panelKeyFailed: "The key the panel saved cannot use the Management API. Enter one.",
@@ -487,6 +624,9 @@
     each("[data-t]", function (el) { el.textContent = t(el.getAttribute("data-t")); });
     var days = byId("days").options;
     days[0].textContent = t("day1"); days[1].textContent = t("day7"); days[2].textContent = t("day30");
+    byId("detailPrev").title = t("newerRequest"); byId("detailPrev").setAttribute("aria-label", t("newerRequest"));
+    byId("detailNext").title = t("olderRequest"); byId("detailNext").setAttribute("aria-label", t("olderRequest"));
+    byId("previewText").setAttribute("aria-label", t("previewTitle"));
     if (state.ready) { renderAll(); drawDetail(); }
   }
 
@@ -511,6 +651,30 @@
     return node;
   }
   function clear(node) { while (node.firstChild) node.removeChild(node.firstChild); return node; }
+  function icon(name) {
+    var paths = {
+      shield: ["M12 3 4.5 6v5.5c0 4.5 3.2 7.6 7.5 9.5 4.3-1.9 7.5-5 7.5-9.5V6Z", "m8.5 12 2.3 2.3 4.8-5"],
+      arrow: ["M5 12h14", "m14 7 5 5-5 5"],
+      left: ["m14 6-6 6 6 6"], right: ["m9 6 6 6-6 6"],
+      search: ["M19 19l-4-4", "M16 10a6 6 0 1 1-12 0 6 6 0 0 1 12 0"],
+      chart: ["M5 20V10", "M12 20V4", "M19 20v-7"]
+    };
+    var node = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    node.setAttribute("viewBox", "0 0 24 24"); node.setAttribute("fill", "none");
+    node.setAttribute("stroke", "currentColor"); node.setAttribute("stroke-width", "1.6");
+    node.setAttribute("stroke-linecap", "round"); node.setAttribute("stroke-linejoin", "round");
+    node.setAttribute("class", "icon"); node.setAttribute("aria-hidden", "true");
+    (paths[name] || paths.shield).forEach(function (d) {
+      var path = document.createElementNS("http://www.w3.org/2000/svg", "path"); path.setAttribute("d", d); node.appendChild(path);
+    });
+    return node;
+  }
+  function emptyState(symbol, title, text, button, action, flow) {
+    var box = el("div", { class: "empty" }, el("div", { class: "empty-symbol" }, icon(symbol)), el("h3", { text: title }), el("p", { text: text }));
+    if (button) box.appendChild(el("button", { class: "btn primary", type: "button", text: button, onclick: action }));
+    if (flow) box.appendChild(el("div", { class: "empty-flow" }, el("span", { text: t("emptyDetect") }), icon("arrow"), el("span", { text: t("emptyMask") }), icon("arrow"), el("span", { text: t("emptyRestore") })));
+    return box;
+  }
   function locale() { return lang === "zh" ? "zh-CN" : "en"; }
   function fmt(n) { return Number(n || 0).toLocaleString(locale()); }
   function when(s) { var d = new Date(s); return isNaN(d) ? "" : d.toLocaleString(locale()); }
@@ -609,22 +773,25 @@
   function sessionKey() { try { return sessionStorage.getItem(SESSION_KEY) || ""; } catch (e) { return ""; } }
   function saveSessionKey(k) { try { sessionStorage.setItem(SESSION_KEY, k); } catch (e) {} }
 
-  var state = { key: "", fromPanel: false, ready: false, summary: null, records: [], more: false, callers: {}, tab: "overview" };
+  var state = { key: "", fromPanel: false, ready: false, summary: null, records: [], more: false, callers: {}, tab: "records", listVersion: 0, recordsLoading: true, recordsError: "", pending: null, live: true, liveError: false, updated: null };
   var detail = null;
+  var liveTimer = null, liveRequest = null;
 
   function AuthError() {}
   function request(url, opts) {
     opts = opts || {};
     var headers = { Authorization: "Bearer " + state.key };
     if (opts.body) headers["Content-Type"] = "application/json";
-    return fetch(url, { method: opts.method || "GET", headers: headers, body: opts.body, credentials: "same-origin", cache: "no-store" })
+    var controller = new AbortController();
+    var timeout = setTimeout(function () { controller.abort(); }, 15000);
+    return fetch(url, { method: opts.method || "GET", headers: headers, body: opts.body, credentials: "same-origin", cache: "no-store", signal: controller.signal })
       .then(function (r) {
         if (r.status === 401 || r.status === 403) throw new AuthError();
         return r.json().catch(function () { return {}; }).then(function (body) {
-          if (!r.ok) throw new Error((body && body.error) || ("HTTP " + r.status));
+          if (!r.ok) { var error = new Error((body && body.error) || ("HTTP " + r.status)); error.status = r.status; throw error; }
           return body;
         });
-      });
+      }).then(function (result) { clearTimeout(timeout); return result; }, function (error) { clearTimeout(timeout); throw error; });
   }
   function call(name, query, body) {
     var url = api + name + (query ? "?" + new URLSearchParams(query).toString() : "");
@@ -659,6 +826,8 @@
   // ---- login ----------------------------------------------------------------
   function showLogin(message) {
     closeDetail();
+    state.ready = false;
+    clearTimeout(liveTimer);
     byId("app").classList.add("hidden");
     byId("login").classList.remove("hidden");
     var err = byId("loginError");
@@ -672,7 +841,7 @@
       state.summary = sum; state.ready = true;
       byId("login").classList.add("hidden");
       byId("app").classList.remove("hidden");
-      return loadCallers().then(function () { renderAll(); return loadRecords(true); });
+      return loadCallers().then(function () { state.updated = new Date(); renderAll(); return loadRecords(true); }).then(function () { scheduleLive(); });
     }).catch(function (e) {
       if (e instanceof AuthError) showLogin(fromPanel ? t("panelKeyFailed") : (key ? t("loginFailed") : ""));
       else showLogin(t("loadFailed", e.message));
@@ -698,6 +867,8 @@
     state.tab = tab;
     each("[data-tab]", function (b) { b.setAttribute("aria-selected", b.getAttribute("data-tab") === tab ? "true" : "false"); });
     ["overview", "records", "preview"].forEach(function (n) { byId("tab-" + n).classList.toggle("hidden", n !== tab); });
+    renderLive();
+    scheduleLive();
   }
   each("[data-tab]", function (b) { b.addEventListener("click", function () { selectTab(b.getAttribute("data-tab")); }); });
 
@@ -728,7 +899,7 @@
       box.appendChild(document.createTextNode(rest.slice(0, best)));
       var standIn = which.indexOf("{{") !== 0;
       var revealed = originals && Object.prototype.hasOwnProperty.call(originals, which);
-      box.appendChild(el("span", { class: "ph " + kindGroup(kind) + (revealed ? " original" : ""), title: kindName(kind) + (standIn ? "\n" + t("standIn") : "") }, revealed ? originals[which] : which));
+      box.appendChild(el("span", { class: "ph " + kindGroup(kind) + (revealed ? " original" : ""), "data-p": which, title: kindName(kind) + (standIn ? "\n" + t("standIn") : "") }, revealed ? originals[which] : which));
       rest = rest.slice(best + which.length);
     }
     return box;
@@ -779,7 +950,7 @@
 
   // ---- overview ----------------------------------------------------------------
   function stat(value, label, note, bad) {
-    return el("div", { class: "stat" }, el("b", { text: fmt(value) }), el("div", { class: "label", text: label }), note ? el("div", { class: "note" + (bad ? " bad" : ""), text: note }) : null);
+    return el("div", { class: "stat" }, el("div", { class: "label", text: label }), el("b", { text: fmt(value) }), note ? el("div", { class: "note" + (bad ? " bad" : ""), text: note }) : null);
   }
   // shares lists counts as bars, each with a name, numbers and, if given, a
   // line of explanation.
@@ -801,7 +972,15 @@
   }
   function renderOverview() {
     var s = state.summary || {};
+    var empty = !s.requests;
+    byId("overviewData").classList.toggle("hidden", empty);
+    byId("overviewEmpty").classList.toggle("hidden", !empty);
+    if (empty) {
+      clear(byId("overviewEmpty")).appendChild(emptyState("chart", t("overviewEmptyTitle"), t("overviewEmptyText"), t("tabRecords"), function () { selectTab("records"); }));
+      return;
+    }
     var stats = clear(byId("stats"));
+    stats.classList.toggle("has-warnings", !!s.warned);
     stats.appendChild(stat(s.n, t("sFound"), t("sFoundNote", fmt(s.distinct))));
     stats.appendChild(stat(s.requests, t("sRequests"), s.stopped ? t("sRequestsStopped", fmt(s.stopped)) : t("sRequestsNote"), s.stopped > 0));
     stats.appendChild(stat(s.restored, t("sBack"), s.unrestored ? t("sBackBad", fmt(s.unrestored)) : t("sBackNote"), s.unrestored > 0));
@@ -812,8 +991,7 @@
     var bars = clear(byId("bars"));
     days.forEach(function (d) {
       var bar = el("div", { title: d.day + "\n" + t("requestsN", fmt(d.requests)) + " · " + t("places", fmt(d.n)) });
-      bar.style.height = Math.max(2, Math.round((d.requests || 0) / max * 100)) + "%";
-      if (!d.requests) bar.style.opacity = ".2";
+      bar.style.height = (d.requests ? Math.max(4, Math.round(d.requests / max * 100)) : 0) + "%";
       bars.appendChild(bar);
     });
     var x = clear(byId("barsX")), short = function (day) { return String(day).slice(5); };
@@ -825,9 +1003,12 @@
     clear(byId("byRule")).appendChild(shares(s.rules, function (id) { return ruleText(id)[0]; }, function (id) { return ruleText(id)[1]; }));
     clear(byId("byCaller")).appendChild(shares(s.callers, callerName));
     clear(byId("byModel")).appendChild(shares(s.models, function (m) { return m || "—"; }));
+    ["byKind", "byCaller", "byModel"].forEach(function (id) { byId(id).parentNode.classList.toggle("hidden", !(s[{ byKind: "kinds", byCaller: "callers", byModel: "models" }[id]] || []).length); });
+    byId("overviewRules").classList.toggle("hidden", !(s.rules || []).length);
 
     var top = clear(byId("topValues"));
-    if (!s.values || !s.values.length) { top.appendChild(el("p", { class: "muted", text: t("none") })); return; }
+    top.parentNode.classList.toggle("hidden", !(s.values || []).length);
+    if (!s.values || !s.values.length) return;
     s.values.forEach(function (v) {
       top.appendChild(el("div", { class: "seen" },
         el("div", { class: "ellipsis" }, kindLabel(v.kind), " ", el("span", { text: hint(v) }), el("span", { class: "muted small", text: " · " + ruleText(v.rule)[0] })),
@@ -840,6 +1021,10 @@
   // ---- records -------------------------------------------------------------------
   function fillSelect(id, allKey, items, labelOf) {
     var sel = byId(id), keep = sel.value;
+    if (keep && items.indexOf(keep) < 0) items = items.concat(keep);
+    var signature = JSON.stringify([lang, items.map(function (item) { return [item, labelOf ? labelOf(item) : item]; })]);
+    if (sel.getAttribute("data-options") === signature || document.activeElement === sel) return;
+    sel.setAttribute("data-options", signature);
     clear(sel).appendChild(el("option", { value: "", text: t(allKey) }));
     items.forEach(function (it) { sel.appendChild(el("option", { value: it, text: labelOf ? labelOf(it) : it })); });
     if (Array.prototype.some.call(sel.options, function (o) { return o.value === keep; })) sel.value = keep;
@@ -864,12 +1049,24 @@
     return q;
   }
   function loadRecords(reset) {
+    if (reset) { state.listVersion++; state.pending = null; }
+    var version = state.listVersion;
+    state.recordsLoading = true; state.recordsError = "";
+    renderRecords();
     var before = !reset && state.records.length ? state.records[state.records.length - 1].key : 0;
     return call("records", query(before)).then(function (r) {
+      if (version !== state.listVersion) return;
       state.records = (reset ? [] : state.records).concat(r.records || []);
       state.more = !!r.more;
+      state.recordsLoading = false;
+      state.liveError = false;
       renderRecords();
-    }).catch(failed);
+    }).catch(function (e) {
+      if (version !== state.listVersion) return;
+      state.recordsLoading = false; state.recordsError = e.message || String(e);
+      state.liveError = true; renderLive();
+      if (e instanceof AuthError) failed(e); else renderRecords();
+    });
   }
   function stoppedText(s) { return t({ block: "sBlock", malformed: "sMalformed", error: "sError" }[s] || s); }
   function backCount(r) {
@@ -890,22 +1087,62 @@
     var back = backCount(r);
     var parts = [!r.restored ? t("noResp") : back ? t("backN", fmt(back)) : t("backNone")];
     if (warned) parts.unshift(t("warnedN", fmt(warned)));
-    return el("span", { class: "rec-state", text: parts.join(" · ") });
+    return el("span", { class: "rec-state" + (back ? " good" : ""), text: parts.join(" · ") });
+  }
+  function resetFilters() {
+    ["fKind", "fCaller", "fModel", "fAction"].forEach(function (id) { byId(id).value = ""; });
+    byId("fStopped").checked = false;
+    loadRecords(true);
   }
   function renderRecords() {
+    var signature = JSON.stringify([lang, state.records, state.more, state.recordsLoading, state.recordsError, query(), state.summary && state.summary.enabled]);
+    if (state.recordsRendered === signature) { renderPending(); return; }
+    state.recordsRendered = signature;
+    var active = document.activeElement;
+    var focusedKey = active && active.classList.contains("rec") ? active.getAttribute("data-key") : null;
     var list = clear(byId("recordsList"));
-    if (!state.records.length) list.appendChild(el("p", { class: "muted", text: t("none") }));
+    var filtered = Object.keys(query()).length > 1;
+    var empty = !state.records.length;
+    byId("recordsHead").classList.toggle("hidden", empty);
+    byId("filters").classList.toggle("hidden", empty && !filtered && !state.recordsError);
+    byId("listFoot").classList.toggle("hidden", empty);
+    byId("recordCount").textContent = empty ? "" : fmt(state.records.length) + (state.more ? "+" : "");
+    if (empty) {
+      var disabled = state.summary && state.summary.enabled === false;
+      if (state.recordsLoading) list.appendChild(emptyState("search", t("loadingRecords"), ""));
+      else if (state.recordsError) list.appendChild(emptyState("search", t("loadFailed", state.recordsError), "", t("retry"), function () { loadRecords(true); }));
+      else if (disabled) list.appendChild(emptyState("shield", t("emptyDisabledTitle"), t("emptyDisabledText")));
+      else if (filtered) list.appendChild(emptyState("search", t("filteredEmptyTitle"), t("filteredEmptyText"), t("resetFilters"), resetFilters));
+      else list.appendChild(emptyState("shield", t("emptyTitle"), t("emptyText"), t("tabPreview"), function () { selectTab("preview"); byId("previewText").focus(); }, true));
+    }
     state.records.forEach(function (r) {
-      var who = [callerName(r.caller), r.model].filter(Boolean).join(" · ");
       var open = function () { openDetail(r.key); };
-      list.appendChild(el("div", { class: "rec", role: "button", tabindex: "0", onclick: open, onkeydown: function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } } },
-        el("div", { class: "rec-top" }, el("span", { class: "rec-time", title: when(r.time), text: ago(r.time) }), el("span", { class: "rec-who ellipsis", text: who }), recordState(r)),
-        r.values && r.values.length ? el("div", { class: "rec-sum" }, kindTags(r)) : null,
-        r.glimpse ? el("div", { class: "rec-glimpse ellipsis" }, context(r.glimpse, valuesOf(r), true)) : null));
+      list.appendChild(el("div", { class: "rec", "data-key": String(r.key), role: "button", tabindex: "0", onclick: open, onkeydown: function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } } },
+        el("div", { class: "rec-clock" }, el("div", { class: "rec-time", title: when(r.time), text: new Date(r.time).toLocaleTimeString(locale(), { hour: "2-digit", minute: "2-digit", second: "2-digit" }) }), el("div", { class: "rec-date", text: ago(r.time) })),
+        el("div", { class: "rec-main" }, el("div", { class: "rec-who ellipsis", text: callerName(r.caller) }), el("div", { class: "rec-model ellipsis", text: r.model || "—" }), r.glimpse ? el("div", { class: "rec-glimpse ellipsis" }, context(r.glimpse, valuesOf(r), true)) : null, el("div", { class: "rec-inline-state" }, recordState(r))),
+        el("div", { class: "rec-values" }, kindTags(r)), el("div", { class: "response-col" }, recordState(r)), el("div", { class: "rec-chevron" }, icon("right"))));
     });
     byId("more").classList.toggle("hidden", !state.more);
+    byId("more").disabled = state.recordsLoading;
     byId("listInfo").textContent = state.records.length ? t("shown", fmt(state.records.length)) : "";
+    renderPending();
+    if (focusedKey) Array.prototype.some.call(list.querySelectorAll(".rec"), function (row) {
+      if (row.getAttribute("data-key") !== focusedKey) return false;
+      row.focus({ preventScroll: true }); return true;
+    });
   }
+  function renderPending() {
+    var incoming = state.pending && state.pending.records || [];
+    var latest = state.records.length ? state.records[0].key : 0;
+    var n = incoming.filter(function (r) { return r.key > latest; }).length;
+    byId("newRecords").classList.toggle("hidden", !n);
+    byId("newRecords").textContent = n ? t("newRecords", fmt(n)) : "";
+  }
+  byId("newRecords").addEventListener("click", function () {
+    if (!state.pending) return;
+    applyLiveRecords(state.pending, true);
+    byId("tab-records").scrollIntoView({ block: "start" });
+  });
   ["fKind", "fCaller", "fModel", "fAction", "fStopped"].forEach(function (id) { byId(id).addEventListener("change", function () { loadRecords(true); }); });
   byId("more").addEventListener("click", function () { loadRecords(false); });
 
@@ -958,48 +1195,77 @@
     return box;
   }
   function line(label, content) { return el("div", { class: "vline" }, el("b", { text: label }), el("div", null, content)); }
-  function valueCard(v, r, known, d) {
-    var back = (r.restored && r.restored.back) || {};
-    var rule = ruleText(v.rule);
-    var head = el("div", { class: "vhead" }, kindLabel(v.kind), el("span", { class: "tag " + v.action, text: actionName(v.action) }),
-      v.new ? el("span", { class: "tag new", title: t("newTip"), text: t("isNew") }) : null,
-      r.restored && v.action === "mask" ? el("span", { class: "back" + (back[v.p] ? "" : " none"), text: back[v.p] ? t("vBack", fmt(back[v.p])) : t("vNoBack") }) : null);
-    var card = el("div", { class: "vcard " + kindGroup(v.kind) }, head,
-      el("div", { class: "muted small", style: "margin-top:2px", text: hint(v) + " · " + t("times", fmt(v.n)) }),
-      line(t("tPlaceholder"), el("span", { class: "original-value", text: v.p })),
-      line(t("vWhy"), el("span", null, el("b", { text: rule[0] }), lang === "zh" ? "：" : ": ", rule[1])),
-      line(t("vWhere"), el("span", { title: (v.paths || []).join("\n"), text: places(v.paths) })));
+  function valueCard(v, r, known, d, index) {
+    var back = (r.restored && r.restored.back) || {}, rule = ruleText(v.rule);
+    var select = el("button", { id: "valuePick-" + index, class: "value-select", type: "button", "data-value": v.p, "aria-pressed": String(d.pick === v.p), onclick: function () { pickValue(d, v.p); } },
+      el("div", { class: "vhead" }, kindLabel(v.kind), el("span", { class: "tag " + v.action, text: actionName(v.action) }), el("span", { class: "muted small", text: "×" + fmt(v.n) })),
+      el("div", { class: "value-hint", text: hint(v) }), el("div", { class: "mono value-placeholder", text: v.p }));
+    var card = el("div", { class: "vcard " + kindGroup(v.kind), "data-value-card": v.p }, select);
     if (d.showOriginals) {
       var available = d.originals && Object.prototype.hasOwnProperty.call(d.originals, v.p);
       var original = available ? d.originals[v.p] : d.loadingOriginals ? t("originalsLoading") : r.stopped || v.action !== "mask" ? t("originalNotRetained") : t("originalUnavailable");
-      card.appendChild(line(t("vOriginal"), el("div", { class: available ? "original-value" : "muted small", text: original })));
+      card.appendChild(el("div", { class: "value-original" }, el("div", { class: "muted small", text: t("vOriginal") }), el("div", { class: available ? "original-value" : "muted small", text: original })));
     }
-    var snip = r.snips && r.snips[v.p];
-    if (snip) {
-      var preview = el("div", { class: "quote" }, context(snip, known, false));
-      if (d.showOriginals && d.originals && Object.keys(d.originals).length) {
-        card.appendChild(line(t("vContext"), el("div", { class: "context-pair" },
-          el("div", null, el("div", { class: "muted small", text: t("originalContext") }), el("div", { class: "quote" }, context(snip, known, false, d.originals))),
-          el("div", null, el("div", { class: "muted small", text: t("safeContext") }), preview))));
-      } else card.appendChild(line(t("vContext"), preview));
+    var meta = el("dl", { class: "value-meta" }, el("dt", { text: t("vWhy") }), el("dd", { title: rule[1], text: rule[0] }), el("dt", { text: t("vWhere") }), el("dd", { title: (v.paths || []).join("\n"), text: places(v.paths) }));
+    if (r.restored && v.action === "mask") {
+      meta.appendChild(el("dt", { text: t("columnResponse") }));
+      meta.appendChild(el("dd", { text: back[v.p] ? t("vBack", fmt(back[v.p])) : t("vNoBack") }));
     }
-    var fp = el("details", null, el("summary", { text: t("fpTitle") }), falsePositive(v));
-    var tech = el("details", null, el("summary", { text: t("techTitle") }), el("dl", { class: "tech" },
-      el("dt", { text: t("tRule") }), el("dd", { class: "mono", text: v.rule || "—" }),
-      el("dt", { text: t("tFields") }), el("dd", { class: "mono", style: "white-space:pre-wrap", text: (v.paths || []).join("\n") })));
-    card.appendChild(fp);
-    card.appendChild(tech);
+    card.appendChild(meta);
+    var info = el("details", d.expanded[v.p] ? { open: "" } : null, el("summary", { text: t("viewRules") }), el("p", { class: "muted small", text: rule[1] }), falsePositive(v),
+      el("dl", { class: "tech" }, el("dt", { text: t("tRule") }), el("dd", { class: "mono", text: v.rule || "—" }), el("dt", { text: t("tFields") }), el("dd", { class: "mono", text: (v.paths || []).join("\n") })));
+    info.addEventListener("toggle", function () { d.expanded[v.p] = info.open; });
+    card.appendChild(info);
     return card;
+  }
+  function pickValue(d, p) {
+    d.pick = d.pick === p ? "" : p;
+    var stack = byId("detailBody").querySelector(".context-stack");
+    if (stack) stack.classList.toggle("picking", !!d.pick);
+    each("#detailBody .ph[data-p]", function (node) { node.classList.toggle("lit", node.getAttribute("data-p") === d.pick); });
+    each("#detailBody [data-value]", function (node) { node.setAttribute("aria-pressed", String(node.getAttribute("data-value") === d.pick)); });
+    each("#detailBody [data-value-card]", function (node) { node.classList.toggle("selected", node.getAttribute("data-value-card") === d.pick); });
+  }
+  // A snippet may contain several values. Show an identical or contained
+  // fragment once, without joining fragments into a fictional request body.
+  function snippetGroups(r) {
+    var groups = [];
+    (r.values || []).forEach(function (v) {
+      var text = r.snips && r.snips[v.p];
+      if (text && !groups.some(function (g) { return g.text === text; })) groups.push({ text: text, path: (v.paths || [])[0] || "" });
+    });
+    return groups.filter(function (g, i) { return !groups.some(function (other, j) { return i !== j && other.text.length > g.text.length && other.text.indexOf(g.text) >= 0; }); });
+  }
+  function contextPanel(r, known, d) {
+    var stack = el("div", { class: "context-stack" }), groups = snippetGroups(r);
+    if (!groups.length) {
+      stack.appendChild(el("div", { class: "card" }, emptyState("search", t("noContextTitle"), t("noContextText"))));
+      return stack;
+    }
+    groups.forEach(function (g, i) {
+      var card = el("section", { class: "card context-card" }, el("div", { class: "context-header" }, el("span", { class: "small", text: g.path ? place(g.path) : t("snippetN", i + 1) }), el("span", { class: "mono", title: g.path, text: g.path })));
+      var safe = el("div", { class: "context-text" }, context(g.text, known, false));
+      if (d.showOriginals && d.originals && Object.keys(d.originals).length) {
+        card.appendChild(el("div", { class: "context-pair" },
+          el("div", null, el("div", { class: "context-label", text: t("originalContext") }), el("div", { class: "context-text" }, context(g.text, known, false, d.originals))),
+          el("div", null, el("div", { class: "context-label", text: t("safeContext") }), safe)));
+      } else card.appendChild(safe);
+      stack.appendChild(card);
+    });
+    stack.appendChild(el("p", { class: "context-foot", text: d.showOriginals ? t("reconstructedContext") : t("ctxNote") }));
+    return stack;
   }
   function openDetail(key) {
     closeDetail();
-    var d = detail = { key: String(key), record: null, originals: null, showOriginals: false, loadingOriginals: false, valueRequest: 0, originalsError: false };
+    var d = detail = { key: String(key), record: null, originals: null, showOriginals: false, loadingOriginals: false, valueRequest: 0, originalsError: false, pick: "", expanded: {}, returnScroll: window.scrollY };
     call("record", { key: d.key }).then(function (r) {
       if (detail !== d) return;
       d.record = r;
       drawDetail();
       byId("detail").classList.remove("hidden");
-      byId("detail").querySelector(".panel").scrollTop = 0;
+      document.body.classList.add("detail-open");
+      window.scrollTo(0, 0);
+      byId("detailClose").focus({ preventScroll: true });
     }).catch(function (e) { if (detail === d) { closeDetail(); failed(e); } });
   }
   function toggleOriginals(d) {
@@ -1034,7 +1300,7 @@
     byId("detailTitle").textContent = t("detailTitle", when(r.time));
     var values = r.values || [], known = valuesOf(r), back = (r.restored && r.restored.back) || {};
 
-    var lead = el("div", { class: "card" });
+    var lead = el("div", { class: "card request-summary" }, el("div", { class: "detail-route" }, el("strong", { text: callerName(r.caller) }), icon("arrow"), el("strong", { text: r.model || "—" }), el("span", { class: "tag", text: FORMATS[r.format] || r.format || "—" })));
     var masked = 0, maskedValues = 0, warned = 0;
     values.forEach(function (v) { if (v.action === "mask") { masked += v.n; maskedValues++; } else if (v.action === "warn") warned += v.n; });
     if (r.stopped) lead.appendChild(el("p", { class: "lead", text: t("leadStopped", stoppedText(r.stopped)) }));
@@ -1048,20 +1314,16 @@
       fact(t("fFormat"), FORMATS[r.format] || r.format || "—"), fact(t("fTook"), took(r.took)), fact(t("fKey"), String(r.key))));
     body.appendChild(lead);
 
-    var heading = el("div", { class: "card-head" }, el("h2", { text: t("whatTitle") }));
-    var what = el("div", { class: "card" }, heading);
-    if (!values.length) what.appendChild(el("p", { class: "muted", text: t("noValues") }));
-    else {
-      heading.appendChild(el("button", { id: "originalsToggle", class: "btn small", type: "button", "aria-pressed": String(d.showOriginals), text: d.showOriginals ? t("hideOriginals") : t("showOriginals"), onclick: function () { toggleOriginals(d); } }));
-      what.appendChild(el("p", { class: "sub", text: t("originalsHint") }));
-      if (d.loadingOriginals) what.appendChild(el("p", { class: "muted small", role: "status", text: t("originalsLoading") }));
-      if (d.originalsError) what.appendChild(el("p", { class: "notice error", role: "alert", text: t("originalsFailed") }));
-      if (d.showOriginals && !d.loadingOriginals) what.appendChild(el("p", { class: "sub", text: t("reconstructedContext") }));
-      if (r.snips) what.appendChild(el("p", { class: "sub", style: "margin:-4px 0 10px", text: t("ctxNote") }));
-      else what.appendChild(el("p", { class: "sub", style: "margin:-4px 0 10px", text: t("noSnip") }));
-      values.forEach(function (v) { what.appendChild(valueCard(v, r, known, d)); });
-    }
-    body.appendChild(what);
+    var heading = el("div", { class: "detail-toolbar" },
+      el("div", null, el("h2", { text: t("contextTitle") }), el("p", { text: t("contextHint") })));
+    if (values.length) heading.appendChild(el("button", { id: "originalsToggle", class: "btn", type: "button", "aria-pressed": String(d.showOriginals), text: d.showOriginals ? t("hideOriginals") : t("showOriginals"), title: t("originalsHint"), onclick: function () { toggleOriginals(d); } }));
+    body.appendChild(heading);
+    if (d.loadingOriginals) body.appendChild(el("p", { class: "muted small", role: "status", text: t("originalsLoading") }));
+    if (d.originalsError) body.appendChild(el("p", { class: "notice error", role: "alert", text: t("originalsFailed") }));
+    var aside = el("aside", { class: "value-aside" }, el("h3", { text: t("valuesTitle") + " · " + fmt(values.length) }));
+    if (!values.length) aside.appendChild(el("p", { class: "muted", text: t("noValues") }));
+    values.forEach(function (v, index) { aside.appendChild(valueCard(v, r, known, d, index)); });
+    body.appendChild(el("div", { class: "detail-grid" }, contextPanel(r, known, d), aside));
 
     if (r.restored) {
       var others = Object.keys(back).filter(function (p) { return !known[p]; });
@@ -1082,16 +1344,32 @@
         body.appendChild(rs);
       }
     }
+    var at = state.records.findIndex(function (item) { return String(item.key) === d.key; });
+    byId("detailPrev").disabled = at <= 0;
+    byId("detailNext").disabled = at < 0 || at >= state.records.length - 1;
+    var picked = d.pick; d.pick = ""; pickValue(d, picked);
     if (focusOriginals && byId("originalsToggle")) byId("originalsToggle").focus({ preventScroll: true });
   }
   function closeDetail() {
+    var returnScroll = detail && detail.returnScroll;
     if (detail) { detail.originals = null; detail.valueRequest++; }
     detail = null;
     clear(byId("detailBody"));
     byId("detail").classList.add("hidden");
+    document.body.classList.remove("detail-open");
+    if (returnScroll !== null && returnScroll !== undefined) window.scrollTo(0, returnScroll);
   }
   byId("detailClose").addEventListener("click", closeDetail);
-  byId("detail").addEventListener("click", function (e) { if (e.target === byId("detail")) closeDetail(); });
+  byId("detailPrev").appendChild(icon("left"));
+  byId("detailNext").appendChild(icon("right"));
+  function besideRecord(direction) {
+    if (!detail) return;
+    var at = state.records.findIndex(function (item) { return String(item.key) === detail.key; });
+    var next = state.records[at + direction];
+    if (at >= 0 && next) openDetail(next.key);
+  }
+  byId("detailPrev").addEventListener("click", function () { besideRecord(-1); });
+  byId("detailNext").addEventListener("click", function () { besideRecord(1); });
   document.addEventListener("keydown", function (e) { if (e.key === "Escape") closeDetail(); });
   window.addEventListener("pagehide", closeDetail);
 
@@ -1117,15 +1395,121 @@
   });
 
   // ---- refresh, clear ---------------------------------------------------------------
-  function refresh() {
-    return call("summary", { days: byId("days").value }).then(function (s) { state.summary = s; renderAll(); return loadRecords(true); }).catch(failed);
+  // Live updates reuse the authenticated record API. They pause offscreen,
+  // never overlap, and never fetch or refresh original values automatically.
+  function renderLive() {
+    var active = state.live && state.tab !== "preview" && !document.hidden;
+    ["liveToggle", "detailLiveToggle"].forEach(function (id) {
+      var button = byId(id);
+      button.setAttribute("aria-pressed", String(state.live));
+      button.setAttribute("data-active", String(active));
+      button.classList.toggle("error", state.liveError && active);
+      button.title = state.live ? t("liveHint") : t("resumeLive");
+      button.querySelector(".live-label").textContent = !active ? t("livePaused") : state.liveError ? t("liveRetry") : t("liveOn");
+    });
+    byId("updated").textContent = state.updated ? t("updatedAt", state.updated.toLocaleTimeString(locale(), { hour: "2-digit", minute: "2-digit", second: "2-digit" })) : "";
   }
-  byId("refresh").addEventListener("click", function () { loadCallers().then(refresh); });
-  byId("days").addEventListener("change", refresh);
+  function scheduleLive() {
+    clearTimeout(liveTimer);
+    if (state.ready && state.live && !document.hidden && state.tab !== "preview") liveTimer = setTimeout(function () { refresh(false); }, 3000);
+  }
+  function visibleRow() {
+    if (detail || state.tab !== "records") return null;
+    var rows = byId("recordsList").querySelectorAll(".rec");
+    for (var i = 0; i < rows.length; i++) {
+      var rect = rows[i].getBoundingClientRect();
+      if (rect.bottom > 0 && rect.top < window.innerHeight) return { key: rows[i].getAttribute("data-key"), top: rect.top };
+    }
+    return null;
+  }
+  function restoreRow(anchor) {
+    if (!anchor) return;
+    var rows = byId("recordsList").querySelectorAll(".rec");
+    for (var i = 0; i < rows.length; i++) if (rows[i].getAttribute("data-key") === anchor.key) {
+      window.scrollBy(0, rows[i].getBoundingClientRect().top - anchor.top); return;
+    }
+  }
+  function applyLiveRecords(result, force) {
+    var incoming = result.records || [], previous = state.records, latest = previous.length ? previous[0].key : 0;
+    var newCount = incoming.filter(function (r) { return r.key > latest; }).length;
+    var reading = !detail && state.tab === "records" && byId("recordsHead").getBoundingClientRect().top < 0;
+    var anchor = reading ? visibleRow() : null;
+    var byKey = {};
+    incoming.forEach(function (r) { byKey[r.key] = r; });
+    if (!force && newCount && previous.length && reading) {
+      state.pending = result;
+      state.records = previous.map(function (r) { return byKey[r.key] || r; });
+    } else {
+      state.pending = null;
+      var overlap = previous.some(function (r) { return !!byKey[r.key]; });
+      if (!overlap || !incoming.length) { state.records = incoming; state.more = !!result.more; }
+      else {
+        var oldest = incoming[incoming.length - 1].key;
+        state.records = incoming.concat(previous.filter(function (r) { return !byKey[r.key] && r.key < oldest; }));
+        // Bound a stream of new rows without removing pages the user loaded.
+        var limit = Math.max(200, previous.length);
+        if (state.records.length > limit) { state.records.length = limit; state.more = true; }
+      }
+    }
+    state.recordsError = "";
+    renderRecords();
+    restoreRow(anchor);
+  }
+  function refresh(manual) {
+    if (liveRequest) return manual ? liveRequest.then(function () { return refresh(true); }) : liveRequest;
+    if (!state.ready || !manual && (!state.live || document.hidden || state.tab === "preview")) return Promise.resolve();
+    clearTimeout(liveTimer);
+    var version = state.listVersion, days = byId("days").value, key = state.key, opened = detail;
+    var jobs = [call("summary", { days: days }).then(function (summary) {
+      if (!state.ready || key !== state.key || days !== byId("days").value) return;
+      state.summary = summary;
+      renderNotices(); renderOverview(); renderFilters();
+    })];
+    if (!state.recordsLoading && (state.tab === "records" || opened || manual)) jobs.push(call("records", query()).then(function (result) {
+      if (state.ready && key === state.key && version === state.listVersion) applyLiveRecords(result, !!manual);
+    }));
+    if (opened && opened.record) jobs.push(call("record", { key: opened.key }).then(function (record) {
+      if (!state.ready || key !== state.key || detail !== opened || JSON.stringify(record) === JSON.stringify(opened.record)) return;
+      opened.record = record;
+      drawDetail();
+    }).catch(function (error) {
+      if (error.status === 404 && detail === opened) closeDetail();
+      else throw error;
+    }));
+    byId("refresh").disabled = true;
+    liveRequest = Promise.allSettled(jobs).then(function (results) {
+      var failure = results.find(function (result) { return result.status === "rejected"; });
+      if (failure) throw failure.reason;
+      if (state.ready && key === state.key) { state.updated = new Date(); state.liveError = false; }
+    }).catch(function (error) {
+      if (key !== state.key) return;
+      state.liveError = true;
+      if (error instanceof AuthError) failed(error);
+      else if (manual) failed(error);
+    }).then(function () {
+      liveRequest = null;
+      byId("refresh").disabled = false;
+      renderLive(); scheduleLive();
+    });
+    return liveRequest;
+  }
+  function toggleLive() {
+    state.live = !state.live;
+    renderLive(); scheduleLive();
+    if (state.live) refresh(false);
+  }
+  byId("liveToggle").addEventListener("click", toggleLive);
+  byId("detailLiveToggle").addEventListener("click", toggleLive);
+  document.addEventListener("visibilitychange", function () {
+    renderLive(); scheduleLive();
+    if (!document.hidden) refresh(false);
+  });
+  byId("refresh").addEventListener("click", function () { loadCallers().then(function () { refresh(true); }); });
+  byId("days").addEventListener("change", function () { refresh(true); });
   byId("clear").addEventListener("click", function () {
     if (!window.confirm(t("confirmClear"))) return;
     closeDetail();
-    call("clear", null, {}).then(function () { return refresh(); }).then(function () { notice(t("cleared"), "ok"); }).catch(failed);
+    call("clear", null, {}).then(function () { state.listVersion++; state.pending = null; state.records = []; state.more = false; renderRecords(); return refresh(true); }).then(function () { notice(t("cleared"), "ok"); }).catch(failed);
   });
   function failed(e) {
     if (e instanceof AuthError) { showLogin(t("loginFailed")); return; }
@@ -1136,11 +1520,12 @@
     renderOverview();
     renderFilters();
     renderRecords();
+    renderLive();
   }
 
   // ---- go ---------------------------------------------------------------------------
   applyLang();
-  selectTab("overview");
+  selectTab("records");
   try {
     var root = window.parent !== window && parent.document.documentElement;
     if (root) new MutationObserver(applyLang).observe(root, { attributes: true, attributeFilter: ["lang"] });
