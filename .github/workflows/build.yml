@@ -6,12 +6,20 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing tag to rebuild and publish (empty for a development build)
+        type: string
+        required: false
+        default: ''
 
 permissions:
   contents: write
 
 env:
   PLUGIN_ID: veil
+  RELEASE_REF_TYPE: ${{ inputs.release_tag && 'tag' || github.ref_type }}
+  RELEASE_REF_NAME: ${{ inputs.release_tag || github.ref_name }}
 
 jobs:
   test:
@@ -20,6 +28,16 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
+
+      - name: Verify requested release tag
+        if: inputs.release_tag != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "${RELEASE_REF_NAME}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          test "$(git rev-parse HEAD)" = "$(git rev-parse "${RELEASE_REF_NAME}^{commit}")"
 
       - name: Setup Go
         uses: actions/setup-go@v6
@@ -55,7 +73,7 @@ jobs:
             ext: dylib
           - goos: darwin
             goarch: arm64
-            runner: macos-15
+            runner: macos-26
             ext: dylib
           - goos: windows
             goarch: amd64
@@ -64,9 +82,14 @@ jobs:
     defaults:
       run:
         shell: bash
+    env:
+      # Keep the deployment target of the previous macos-15 ARM64 runner.
+      MACOSX_DEPLOYMENT_TARGET: '15.0'
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
 
       - name: Setup Go
         uses: actions/setup-go@v6
@@ -75,7 +98,7 @@ jobs:
           cache: true
 
       - name: Resolve release metadata
-        run: scripts/release-metadata.sh ${{ matrix.goos }} ${{ matrix.goarch }} ${{ matrix.ext }}
+        run: GITHUB_REF_TYPE="${RELEASE_REF_TYPE}" GITHUB_REF_NAME="${RELEASE_REF_NAME}" scripts/release-metadata.sh ${{ matrix.goos }} ${{ matrix.goarch }} ${{ matrix.ext }}
 
       - name: Build shared library
         run: |
@@ -109,6 +132,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
 
       - name: Setup Go
         uses: actions/setup-go@v6
@@ -118,7 +143,7 @@ jobs:
 
       - name: Resolve release metadata
         id: release_metadata
-        run: scripts/release-metadata.sh windows arm64
+        run: GITHUB_REF_TYPE="${RELEASE_REF_TYPE}" GITHUB_REF_NAME="${RELEASE_REF_NAME}" scripts/release-metadata.sh windows arm64
 
       - name: Build Windows ARM64 shared library
         timeout-minutes: 45
@@ -161,6 +186,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
 
       - name: Setup Go
         uses: actions/setup-go@v6
@@ -194,7 +221,7 @@ jobs:
 
       - name: Resolve release metadata
         id: release_metadata
-        run: scripts/release-metadata.sh freebsd ${{ matrix.goarch }}
+        run: GITHUB_REF_TYPE="${RELEASE_REF_TYPE}" GITHUB_REF_NAME="${RELEASE_REF_NAME}" scripts/release-metadata.sh freebsd ${{ matrix.goarch }}
 
       - name: Build FreeBSD shared library
         timeout-minutes: 45
@@ -224,7 +251,7 @@ jobs:
 
   release:
     name: Release
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
     needs:
       - build
       - build-windows-arm64
@@ -246,12 +273,12 @@ jobs:
           # Windows runners write CRLF; normalize before combining checksums.
           cat dist/*.sha256 | tr -d '\r' | sort > dist/checksums.txt
           awk 'NF != 2 || $1 !~ /^[0-9a-fA-F]{64}$/ { print "invalid checksum line " NR ": " $0; bad=1 } END { exit bad }' dist/checksums.txt
-          if gh release view "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
-            gh release upload "${GITHUB_REF_NAME}" dist/*.zip dist/checksums.txt --clobber --repo "${GITHUB_REPOSITORY}"
+          if gh release view "${RELEASE_REF_NAME}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            gh release upload "${RELEASE_REF_NAME}" dist/*.zip dist/checksums.txt --clobber --repo "${GITHUB_REPOSITORY}"
           else
-            gh release create "${GITHUB_REF_NAME}" dist/*.zip dist/checksums.txt \
+            gh release create "${RELEASE_REF_NAME}" dist/*.zip dist/checksums.txt \
               --repo "${GITHUB_REPOSITORY}" \
               --verify-tag \
-              --title "${GITHUB_REF_NAME}" \
-              --notes "Automated release for ${GITHUB_REF_NAME}."
+              --title "${RELEASE_REF_NAME}" \
+              --notes "Automated release for ${RELEASE_REF_NAME}."
           fi
