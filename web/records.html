@@ -74,10 +74,11 @@
   .tag.block, .tag.stopped { color: var(--v-danger); }
   .tag.new { color: var(--v-success); }
   .tags { display: flex; flex-wrap: wrap; gap: 6px; }
-  /* a Placeholder or Stand-in in a context: what it stands for, the token itself on hover */
+  /* A Placeholder or Stand-in stays recognizable in the safe context. */
   .ph { display: inline-block; padding: 0 5px; margin: 0 1px; border-radius: 4px; font-size: 12px; line-height: 18px; font-weight: 600; white-space: nowrap;
         background: color-mix(in srgb, var(--kc, var(--v-accent)) 16%, transparent); color: var(--kc, var(--v-accent)); cursor: help; }
   .quote { background: var(--v-surface-2); border-radius: 6px; padding: 8px 10px; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--v-text-2); }
+  .quote .ph { display: inline; white-space: pre-wrap; overflow-wrap: anywhere; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
 
   /* overview */
   .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
@@ -133,9 +134,18 @@
   .vhead .kind { font-size: 15px; }
   .vhead .back { margin-left: auto; font-size: 12px; color: var(--v-success); white-space: nowrap; }
   .vhead .back.none { color: var(--v-text-3); }
-  .vline { display: grid; grid-template-columns: 4.5em minmax(0, 1fr); gap: 8px; margin-top: 8px; }
-  .vline > b { color: var(--v-text-3); font-weight: 400; }
+  .vline { display: grid; grid-template-columns: 6.5em minmax(0, 1fr); gap: 8px; margin-top: 8px; }
+  .vline > b { color: var(--v-text-3); font-weight: 400; overflow-wrap: anywhere; }
   .vline > div { min-width: 0; }
+  .original-value { white-space: pre-wrap; overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+  .context-pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+  .context-pair > div { min-width: 0; }
+  .context-pair .small { margin-bottom: 4px; }
+  .ph.original { background: transparent; box-shadow: inset 0 -1px var(--kc, var(--v-accent)); }
+  @media (max-width: 600px) {
+    .context-pair, .vline { grid-template-columns: minmax(0, 1fr); }
+    .vline { gap: 3px; }
+  }
   details { margin-top: 10px; }
   details > summary { cursor: pointer; color: var(--v-accent); font-size: 13px; width: max-content; max-width: 100%; }
   details[open] > summary { margin-bottom: 6px; }
@@ -253,7 +263,7 @@
   // ---- strings ----------------------------------------------------------
   var STR = {
     zh: {
-      title: "脱敏记录", tagline: "Veil 在发给上游前替换掉的敏感信息，这里只记录类型和位置，不保存原文",
+      title: "脱敏记录", tagline: "查看 Veil 如何处理敏感信息，以及当前内存中可查看的原值",
       tabOverview: "总览", tabRecords: "请求记录", tabPreview: "试一试", refresh: "刷新", clear: "清空记录",
       loginTitle: "连接 CPA 管理接口", loginHint: "没有读到管理面板保存的密钥，请输入管理密钥。它只保存在这个标签页里。",
       managementKey: "管理密钥", connect: "连接", loginFailed: "密钥无效，或没有权限访问管理接口。", panelKeyFailed: "面板保存的密钥不能访问管理接口，请手动输入。",
@@ -271,20 +281,27 @@
       stoppedTag: "被拦下", unknownCaller: "默认调用方",
       startsWith: "以 {n} 开头", chars: "{n} 个字符", times: "出现 {n} 处",
       justNow: "刚刚", minAgo: "{n} 分钟前", hourAgo: "{n} 小时前", yesterday: "昨天 {n}",
-      backN: "已换回 {n} 处", backNone: "回复里没用到", noResp: "等待回复", warnedN: "{n} 处原样发出",
+      backN: "已换回 {n} 处", backNone: "回复里没用到", noResp: "暂无还原统计", warnedN: "{n} 处原样发出",
       detailTitle: "{n} 的请求", close: "关闭",
-      leadMasked: "Veil 在这个请求里认出了 {k} 个敏感值，共 {n} 处，换成占位符后才发给上游。",
-      leadWarned: "其中 {n} 处按配置只提醒，原样发了出去。",
+      leadMasked: "Veil 在这个请求里替换了 {k} 个敏感值，共 {n} 处。",
+      leadWarned: "另有 {n} 处按配置只提醒，原样发了出去。",
       leadStopped: "这个请求被拦下了，没有发给上游：{n}。",
-      leadBack: "模型回复里出现的占位符，换回原文 {n} 处。", leadBackNone: "模型回复里没有用到这些占位符。", leadNoResp: "还没有收到这个请求的回复，或者回复不是这次启动的 CPA 收到的。",
+      leadBack: "模型回复里出现的占位符，换回原文 {n} 处。", leadBackNone: "模型回复里没有用到这些占位符。", leadNoResp: "这条记录暂无还原统计，不能据此判断请求是否已完成。",
       fCaller: "调用方", fModel: "模型", fFormat: "接口", fTook: "脱敏用时", fKey: "记录编号",
       tookMs: "{n} 毫秒", tookS: "{n} 秒",
       whatTitle: "认出了什么", noValues: "这个请求在脱敏前就被拦下，没有可以展示的值。",
       vWhy: "为什么", vWhere: "在哪里", vContext: "上下文", vBack: "回复中换回 {n} 处", vNoBack: "回复中没有用到",
       moreFields: "等 {n} 个位置", noSnip: "上下文只在内存里保留最近 400 条记录，这一条已经没有了。",
-      ctxNote: "上游看到的就是这样：彩色的是占位符，鼠标移上去能看到它的原样。",
+      ctxNote: "安全预览会隐藏所有已识别的值；仅提醒的值实际仍原样发给上游。",
+      showOriginals: "显示原值", hideOriginals: "隐藏原值", vOriginal: "原值",
+      originalsHint: "原值按需从当前内存读取，不写入记录文件。",
+      originalsLoading: "正在读取原值…", originalsFailed: "原值读取失败，请重试。",
+      originalUnavailable: "原值不在当前内存中，可能已重启或被淘汰。",
+      originalNotRetained: "仅提醒或被拦截的值未保存原值。",
+      originalContext: "原文片段", safeContext: "安全预览",
+      reconstructedContext: "原文片段由当前映射重建；无法获取原值的位置仍保留占位符。",
       standIn: "替身：一个形式相同的假值，模型可以照常使用，回复里会换回原文",
-      fpTitle: "这是误报？", fpIntro: "页面不保存原文，所以没法在这里一键放行。改 CPA 配置里的 plugins.configs.veil，保存后会自动生效：",
+      fpTitle: "这是误报？", fpIntro: "确认原值后，可修改 CPA 配置里的 plugins.configs.veil，保存后会自动生效：",
       fpRule: "这条规则对你没用：关掉它", fpRuleText: "以后所有请求都不再用“{n}”这条规则检测。",
       fpAllow: "只是这一个值不用替换：放行它", fpAllowText: "把原文填进 allow，整段比较，不区分大小写。放行后，它在别处出现也不再替换。",
       fpKind: "这一类只想提醒：改成仅提醒", fpKindText: "“{n}”类的值以后原样发给上游，只在记录里标出来。",
@@ -293,9 +310,9 @@
       fpField: "字段名表明这里存的是密钥，所以整个值都被替换。如果它不是密钥，放行它即可。",
       fpTry: "改完后，可以在“试一试”里粘贴同样的文字确认。", fillOriginal: "这里换成原文",
       copy: "复制", copied: "已复制", copyFailed: "复制失败，请手动选中",
-      techTitle: "技术细节", tPlaceholder: "发给上游的", tRule: "规则 ID", tFields: "字段路径",
+      techTitle: "技术细节", tPlaceholder: "占位符／替身", tRule: "规则 ID", tFields: "字段路径",
       otherBack: "回复里还换回了更早请求里的值：", unrestoredTitle: "有 {n} 处占位符没能换回原文",
-      unrestoredText: "这些占位符原样留在了回复里。常见原因：对话是 CPA 重启前开始的且没有配置固定的 key，或者换了调用方的 API key。",
+      unrestoredText: "这些占位符原样留在了回复里。重启或内存淘汰会丢失还原映射，固定 key 也不会保存映射；更换调用方的 API key 也会影响还原。",
       previewTitle: "试一试", previewHint: "按当前配置检测这段文字，看看哪些内容会被替换。结果不会保存，也不会影响任何对话；占位符只作示意。",
       previewRun: "检测", previewNone: "没有认出需要替换的内容。", truncated: "文字超过 64 KB，只检测了前一部分。",
       confirmClear: "确定清空所有脱敏记录吗？正在进行的对话不受影响，仍会正常换回原文。", cleared: "已清空记录。",
@@ -306,7 +323,7 @@
       atMessage: "第 {n} 条消息", atItem: "第 {n} 项输入", atInput: "输入", atSystem: "系统提示词", atInstructions: "系统指令", atTools: "工具定义", atPrompt: "提示词"
     },
     en: {
-      title: "Masking records", tagline: "What Veil replaced before a request went upstream: kinds and places only, never the values",
+      title: "Masking records", tagline: "How Veil handled sensitive values, with originals available while still in memory",
       tabOverview: "Overview", tabRecords: "Requests", tabPreview: "Try it", refresh: "Refresh", clear: "Clear records",
       loginTitle: "Connect to the CPA Management API", loginHint: "No key saved by the management panel was found. Enter the management key; it stays in this tab only.",
       managementKey: "Management key", connect: "Connect", loginFailed: "The key is wrong or may not use the Management API.", panelKeyFailed: "The key the panel saved cannot use the Management API. Enter one.",
@@ -324,20 +341,27 @@
       stoppedTag: "stopped", unknownCaller: "Default caller",
       startsWith: "starts with {n}", chars: "{n} character{s}", times: "{n} place{s}",
       justNow: "just now", minAgo: "{n} min ago", hourAgo: "{n} h ago", yesterday: "yesterday {n}",
-      backN: "{n} restored", backNone: "none in the reply", noResp: "no reply yet", warnedN: "{n} sent as written",
+      backN: "{n} restored", backNone: "none in the reply", noResp: "no restore statistics", warnedN: "{n} sent as written",
       detailTitle: "Request at {n}", close: "Close",
-      leadMasked: "Sensitive values in this request: {k}, in {n} place{s}. Veil replaced them before it went upstream.",
-      leadWarned: "Of those places, {n} were set to warn only and went as written.",
+      leadMasked: "Veil replaced {k} sensitive values in {n} place{s} in this request.",
+      leadWarned: "Another {n} place{s} went upstream as written.",
       leadStopped: "This request was stopped and never went upstream: {n}.",
-      leadBack: "Placeholders in the reply turned back into the values: {n}.", leadBackNone: "The reply used none of these placeholders.", leadNoResp: "No reply to this request yet, or it came to an earlier CPA process.",
+      leadBack: "Placeholders in the reply turned back into the values: {n}.", leadBackNone: "The reply used none of these placeholders.", leadNoResp: "No restore statistics are available for this record; this does not tell whether the request has finished.",
       fCaller: "Caller", fModel: "Model", fFormat: "API", fTook: "Masking took", fKey: "Record",
       tookMs: "{n} ms", tookS: "{n} s",
       whatTitle: "What was found", noValues: "The request was stopped before masking; there are no values to show.",
       vWhy: "Why", vWhere: "Where", vContext: "Context", vBack: "{n} restored in the reply", vNoBack: "not used in the reply",
       moreFields: "({n} in all)", noSnip: "Context is kept in memory for the latest 400 records only; this one no longer has it.",
-      ctxNote: "This is what the upstream saw: the colored parts are placeholders; hover one to see it as sent.",
+      ctxNote: "The safe preview hides every detected value. Values set to warn still went upstream as written.",
+      showOriginals: "Show originals", hideOriginals: "Hide originals", vOriginal: "Original",
+      originalsHint: "Originals are read from current memory on demand and never written to record files.",
+      originalsLoading: "Loading originals…", originalsFailed: "Could not load originals. Please try again.",
+      originalUnavailable: "The original is not in current memory; CPA may have restarted or the mapping was evicted.",
+      originalNotRetained: "Originals are not retained for values only warned about or in stopped requests.",
+      originalContext: "Original snippet", safeContext: "Safe preview",
+      reconstructedContext: "Original snippets are reconstructed from current mappings; unavailable originals remain as placeholders.",
       standIn: "Stand-in: a made-up value of the same form the model can use; the reply gets the real one back",
-      fpTitle: "Not sensitive?", fpIntro: "The page never holds the value, so it cannot let it through for you. Change plugins.configs.veil in the CPA config; it applies once saved:",
+      fpTitle: "Not sensitive?", fpIntro: "Once you have identified the value, change plugins.configs.veil in the CPA config; it applies once saved:",
       fpRule: "This rule is no use to you: turn it off", fpRuleText: "No request is checked with the \"{n}\" rule any more.",
       fpAllow: "Only this value: let it through", fpAllowText: "Put the value itself in allow; it is compared whole and in any case, and is no longer replaced anywhere.",
       fpKind: "Warn about this kind only", fpKindText: "Values of the kind \"{n}\" go upstream as written and are only marked in the records.",
@@ -346,9 +370,9 @@
       fpField: "The field's name says it holds a secret, so the whole value was replaced. If it is not one, let it through.",
       fpTry: "Then paste the same text into Try it to check.", fillOriginal: "the value itself",
       copy: "Copy", copied: "Copied", copyFailed: "Could not copy; select it by hand",
-      techTitle: "Technical details", tPlaceholder: "Sent upstream as", tRule: "Rule ID", tFields: "Field paths",
+      techTitle: "Technical details", tPlaceholder: "Placeholder / stand-in", tRule: "Rule ID", tFields: "Field paths",
       otherBack: "The reply also restored values of earlier requests:", unrestoredTitle: "Placeholders that could not be restored: {n}",
-      unrestoredText: "They stayed in the reply as they were. Usually the conversation began before CPA restarted without a fixed key, or the caller's API key changed.",
+      unrestoredText: "They stayed in the reply as they were. A restart or eviction loses mappings even with a fixed key; changing the caller's API key can also prevent restoration.",
       previewTitle: "Try it", previewHint: "Checks the text under the current settings and shows what would be replaced. Nothing is kept and no conversation is affected; the placeholders are for show.",
       previewRun: "Check", previewNone: "Nothing to replace was found.", truncated: "The text is over 64 KB; only its start was checked.",
       confirmClear: "Clear every Masking record? Conversations in progress are not affected and keep restoring.", cleared: "Records cleared.",
@@ -463,7 +487,7 @@
     each("[data-t]", function (el) { el.textContent = t(el.getAttribute("data-t")); });
     var days = byId("days").options;
     days[0].textContent = t("day1"); days[1].textContent = t("day7"); days[2].textContent = t("day30");
-    if (state.ready) renderAll();
+    if (state.ready) { renderAll(); drawDetail(); }
   }
 
   // ---- tiny DOM helpers ---------------------------------------------------
@@ -586,6 +610,7 @@
   function saveSessionKey(k) { try { sessionStorage.setItem(SESSION_KEY, k); } catch (e) {} }
 
   var state = { key: "", fromPanel: false, ready: false, summary: null, records: [], more: false, callers: {}, tab: "overview" };
+  var detail = null;
 
   function AuthError() {}
   function request(url, opts) {
@@ -633,6 +658,7 @@
 
   // ---- login ----------------------------------------------------------------
   function showLogin(message) {
+    closeDetail();
     byId("app").classList.add("hidden");
     byId("login").classList.remove("hidden");
     var err = byId("loginError");
@@ -685,9 +711,9 @@
     return parts.join(" · ");
   }
   var PLACEHOLDER = /\{\{([A-Z0-9_]+)_[0-9a-z]+\}\}/g;
-  // context is a snip with each Placeholder or Stand-in in it shown as what
-  // it stands for. known maps the record's own ones to their values.
-  function context(snip, known, oneLine) {
+  // Only replace matches in the safe snippet; originals themselves are never
+  // parsed as markup or scanned again for other placeholders.
+  function context(snip, known, oneLine, originals) {
     var box = el("span");
     var text = oneLine ? snip.replace(/\s+/g, " ").trim() : snip.replace(/\n{3,}/g, "\n\n");
     var tokens = Object.keys(known).sort(function (a, b) { return b.length - a.length; });
@@ -701,7 +727,8 @@
       if (best < 0) { box.appendChild(document.createTextNode(rest)); break; }
       box.appendChild(document.createTextNode(rest.slice(0, best)));
       var standIn = which.indexOf("{{") !== 0;
-      box.appendChild(el("span", { class: "ph " + kindGroup(kind), title: standIn ? which + "\n" + t("standIn") : which }, kindName(kind)));
+      var revealed = originals && Object.prototype.hasOwnProperty.call(originals, which);
+      box.appendChild(el("span", { class: "ph " + kindGroup(kind) + (revealed ? " original" : ""), title: kindName(kind) + (standIn ? "\n" + t("standIn") : "") }, revealed ? originals[which] : which));
       rest = rest.slice(best + which.length);
     }
     return box;
@@ -931,7 +958,7 @@
     return box;
   }
   function line(label, content) { return el("div", { class: "vline" }, el("b", { text: label }), el("div", null, content)); }
-  function valueCard(v, r, known) {
+  function valueCard(v, r, known, d) {
     var back = (r.restored && r.restored.back) || {};
     var rule = ruleText(v.rule);
     var head = el("div", { class: "vhead" }, kindLabel(v.kind), el("span", { class: "tag " + v.action, text: actionName(v.action) }),
@@ -939,13 +966,25 @@
       r.restored && v.action === "mask" ? el("span", { class: "back" + (back[v.p] ? "" : " none"), text: back[v.p] ? t("vBack", fmt(back[v.p])) : t("vNoBack") }) : null);
     var card = el("div", { class: "vcard " + kindGroup(v.kind) }, head,
       el("div", { class: "muted small", style: "margin-top:2px", text: hint(v) + " · " + t("times", fmt(v.n)) }),
+      line(t("tPlaceholder"), el("span", { class: "original-value", text: v.p })),
       line(t("vWhy"), el("span", null, el("b", { text: rule[0] }), lang === "zh" ? "：" : ": ", rule[1])),
       line(t("vWhere"), el("span", { title: (v.paths || []).join("\n"), text: places(v.paths) })));
+    if (d.showOriginals) {
+      var available = d.originals && Object.prototype.hasOwnProperty.call(d.originals, v.p);
+      var original = available ? d.originals[v.p] : d.loadingOriginals ? t("originalsLoading") : r.stopped || v.action !== "mask" ? t("originalNotRetained") : t("originalUnavailable");
+      card.appendChild(line(t("vOriginal"), el("div", { class: available ? "original-value" : "muted small", text: original })));
+    }
     var snip = r.snips && r.snips[v.p];
-    if (snip) card.appendChild(line(t("vContext"), el("div", { class: "quote" }, context(snip, known, false))));
+    if (snip) {
+      var preview = el("div", { class: "quote" }, context(snip, known, false));
+      if (d.showOriginals && d.originals && Object.keys(d.originals).length) {
+        card.appendChild(line(t("vContext"), el("div", { class: "context-pair" },
+          el("div", null, el("div", { class: "muted small", text: t("originalContext") }), el("div", { class: "quote" }, context(snip, known, false, d.originals))),
+          el("div", null, el("div", { class: "muted small", text: t("safeContext") }), preview))));
+      } else card.appendChild(line(t("vContext"), preview));
+    }
     var fp = el("details", null, el("summary", { text: t("fpTitle") }), falsePositive(v));
     var tech = el("details", null, el("summary", { text: t("techTitle") }), el("dl", { class: "tech" },
-      el("dt", { text: t("tPlaceholder") }), el("dd", { class: "mono", text: v.p }),
       el("dt", { text: t("tRule") }), el("dd", { class: "mono", text: v.rule || "—" }),
       el("dt", { text: t("tFields") }), el("dd", { class: "mono", style: "white-space:pre-wrap", text: (v.paths || []).join("\n") })));
     card.appendChild(fp);
@@ -953,60 +992,108 @@
     return card;
   }
   function openDetail(key) {
-    call("record", { key: String(key) }).then(function (r) {
-      var body = clear(byId("detailBody"));
-      byId("detailTitle").textContent = t("detailTitle", when(r.time));
-      var values = r.values || [], known = valuesOf(r), back = (r.restored && r.restored.back) || {};
-
-      var lead = el("div", { class: "card" });
-      var masked = 0, warned = 0;
-      values.forEach(function (v) { masked += v.n; if (v.action === "warn") warned += v.n; });
-      if (r.stopped) lead.appendChild(el("p", { class: "lead", text: t("leadStopped", stoppedText(r.stopped)) }));
-      else {
-        lead.appendChild(el("p", { class: "lead", text: t("leadMasked", { k: fmt(values.length), n: fmt(masked) }) + (warned ? " " + t("leadWarned", fmt(warned)) : "") }));
-        lead.appendChild(el("p", { class: "muted", style: "margin:-4px 0 10px", text: !r.restored ? t("leadNoResp") : backCount(r) ? t("leadBack", fmt(backCount(r))) : t("leadBackNone") }));
-      }
-      var fact = function (label, text) { return el("span", null, el("b", { text: label }), text); };
-      lead.appendChild(el("div", { class: "facts" },
-        fact(t("fCaller"), callerName(r.caller)), fact(t("fModel"), r.model || "—"),
-        fact(t("fFormat"), FORMATS[r.format] || r.format || "—"), fact(t("fTook"), took(r.took)), fact(t("fKey"), String(r.key))));
-      body.appendChild(lead);
-
-      var what = el("div", { class: "card" }, el("h2", { text: t("whatTitle") }));
-      if (!values.length) what.appendChild(el("p", { class: "muted", text: t("noValues") }));
-      else {
-        if (r.snips) what.appendChild(el("p", { class: "sub", style: "margin:-4px 0 10px", text: t("ctxNote") }));
-        else what.appendChild(el("p", { class: "sub", style: "margin:-4px 0 10px", text: t("noSnip") }));
-        values.forEach(function (v) { what.appendChild(valueCard(v, r, known)); });
-      }
-      body.appendChild(what);
-
-      if (r.restored) {
-        var others = Object.keys(back).filter(function (p) { return !known[p]; });
-        var un = r.restored.unrestored || {}, unKeys = Object.keys(un).sort();
-        if (others.length || unKeys.length) {
-          var rs = el("div", { class: "card" });
-          if (others.length) {
-            rs.appendChild(el("p", { style: "margin:0 0 6px", text: t("otherBack") }));
-            rs.appendChild(el("div", { class: "tags" }, others.sort().map(function (p) { return el("span", { class: "tag" }, context(p, {}, true), "×" + back[p]); })));
-          }
-          if (unKeys.length) {
-            var total = 0;
-            unKeys.forEach(function (p) { total += un[p]; });
-            rs.appendChild(el("div", { class: "notice", style: "margin:" + (others.length ? "12px" : "0") + " 0 0" },
-              el("b", { text: t("unrestoredTitle", fmt(total)) }), el("div", { class: "small", text: t("unrestoredText") }),
-              el("div", { class: "tags", style: "margin-top:6px" }, unKeys.map(function (p) { return el("span", { class: "tag mono", text: p + " ×" + un[p] }); }))));
-          }
-          body.appendChild(rs);
-        }
-      }
+    closeDetail();
+    var d = detail = { key: String(key), record: null, originals: null, showOriginals: false, loadingOriginals: false, valueRequest: 0, originalsError: false };
+    call("record", { key: d.key }).then(function (r) {
+      if (detail !== d) return;
+      d.record = r;
+      drawDetail();
       byId("detail").classList.remove("hidden");
       byId("detail").querySelector(".panel").scrollTop = 0;
-    }).catch(failed);
+    }).catch(function (e) { if (detail === d) { closeDetail(); failed(e); } });
   }
-  byId("detailClose").addEventListener("click", function () { byId("detail").classList.add("hidden"); });
-  byId("detail").addEventListener("click", function (e) { if (e.target === byId("detail")) byId("detail").classList.add("hidden"); });
-  document.addEventListener("keydown", function (e) { if (e.key === "Escape") byId("detail").classList.add("hidden"); });
+  function toggleOriginals(d) {
+    var seq = ++d.valueRequest;
+    d.showOriginals = !d.showOriginals;
+    d.originals = null;
+    d.originalsError = false;
+    d.loadingOriginals = d.showOriginals;
+    drawDetail();
+    if (!d.showOriginals) return;
+    call("record-values", { key: d.key }).then(function (result) {
+      if (detail !== d || d.valueRequest !== seq) return;
+      d.originals = result.values || {};
+      d.loadingOriginals = false;
+      drawDetail();
+    }).catch(function (e) {
+      if (detail !== d || d.valueRequest !== seq) return;
+      d.originals = null;
+      d.loadingOriginals = false;
+      d.showOriginals = false;
+      d.originalsError = true;
+      if (e instanceof AuthError) failed(e);
+      else drawDetail();
+    });
+  }
+  function drawDetail() {
+    var d = detail;
+    if (!d || !d.record) return;
+    var r = d.record;
+    var focusOriginals = document.activeElement && document.activeElement.id === "originalsToggle";
+    var body = clear(byId("detailBody"));
+    byId("detailTitle").textContent = t("detailTitle", when(r.time));
+    var values = r.values || [], known = valuesOf(r), back = (r.restored && r.restored.back) || {};
+
+    var lead = el("div", { class: "card" });
+    var masked = 0, maskedValues = 0, warned = 0;
+    values.forEach(function (v) { if (v.action === "mask") { masked += v.n; maskedValues++; } else if (v.action === "warn") warned += v.n; });
+    if (r.stopped) lead.appendChild(el("p", { class: "lead", text: t("leadStopped", stoppedText(r.stopped)) }));
+    else {
+      lead.appendChild(el("p", { class: "lead", text: t("leadMasked", { k: fmt(maskedValues), n: fmt(masked) }) + (warned ? " " + t("leadWarned", fmt(warned)) : "") }));
+      lead.appendChild(el("p", { class: "muted", style: "margin:-4px 0 10px", text: !r.restored ? t("leadNoResp") : backCount(r) ? t("leadBack", fmt(backCount(r))) : t("leadBackNone") }));
+    }
+    var fact = function (label, text) { return el("span", null, el("b", { text: label }), text); };
+    lead.appendChild(el("div", { class: "facts" },
+      fact(t("fCaller"), callerName(r.caller)), fact(t("fModel"), r.model || "—"),
+      fact(t("fFormat"), FORMATS[r.format] || r.format || "—"), fact(t("fTook"), took(r.took)), fact(t("fKey"), String(r.key))));
+    body.appendChild(lead);
+
+    var heading = el("div", { class: "card-head" }, el("h2", { text: t("whatTitle") }));
+    var what = el("div", { class: "card" }, heading);
+    if (!values.length) what.appendChild(el("p", { class: "muted", text: t("noValues") }));
+    else {
+      heading.appendChild(el("button", { id: "originalsToggle", class: "btn small", type: "button", "aria-pressed": String(d.showOriginals), text: d.showOriginals ? t("hideOriginals") : t("showOriginals"), onclick: function () { toggleOriginals(d); } }));
+      what.appendChild(el("p", { class: "sub", text: t("originalsHint") }));
+      if (d.loadingOriginals) what.appendChild(el("p", { class: "muted small", role: "status", text: t("originalsLoading") }));
+      if (d.originalsError) what.appendChild(el("p", { class: "notice error", role: "alert", text: t("originalsFailed") }));
+      if (d.showOriginals && !d.loadingOriginals) what.appendChild(el("p", { class: "sub", text: t("reconstructedContext") }));
+      if (r.snips) what.appendChild(el("p", { class: "sub", style: "margin:-4px 0 10px", text: t("ctxNote") }));
+      else what.appendChild(el("p", { class: "sub", style: "margin:-4px 0 10px", text: t("noSnip") }));
+      values.forEach(function (v) { what.appendChild(valueCard(v, r, known, d)); });
+    }
+    body.appendChild(what);
+
+    if (r.restored) {
+      var others = Object.keys(back).filter(function (p) { return !known[p]; });
+      var un = r.restored.unrestored || {}, unKeys = Object.keys(un).sort();
+      if (others.length || unKeys.length) {
+        var rs = el("div", { class: "card" });
+        if (others.length) {
+          rs.appendChild(el("p", { style: "margin:0 0 6px", text: t("otherBack") }));
+          rs.appendChild(el("div", { class: "tags" }, others.sort().map(function (p) { return el("span", { class: "tag" }, context(p, {}, true), "×" + back[p]); })));
+        }
+        if (unKeys.length) {
+          var total = 0;
+          unKeys.forEach(function (p) { total += un[p]; });
+          rs.appendChild(el("div", { class: "notice", style: "margin:" + (others.length ? "12px" : "0") + " 0 0" },
+            el("b", { text: t("unrestoredTitle", fmt(total)) }), el("div", { class: "small", text: t("unrestoredText") }),
+            el("div", { class: "tags", style: "margin-top:6px" }, unKeys.map(function (p) { return el("span", { class: "tag mono", text: p + " ×" + un[p] }); }))));
+        }
+        body.appendChild(rs);
+      }
+    }
+    if (focusOriginals && byId("originalsToggle")) byId("originalsToggle").focus({ preventScroll: true });
+  }
+  function closeDetail() {
+    if (detail) { detail.originals = null; detail.valueRequest++; }
+    detail = null;
+    clear(byId("detailBody"));
+    byId("detail").classList.add("hidden");
+  }
+  byId("detailClose").addEventListener("click", closeDetail);
+  byId("detail").addEventListener("click", function (e) { if (e.target === byId("detail")) closeDetail(); });
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape") closeDetail(); });
+  window.addEventListener("pagehide", closeDetail);
 
   // ---- preview ----------------------------------------------------------------------
   byId("previewRun").addEventListener("click", function () {
@@ -1037,6 +1124,7 @@
   byId("days").addEventListener("change", refresh);
   byId("clear").addEventListener("click", function () {
     if (!window.confirm(t("confirmClear"))) return;
+    closeDetail();
     call("clear", null, {}).then(function () { return refresh(); }).then(function () { notice(t("cleared"), "ok"); }).catch(failed);
   });
   function failed(e) {

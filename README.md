@@ -32,8 +32,8 @@ Typical use cases:
 - Masks emails, phone numbers, secrets, connection strings, certificates, and similar sensitive data with stable
   placeholders, kept apart per client API key
 - Restores the placeholders in model responses, tool calls included, so the client sees and runs the real values
-- Shows what each request had masked under the management panel's "脱敏记录" (Masking records) menu, never the
-  values themselves, CPA-Manager-Plus included
+- Shows what each request had masked under the management panel's "脱敏记录" (Masking records) menu, with original
+  values available on demand while still in memory, CPA-Manager-Plus included
 - Uses built-in Gitleaks rules from `rules/gitleaks.toml`
 - Supports custom Gitleaks rule files
 - Handles OpenAI Chat / Completions, OpenAI Responses, Claude, Gemini, and Gemini CLI request bodies
@@ -107,7 +107,7 @@ sets `plugins.configs.veil.enabled` to `true`. No restart is needed.
 ### By hand
 
 1. Download `veil_<version>_<os>_<arch>.zip` for your platform from
-   [Releases](https://github.com/GarlandQian/cpa-plugin-veil/releases), for example `veil_0.6.2_darwin_arm64.zip` on
+   [Releases](https://github.com/GarlandQian/cpa-plugin-veil/releases), for example `veil_0.7.0_darwin_arm64.zip` on
    an Apple silicon Mac. You can check it against `checksums.txt` from the same page:
 
    ```bash
@@ -429,16 +429,22 @@ CPA-Manager-Plus, and the page below can be opened directly too. It has:
   filtered by Kind, caller, model or Action, or Stopped requests only.
 - **A request**: a sentence on what happened to it, then a card for each value: its Kind and Action, a hint (its first
   character, or a key's prefix) and length, why it was taken for sensitive, where it was (such as "item 68 · tool
-  output"), the context as the upstream saw it with each Placeholder shown as its Kind, how many places the response
+  output"), safe context with the actual Placeholders or Stand-ins, how many places the response
   restored, and what to change in the config if it is not sensitive (turn the rule off, let the value through with
-  `allow`, or set the Kind to `warn`). The Placeholder, rule ID and field paths are under its technical details.
+  `allow`, or set the Kind to `warn`). Rule IDs and field paths are under its technical details. **Show originals**
+  reads available values from the current Vault and adds original snippets beside the safe preview; **Hide originals**
+  removes them from the page. Snippets are reconstructed from current mappings, not a saved original request.
 - **Clear records**: deletes the current directory’s records, including queued writes. Late restore counts cannot
   bring cleared records back; new requests continue recording and conversations in progress keep restoring.
 - **Try it**: shows how a text would be masked under the current settings, keeping nothing and touching no
   conversation.
 
-Records and the page **never hold a value**, and offer no way to see one (ADR-0005): holding the management key should
-not mean seeing every caller's secrets and personal data.
+Record files and ordinary record responses **never hold original values**. The authenticated management API can
+reveal a record's masked values from its own Caller scope on request (ADR-0005). The management key authorizes
+viewing available originals across callers. Nothing is added to record files or browser storage; the page drops
+revealed values when hidden, closed, cleared, or returned to login. Only mappings still in the Vault can be shown:
+restart or eviction can make them unavailable even with a fixed key. Values only warned about or in Stopped requests
+are not retained for this feature.
 
 Callers are told apart by client API key: the page shows the alias CPA-Manager-Plus has for the key, else the key's
 last four characters, and "Default caller" for requests without a key. Veil keeps no key.
@@ -446,7 +452,8 @@ last four characters, and "Default caller" for requests without a key. Veil keep
 ### Storage
 
 - Memory holds the newest 1000 records, the newest 400 of them with context (40 characters either side of each
-  Placeholder, as the upstream got the text); context is in memory only.
+  value's first Placeholder); context is in memory only. This safe preview hides every detected value, including
+  values sent as written under `warn`, so it is not always the exact text sent upstream.
 - With a persistent directory, records also go to `veil-records/` there, a file a day with mode 0600, kept 30 days and
   100 MB in all, without context. The directory is `base_dir`, or on CPA v7 without it the plugin library's directory.
   On CPA v8 without `base_dir` records live in memory and are gone when CPA restarts.
@@ -481,6 +488,7 @@ no data and reads the records from Management API routes behind the management k
 | `GET /v0/management/plugins/veil/summary?days=7` | A summary of the last days (1 to 30) |
 | `GET /v0/management/plugins/veil/records` | The records, each with a `glimpse` of its context, with `before`, `limit`, `kind`, `caller`, `model`, `action`, `stopped=1` |
 | `GET /v0/management/plugins/veil/record?key=` | One record, with its context and what was restored |
+| `GET /v0/management/plugins/veil/record-values?key=` | Available originals for one existing record, as `{"values": {"placeholder": "original"}}`; missing mappings are omitted, responses use `Cache-Control: no-store` |
 | `POST /v0/management/plugins/veil/clear` | Clears the records |
 | `POST /v0/management/plugins/veil/preview` | Previews `{"text": "..."}`, up to 64 KB |
 
