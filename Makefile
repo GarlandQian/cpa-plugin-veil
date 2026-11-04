@@ -1,5 +1,5 @@
 PLUGIN_NAME ?= veil
-VERSION ?= 0.6.2
+VERSION ?= 0.8.1
 BUILD_DIR ?= .
 GOOS ?= $(shell go env GOOS)
 GOARCH ?= $(shell go env GOARCH)
