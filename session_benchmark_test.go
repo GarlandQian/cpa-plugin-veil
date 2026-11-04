@@ -62,11 +62,8 @@ func BenchmarkLongSession(b *testing.B) {
 	b.ResetTimer()
 	for range b.N {
 		b.StopTimer()
-		masking.Lock()
-		masking.dir, masking.vault, masking.masker, masking.streams = "", nil, nil, nil
-		masking.key, masking.explicitKey = nil, false
-		masking.Unlock()
-		plugin, err := buildPlugin(nil, dir)
+		instance := &pluginInstance{}
+		plugin, err := instance.configure(nil, dir)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -84,6 +81,8 @@ func BenchmarkLongSession(b *testing.B) {
 				b.Fatal(err)
 			}
 		}
+		b.StopTimer()
+		instance.close()
 	}
 	b.ReportMetric(float64(b.Elapsed().Microseconds())/1000/float64(b.N*len(bodies)), "ms/turn")
 }

@@ -146,18 +146,10 @@ func TestManagementWithRecordsOff(t *testing.T) {
 }
 
 func TestManagementThroughTheABI(t *testing.T) {
-	resetMasking(t)
-	veilABIState.Lock()
-	previous := veilABIState.plugin
-	veilABIState.plugin = nil
-	veilABIState.Unlock()
-	t.Cleanup(func() {
-		veilABIState.Lock()
-		veilABIState.plugin = previous
-		veilABIState.Unlock()
-	})
+	runtime := &pluginRuntime{}
+	defer runtime.close()
 	ctx := context.Background()
-	raw, err := handleVeilRegister(ctx, pluginabi.MethodPluginRegister, registerRequest(t, t.TempDir(), ""))
+	raw, err := runtime.register(ctx, pluginabi.MethodPluginRegister, registerRequest(t, t.TempDir(), ""))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -183,7 +175,7 @@ func TestManagementThroughTheABI(t *testing.T) {
 		Routes    []pluginapi.ManagementRoute `json:"routes"`
 		Resources []pluginapi.ResourceRoute   `json:"resources"`
 	}
-	out, errCall := handleVeilABIMethod(ctx, pluginabi.MethodManagementRegister, reqRaw)
+	out, errCall := runtime.handle(ctx, pluginabi.MethodManagementRegister, reqRaw)
 	result(out, errCall, &reg)
 	if len(reg.Routes) != 5 || reg.Routes[0].Method != http.MethodGet || reg.Resources[0].Menu != recordsMenu {
 		t.Fatalf("registration = %+v", reg)
@@ -193,7 +185,7 @@ func TestManagementThroughTheABI(t *testing.T) {
 		Method: http.MethodPost, Path: "/v0/management/plugins/veil/preview", Body: []byte(`{"text":"mail test@acme-corp.cn"}`),
 	}})
 	var resp pluginapi.ManagementResponse
-	out, errCall = handleVeilABIMethod(ctx, pluginabi.MethodManagementHandle, reqRaw)
+	out, errCall = runtime.handle(ctx, pluginabi.MethodManagementHandle, reqRaw)
 	result(out, errCall, &resp)
 	if resp.StatusCode != http.StatusOK || strings.Contains(string(resp.Body), "test@acme-corp.cn") || !strings.Contains(string(resp.Body), "EMAIL") {
 		t.Fatalf("preview through the ABI = %d %s", resp.StatusCode, resp.Body)

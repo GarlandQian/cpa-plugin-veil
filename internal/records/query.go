@@ -381,7 +381,11 @@ func (s *Store) dayAggs(names []string) map[string]*agg {
 		}
 		return out
 	}
-	cache := s.disk.aggs
+	revision := s.revision
+	cache := make(map[string]cachedAgg, len(s.disk.aggs))
+	for day, c := range s.disk.aggs {
+		cache[day] = c
+	}
 	s.mu.Unlock()
 	fresh := map[string]cachedAgg{}
 	for _, f := range days(dir) {
@@ -399,7 +403,7 @@ func (s *Store) dayAggs(names []string) map[string]*agg {
 		fresh[f.day] = cachedAgg{size: f.size, agg: a}
 	}
 	s.mu.Lock()
-	if s.dir == dir {
+	if s.dir == dir && s.revision == revision {
 		if s.disk.aggs == nil {
 			s.disk.aggs = map[string]cachedAgg{}
 		}

@@ -27,7 +27,13 @@ func configBytes(t *testing.T, cfg veilConfig) []byte {
 
 func configuredPlugin(t *testing.T, dir string, cfg veilConfig) *veilPlugin {
 	t.Helper()
-	p, err := buildPlugin(configBytes(t, cfg), dir)
+	return reconfigurePlugin(t, &pluginInstance{}, dir, cfg)
+}
+
+func reconfigurePlugin(t *testing.T, i *pluginInstance, dir string, cfg veilConfig) *veilPlugin {
+	t.Helper()
+	t.Cleanup(i.close)
+	p, err := i.configure(configBytes(t, cfg), dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +59,6 @@ func capturePluginLogs(t *testing.T) *bytes.Buffer {
 }
 
 func TestConfiguredKeySurvivesShadowCopyRestart(t *testing.T) {
-	resetMasking(t)
 	logs := capturePluginLogs(t)
 	cfg := veilConfig{
 		Key:        hex.EncodeToString(bytes.Repeat([]byte{0x42}, 32)),
@@ -69,7 +74,6 @@ func TestConfiguredKeySurvivesShadowCopyRestart(t *testing.T) {
 		t.Fatalf("expected a Placeholder and Stand-ins: %s", first)
 	}
 
-	resetMasking(t)
 	restarted := configuredPlugin(t, secondDir, cfg)
 	placeholder := emailPlaceholder.FindString(string(first))
 	scope := vault.ScopeOf(req.Headers)
@@ -94,19 +98,19 @@ func TestConfiguredKeySurvivesShadowCopyRestart(t *testing.T) {
 }
 
 func TestShadowCopyWithoutKeyWarnsAndKeepsReloadStable(t *testing.T) {
-	resetMasking(t)
 	logs := capturePluginLogs(t)
 	dir := shadowDir(t, "100")
 	req := pluginapi.RequestInterceptRequest{Headers: bearer("test-client"), Body: []byte(`{"input":"test@acme-corp.cn"}`)}
-	first := intercept(t, configuredPlugin(t, dir, veilConfig{}), req)
-	reloaded := intercept(t, configuredPlugin(t, dir, veilConfig{}), req)
+	instance := &pluginInstance{}
+	first := intercept(t, reconfigurePlugin(t, instance, dir, veilConfig{}), req)
+	reloaded := intercept(t, reconfigurePlugin(t, instance, dir, veilConfig{}), req)
 	if !bytes.Equal(first, reloaded) {
 		t.Fatal("reload rotated the in-memory key")
 	}
 	if !strings.Contains(logs.String(), "in-memory key") || !strings.Contains(logs.String(), "plugins.configs.veil.key") {
 		t.Fatal("missing actionable warning about the nonpersistent key")
 	}
-	resetMasking(t)
+
 	second := intercept(t, configuredPlugin(t, dir, veilConfig{}), req)
 	if bytes.Equal(first, second) {
 		t.Fatal("a shadow file or the client API key was used for persistence")
@@ -117,12 +121,12 @@ func TestShadowCopyWithoutKeyWarnsAndKeepsReloadStable(t *testing.T) {
 }
 
 func TestShadowCopyWithKeyLogsOneNoticeAndNoWarning(t *testing.T) {
-	resetMasking(t)
 	logs := capturePluginLogs(t)
 	dir := shadowDir(t, "100")
 	cfg := veilConfig{Key: hex.EncodeToString(bytes.Repeat([]byte{0x42}, 32))}
-	configuredPlugin(t, dir, cfg)
-	configuredPlugin(t, dir, cfg) // a reload
+	instance := &pluginInstance{}
+	reconfigurePlugin(t, instance, dir, cfg)
+	reconfigurePlugin(t, instance, dir, cfg) // a reload
 	if strings.Contains(logs.String(), "level=warning") || strings.Contains(logs.String(), "level=error") {
 		t.Fatalf("a configured key and the embedded rules need no warning: %s", logs)
 	}
@@ -132,7 +136,6 @@ func TestShadowCopyWithKeyLogsOneNoticeAndNoWarning(t *testing.T) {
 }
 
 func TestLegacyKeyMigratesToConfigWithoutChangingPlaceholders(t *testing.T) {
-	resetMasking(t)
 	dir := t.TempDir()
 	req := pluginapi.RequestInterceptRequest{Headers: bearer("test-client"), Body: []byte(`{"input":"test@acme-corp.cn"}`)}
 	first := intercept(t, configuredPlugin(t, dir, veilConfig{}), req)
@@ -140,13 +143,13 @@ func TestLegacyKeyMigratesToConfigWithoutChangingPlaceholders(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resetMasking(t)
+
 	second := intercept(t, configuredPlugin(t, shadowDir(t, "200"), veilConfig{Key: string(key)}), req)
 	if !bytes.Equal(first, second) {
 		t.Fatal("copying veil.key into key changed Placeholders")
 	}
 	// Keeping the old directory through base_dir is also a lossless migration.
-	resetMasking(t)
+
 	third := intercept(t, configuredPlugin(t, shadowDir(t, "300"), veilConfig{BaseDir: dir}), req)
 	if !bytes.Equal(first, third) {
 		t.Fatal("base_dir did not reuse the legacy key")
@@ -175,8 +178,7 @@ func TestShadowRuleFilesUseExplicitBaseOrAbsolutePaths(t *testing.T) {
 	key := hex.EncodeToString(bytes.Repeat([]byte{0x42}, 32))
 	for _, field := range []string{"gitleaks_toml", "rules_toml"} {
 		t.Run(field+" requires a base", func(t *testing.T) {
-			resetMasking(t)
-			_, err := buildPlugin([]byte("key: '"+key+"'\n"+field+": extra.toml\n"), dir)
+			_, err := buildPlugin(t, []byte("key: '"+key+"'\n"+field+": extra.toml\n"), dir)
 			if err == nil || !strings.Contains(err.Error(), "base_dir") || !strings.Contains(err.Error(), field) {
 				t.Fatalf("relative rule path should require base_dir: %v", err)
 			}
@@ -191,7 +193,6 @@ func TestShadowRuleFilesUseExplicitBaseOrAbsolutePaths(t *testing.T) {
 		{"absolute", veilConfig{Key: key, GitleaksTOML: filepath.Join(original, "rules", "gitleaks.toml"), RulesTOML: filepath.Join(original, "extra.toml")}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			resetMasking(t)
 			p := configuredPlugin(t, dir, tc.cfg)
 			body := intercept(t, p, pluginapi.RequestInterceptRequest{Body: []byte(`{"input":"MAIN-123456 EXTRA-123456"}`)})
 			if !strings.Contains(string(body), "{{SECRET_") || !strings.Contains(string(body), "{{EXTRA_") {
@@ -207,7 +208,7 @@ func TestShadowRuleFilesUseExplicitBaseOrAbsolutePaths(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(cwd, "rules", "gitleaks.toml"), []byte("invalid TOML ["), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	resetMasking(t)
+
 	configuredPlugin(t, dir, veilConfig{Key: key})
 	for _, base := range []string{dir, cwd, original} {
 		if _, err := os.Stat(filepath.Join(base, vault.KeyFile)); !os.IsNotExist(err) {
@@ -230,15 +231,15 @@ func TestShadowDirectoryRecognitionAndOverride(t *testing.T) {
 		}
 	}
 	dir := shadowDir(t, "123")
-	if _, err := resolvePluginDir(dir, ""); err == nil {
+	if _, err := (&pluginInstance{}).resolvePluginDir(dir, ""); err == nil {
 		t.Fatal("base_dir accepted a temporary shadow directory")
 	}
-	if _, err := resolvePluginDir(filepath.Join(t.TempDir(), "missing"), ""); err == nil {
+	if _, err := (&pluginInstance{}).resolvePluginDir(filepath.Join(t.TempDir(), "missing"), ""); err == nil {
 		t.Fatal("base_dir accepted a missing directory")
 	}
 	// The host-supplied original path takes precedence over library inference.
 	original := t.TempDir()
-	got, err := resolvePluginDir("", original)
+	got, err := (&pluginInstance{}).resolvePluginDir("", original)
 	want, _ := filepath.EvalSymlinks(original)
 	if err != nil || got != want {
 		t.Fatalf("host directory = %q, %v", got, err)
@@ -256,23 +257,15 @@ func TestInvalidConfiguredKeyDoesNotExposeItsValue(t *testing.T) {
 }
 
 func TestKeyChangesOnReloadKeepThePreviousPlugin(t *testing.T) {
-	resetMasking(t)
 	logs := capturePluginLogs(t)
-	veilABIState.Lock()
-	previous := veilABIState.plugin
-	veilABIState.plugin = nil
-	veilABIState.Unlock()
-	t.Cleanup(func() {
-		veilABIState.Lock()
-		veilABIState.plugin = previous
-		veilABIState.Unlock()
-	})
+	runtime := &pluginRuntime{}
+	defer runtime.close()
 	dir := t.TempDir()
 	ctx := context.Background()
-	if _, err := handleVeilRegister(ctx, pluginabi.MethodPluginRegister, registerRequest(t, dir, "")); err != nil {
+	if _, err := runtime.register(ctx, pluginabi.MethodPluginRegister, registerRequest(t, dir, "")); err != nil {
 		t.Fatal(err)
 	}
-	first := veilABIState.plugin
+	first := runtime.plugin
 	req := pluginapi.RequestInterceptRequest{Body: []byte(`{"input":"test@acme-corp.cn"}`)}
 	masked := intercept(t, first, req)
 	key, err := os.ReadFile(filepath.Join(dir, vault.KeyFile))
@@ -280,10 +273,10 @@ func TestKeyChangesOnReloadKeepThePreviousPlugin(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Moving the very same key into config can be done without a restart.
-	if _, err := handleVeilRegister(ctx, pluginabi.MethodPluginReconfigure, registerRequest(t, dir, string(configBytes(t, veilConfig{Key: string(key)})))); err != nil {
+	if _, err := runtime.register(ctx, pluginabi.MethodPluginReconfigure, registerRequest(t, dir, string(configBytes(t, veilConfig{Key: string(key)})))); err != nil {
 		t.Fatal(err)
 	}
-	valid := veilABIState.plugin
+	valid := runtime.plugin
 	if valid.vault != first.vault || valid.streams != first.streams || valid.vault.Len() == 0 {
 		t.Fatal("same-key migration lost the Vault or active streams")
 	}
@@ -292,10 +285,10 @@ func TestKeyChangesOnReloadKeepThePreviousPlugin(t *testing.T) {
 		{Key: "do-not-log-this"},
 		{}, // Removing an explicit key also changes its source.
 	} {
-		if _, err := handleVeilRegister(ctx, pluginabi.MethodPluginReconfigure, registerRequest(t, dir, string(configBytes(t, cfg)))); err != nil {
+		if _, err := runtime.register(ctx, pluginabi.MethodPluginReconfigure, registerRequest(t, dir, string(configBytes(t, cfg)))); err != nil {
 			t.Fatal(err)
 		}
-		if veilABIState.plugin != valid {
+		if runtime.plugin != valid {
 			t.Fatal("key change replaced the working plugin")
 		}
 	}
@@ -304,5 +297,8 @@ func TestKeyChangesOnReloadKeepThePreviousPlugin(t *testing.T) {
 	}
 	if !strings.Contains(logs.String(), "requires a CPA restart") || strings.Contains(logs.String(), "do-not-log-this") || strings.Contains(logs.String(), strings.TrimSpace(string(key))) {
 		t.Fatal("reload warning was missing or exposed a key")
+	}
+	if !strings.Contains(logs.String(), "CPA v7 config disable does not") {
+		t.Fatal("reload warning incorrectly promises a new instance after v7 config disable")
 	}
 }

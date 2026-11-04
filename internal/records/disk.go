@@ -61,29 +61,44 @@ func (s *Store) write(r Record) {
 		}
 		s.disk.ready = true
 	}
-	r.Snips = nil
-	line, err := json.Marshal(r)
-	if err != nil {
+	n := appendRecord(s.dir, r)
+	if n == 0 {
 		return
 	}
-	line = append(line, '\n')
+	s.disk.bytes += int64(n)
 	day := r.Time.Local().Format(dayForm)
-	f, err := os.OpenFile(filepath.Join(s.dir, day+".jsonl"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
-	if err != nil {
-		return
-	}
-	_, err = f.Write(line)
-	if errClose := f.Close(); err == nil {
-		err = errClose
-	}
-	if err != nil {
-		return
-	}
-	s.disk.bytes += int64(len(line))
 	if day != s.disk.pruned || s.disk.bytes > keepBytes {
 		s.disk.pruned = day
 		s.prune(r.Time)
 	}
+}
+
+// appendRecord preserves the JSONL format. A patch cannot recreate a day
+// removed by Clear or retention, and does not prune an old directory.
+func appendRecord(dir string, r Record) int {
+	r.Snips = nil
+	line, err := json.Marshal(r)
+	if err != nil {
+		return 0
+	}
+	line = append(line, '\n')
+	flags := os.O_WRONLY | os.O_APPEND
+	if !r.Patch {
+		flags |= os.O_CREATE
+	}
+	path := filepath.Join(dir, r.Time.Local().Format(dayForm)+".jsonl")
+	f, err := os.OpenFile(path, flags, 0o600)
+	if err != nil {
+		return 0
+	}
+	n, err := f.Write(line)
+	if errClose := f.Close(); err == nil {
+		err = errClose
+	}
+	if err != nil {
+		return 0
+	}
+	return n
 }
 
 // prune deletes the days older than keepDays, then the oldest days until all

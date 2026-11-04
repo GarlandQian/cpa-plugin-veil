@@ -60,10 +60,9 @@ import (
 
 var veilABIState = struct {
 	sync.RWMutex
-	host         *C.cliproxy_host_api
-	plugin       *veilPlugin
-	shuttingDown bool
-	inFlight     sync.WaitGroup
+	host      *C.cliproxy_host_api
+	runtime   *pluginRuntime
+	lifecycle sync.Mutex // serializes native init and shutdown
 }{}
 
 const maxCGoBytesLen = C.size_t(1<<31 - 1)
@@ -88,11 +87,15 @@ type abiLifecycleRequest struct {
 
 type abiRequestInterceptRequest struct {
 	pluginapi.RequestInterceptRequest
+	// RequestID is provided by CPA v8; the v7 SDK predates it.
+	RequestID      string `json:"RequestID,omitempty"`
 	HostCallbackID string `json:"host_callback_id,omitempty"`
 }
 
 type abiResponseInterceptRequest struct {
 	pluginapi.ResponseInterceptRequest
+	// Preserve the same ID used by the request hook, including across reloads.
+	RequestID      string `json:"RequestID,omitempty"`
 	HostCallbackID string `json:"host_callback_id,omitempty"`
 }
 
@@ -226,9 +229,17 @@ func cliproxy_plugin_init(host *C.cliproxy_host_api, plugin *C.cliproxy_plugin_a
 	if host == nil || plugin == nil {
 		return 1
 	}
+	veilABIState.lifecycle.Lock()
+	defer veilABIState.lifecycle.Unlock()
+	veilABIState.RLock()
+	previous := veilABIState.runtime
+	veilABIState.RUnlock()
+	if previous != nil {
+		previous.close()
+	}
 	veilABIState.Lock()
 	veilABIState.host = host
-	veilABIState.shuttingDown = false
+	veilABIState.runtime = &pluginRuntime{}
 	veilABIState.Unlock()
 
 	plugin.abi_version = C.uint32_t(pluginabi.ABIVersion)
@@ -274,109 +285,27 @@ func VeilPluginFree(ptr unsafe.Pointer, _ C.size_t) {
 
 //export VeilPluginShutdown
 func VeilPluginShutdown() {
-	veilABIState.Lock()
-	veilABIState.shuttingDown = true
-	veilABIState.plugin = nil
-	veilABIState.host = nil
-	veilABIState.Unlock()
-	veilABIState.inFlight.Wait()
-}
-
-func handleVeilABIMethod(ctx context.Context, method string, request []byte) (out []byte, err error) {
-	// A panic must not cross into the host: it would take the whole process
-	// down. Request interceptors recover on their own and stop the request.
-	defer func() {
-		if r := recover(); r != nil {
-			out, err = nil, fmt.Errorf("veil %s panicked: %v", method, r)
-		}
-	}()
-	switch method {
-	case pluginabi.MethodPluginRegister, pluginabi.MethodPluginReconfigure:
-		return handleVeilRegister(ctx, method, request)
-	}
-
-	p, done, errPlugin := beginVeilPluginCall()
-	if errPlugin != nil {
-		return nil, errPlugin
-	}
-	defer done()
-
-	switch method {
-	case pluginabi.MethodRequestInterceptBefore:
-		var req abiRequestInterceptRequest
-		if errDecode := json.Unmarshal(request, &req); errDecode != nil {
-			return nil, errDecode
-		}
-		resp, errCall := p.InterceptRequestBeforeAuth(withHostCallbackID(ctx, req.HostCallbackID), req.RequestInterceptRequest)
-		return abiOKEnvelopeWithError(resp, errCall)
-	case pluginabi.MethodRequestInterceptAfter:
-		var req abiRequestInterceptRequest
-		if errDecode := json.Unmarshal(request, &req); errDecode != nil {
-			return nil, errDecode
-		}
-		resp, errCall := p.InterceptRequestAfterAuth(withHostCallbackID(ctx, req.HostCallbackID), req.RequestInterceptRequest)
-		return abiOKEnvelopeWithError(resp, errCall)
-	case pluginabi.MethodResponseInterceptAfter:
-		var req abiResponseInterceptRequest
-		if errDecode := json.Unmarshal(request, &req); errDecode != nil {
-			return nil, errDecode
-		}
-		resp, errCall := p.InterceptResponse(withHostCallbackID(ctx, req.HostCallbackID), req.ResponseInterceptRequest)
-		return abiOKEnvelopeWithError(resp, errCall)
-	case pluginabi.MethodResponseInterceptStreamChunk:
-		var req abiStreamChunkInterceptRequest
-		if errDecode := json.Unmarshal(request, &req); errDecode != nil {
-			return nil, errDecode
-		}
-		resp, errCall := p.interceptStreamChunk(withHostCallbackID(ctx, req.HostCallbackID), req.StreamChunkInterceptRequest, req.RequestID)
-		return abiOKEnvelopeWithError(resp, errCall)
-	case pluginabi.MethodManagementRegister:
-		var req pluginapi.ManagementRegistrationRequest
-		if errDecode := json.Unmarshal(request, &req); errDecode != nil {
-			return nil, errDecode
-		}
-		return abiOKEnvelope(managementRoutes(req.ResourceBasePath))
-	case pluginabi.MethodManagementHandle:
-		var req abiManagementRequest
-		if errDecode := json.Unmarshal(request, &req); errDecode != nil {
-			return nil, errDecode
-		}
-		return abiOKEnvelope(p.handleManagement(req.ManagementRequest))
-	default:
-		return abiErrorEnvelope("unknown_method", "unknown method: "+method), nil
-	}
-}
-
-func handleVeilRegister(ctx context.Context, method string, request []byte) ([]byte, error) {
-	var req abiLifecycleRequest
-	if errDecode := json.Unmarshal(request, &req); errDecode != nil {
-		return nil, errDecode
-	}
-	plugin, errBuild := buildPlugin(req.ConfigYAML, req.PluginDir)
-	if errBuild != nil {
-		veilABIState.RLock()
-		hasPrevious := veilABIState.plugin != nil
-		veilABIState.RUnlock()
-		// The host drops a plugin whose reconfigure fails, which would silently
-		// stop redaction. Keep filtering with the last valid config instead and
-		// report the rejected config loudly.
-		if method == pluginabi.MethodPluginReconfigure && hasPrevious {
-			pluginLog(ctx, logLevelError, "veil rejected new config, still using the previous valid config: "+errBuild.Error(), map[string]any{
-				"error": errBuild.Error(),
-			})
-			return abiOKEnvelope(newABIRegistration(pluginMetadata(), req.SchemaVersion))
-		}
-		return nil, errBuild
-	}
-	p, ok := plugin.Capabilities.RequestInterceptor.(*veilPlugin)
-	if !ok || p == nil {
-		return nil, fmt.Errorf("veil plugin registration returned invalid interceptor")
+	veilABIState.lifecycle.Lock()
+	defer veilABIState.lifecycle.Unlock()
+	veilABIState.RLock()
+	runtime := veilABIState.runtime
+	veilABIState.RUnlock()
+	if runtime != nil {
+		runtime.close()
 	}
 	veilABIState.Lock()
-	veilABIState.plugin = p
-	veilABIState.shuttingDown = false
+	veilABIState.runtime, veilABIState.host = nil, nil
 	veilABIState.Unlock()
-	return abiOKEnvelope(newABIRegistration(plugin.Metadata, req.SchemaVersion))
+}
+
+func handleVeilABIMethod(ctx context.Context, method string, request []byte) ([]byte, error) {
+	veilABIState.RLock()
+	runtime := veilABIState.runtime
+	veilABIState.RUnlock()
+	if runtime == nil {
+		return nil, fmt.Errorf("veil plugin is not initialized")
+	}
+	return runtime.handle(ctx, method, request)
 }
 
 // veilSchemaVersion is the plugin schema Veil speaks where the host does
@@ -407,19 +336,6 @@ func newABIRegistration(metadata pluginapi.Metadata, hostSchema uint32) abiRegis
 		Metadata:      metadata,
 		Capabilities:  abiCapabilities{RequestInterceptor: true, ResponseInterceptor: true, StreamChunkInterceptor: true, ManagementAPI: true},
 	}
-}
-
-func beginVeilPluginCall() (*veilPlugin, func(), error) {
-	veilABIState.Lock()
-	defer veilABIState.Unlock()
-	if veilABIState.shuttingDown {
-		return nil, nil, fmt.Errorf("veil plugin is shutting down")
-	}
-	if veilABIState.plugin == nil {
-		return nil, nil, fmt.Errorf("veil plugin is not registered")
-	}
-	veilABIState.inFlight.Add(1)
-	return veilABIState.plugin, veilABIState.inFlight.Done, nil
 }
 
 func abiOKEnvelopeWithError(v any, err error) ([]byte, error) {

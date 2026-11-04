@@ -25,10 +25,10 @@ type veilPlugin struct {
 	masker    *mask.Masker
 	restorer  *restore.Restorer
 	vault     *vault.Vault
-	streams   *streamRegistry
+	streams   *streamRestorer
 	clean     *bodySet
-	// records keeps the Masking records, and links finds the record a
-	// response belongs to; nil when records are off
+	// records is nil when records are off. links still observes requests so
+	// a late unidentified response cannot take a record after re-enabling.
 	records *records.Store
 	links   *recordLinks
 }
@@ -44,7 +44,7 @@ func (p *veilPlugin) Identifier() string {
 }
 
 func (p *veilPlugin) InterceptRequestBeforeAuth(ctx context.Context, req pluginapi.RequestInterceptRequest) (pluginapi.RequestInterceptResponse, error) {
-	return p.interceptRequest(ctx, req)
+	return p.interceptRequest(ctx, req, "", false)
 }
 
 // InterceptRequestAfterAuth masks again because other plugins can add text
@@ -52,13 +52,13 @@ func (p *veilPlugin) InterceptRequestBeforeAuth(ctx context.Context, req plugina
 // higher-priority after-auth interceptors both run later in the chain.
 // Masking is idempotent, so an already-masked body produces no hits.
 func (p *veilPlugin) InterceptRequestAfterAuth(ctx context.Context, req pluginapi.RequestInterceptRequest) (pluginapi.RequestInterceptResponse, error) {
-	return p.interceptRequest(ctx, req)
+	return p.interceptRequest(ctx, req, "", true)
 }
 
 // interceptRequest masks a request. It never returns an error: the host would
 // send the original body upstream. A request Veil cannot mask, or one holding
 // a Kind whose Action is block, becomes a Stopped request instead.
-func (p *veilPlugin) interceptRequest(ctx context.Context, req pluginapi.RequestInterceptRequest) (resp pluginapi.RequestInterceptResponse, _ error) {
+func (p *veilPlugin) interceptRequest(ctx context.Context, req pluginapi.RequestInterceptRequest, requestID string, afterAuth bool) (resp pluginapi.RequestInterceptResponse, _ error) {
 	start := time.Now()
 	defer func() {
 		if r := recover(); r != nil {
@@ -67,9 +67,6 @@ func (p *veilPlugin) interceptRequest(ctx context.Context, req pluginapi.Request
 		}
 	}()
 
-	if p.cfg.shouldSkip(req.Model, req.RequestedModel, req.SourceFormat) {
-		return resp, nil
-	}
 	if len(req.Body) == 0 {
 		return resp, nil
 	}
@@ -77,7 +74,10 @@ func (p *veilPlugin) interceptRequest(ctx context.Context, req pluginapi.Request
 	// A body one pass already left masked, such as the before-auth output the
 	// after-auth pass receives, needs no second look.
 	sum := bodySum(scope, req.Body)
-	if p.clean.has(sum) {
+	if p.cfg.shouldSkip(req.Model, req.RequestedModel, req.SourceFormat) || p.clean.has(sum) {
+		if !afterAuth && p.links != nil {
+			p.links.put(scope, requestID, sum, records.Ref{})
+		}
 		return resp, nil
 	}
 
@@ -105,17 +105,15 @@ func (p *veilPlugin) interceptRequest(ctx context.Context, req pluginapi.Request
 	key, recorded := p.record(req, report, "", start)
 	if masked == nil {
 		p.clean.add(sum)
-		if recorded {
-			p.links.put(sum, key)
+		if p.links != nil && (recorded || !afterAuth) {
+			p.links.put(scope, requestID, sum, key)
 		}
 		return resp, nil
 	}
 	maskedSum := bodySum(scope, masked)
 	p.clean.add(maskedSum)
-	if recorded {
-		// The host hands the response this body back, as the request the
-		// response answers.
-		p.links.put(maskedSum, key)
+	if p.links != nil {
+		p.links.put(scope, requestID, maskedSum, key)
 	}
 
 	// The host text formatter only prints a fixed set of field names, so the
@@ -135,9 +133,9 @@ func (p *veilPlugin) interceptRequest(ctx context.Context, req pluginapi.Request
 // record keeps a Masking record of a request that had a value or did not
 // reach the upstream; stopped says why it did not. It returns the record's
 // key, if it kept one.
-func (p *veilPlugin) record(req pluginapi.RequestInterceptRequest, report mask.Report, stopped string, start time.Time) (int64, bool) {
+func (p *veilPlugin) record(req pluginapi.RequestInterceptRequest, report mask.Report, stopped string, start time.Time) (records.Ref, bool) {
 	if p.records == nil || (len(report.Values) == 0 && stopped == "") {
-		return 0, false
+		return records.Ref{}, false
 	}
 	r := records.Record{
 		Time:    start,
@@ -171,23 +169,18 @@ func (p *veilPlugin) record(req pluginapi.RequestInterceptRequest, report mask.R
 	return p.records.Add(r)
 }
 
-// recordOf returns the key of the Masking record of the request a response
-// answers, known by the bodies the host hands the response back.
-func (p *veilPlugin) recordOf(scope string, bodies ...[]byte) (int64, bool) {
-	if p.records == nil || p.links == nil {
-		return 0, false
+// recordOf consumes the response's association even when recording has since
+// been disabled. Request IDs take precedence over the legacy body fallback.
+func (p *veilPlugin) recordOf(scope, requestID string, bodies ...[]byte) (records.Ref, bool) {
+	if p.links == nil {
+		return records.Ref{}, false
 	}
-	sums := make([][sha256.Size]byte, 0, len(bodies))
-	for _, body := range bodies {
-		if len(body) > 0 {
-			sums = append(sums, bodySum(scope, body))
-		}
-	}
-	return p.links.take(sums...)
+	ref, ok := p.links.take(scope, requestID, bodies...)
+	return ref, ok && p.records != nil
 }
 
 // restored adds to a Masking record what its response put back.
-func (p *veilPlugin) restored(key int64, t *restore.Tally) {
+func (p *veilPlugin) restored(key records.Ref, t *restore.Tally) {
 	p.records.Restore(key, t.Back, t.Unrestored)
 }
 
@@ -203,7 +196,11 @@ func (p *veilPlugin) stop(ctx context.Context, req pluginapi.RequestInterceptReq
 // InterceptResponse restores the Placeholders of a non-streaming response,
 // looking them up in the Caller scope of the request that caused it. If
 // restoring fails, the response goes through with its Placeholders.
-func (p *veilPlugin) InterceptResponse(ctx context.Context, req pluginapi.ResponseInterceptRequest) (resp pluginapi.ResponseInterceptResponse, _ error) {
+func (p *veilPlugin) InterceptResponse(ctx context.Context, req pluginapi.ResponseInterceptRequest) (pluginapi.ResponseInterceptResponse, error) {
+	return p.interceptResponse(ctx, req, "")
+}
+
+func (p *veilPlugin) interceptResponse(ctx context.Context, req pluginapi.ResponseInterceptRequest, requestID string) (resp pluginapi.ResponseInterceptResponse, _ error) {
 	defer func() {
 		if r := recover(); r != nil {
 			resp = pluginapi.ResponseInterceptResponse{}
@@ -214,7 +211,7 @@ func (p *veilPlugin) InterceptResponse(ctx context.Context, req pluginapi.Respon
 		return resp, nil
 	}
 	scope := vault.ScopeOf(req.RequestHeaders)
-	key, recorded := p.recordOf(scope, req.OriginalRequest, req.RequestBody)
+	key, recorded := p.recordOf(scope, requestID, req.OriginalRequest, req.RequestBody)
 	var tally *restore.Tally
 	if recorded {
 		tally = &restore.Tally{}
@@ -245,37 +242,16 @@ func (p *veilPlugin) interceptStreamChunk(ctx context.Context, req pluginapi.Str
 		}
 	}()
 	scope := vault.ScopeOf(req.RequestHeaders)
-	key, unique := streamKey(scope, requestID, req.RequestBody)
-	if req.ChunkIndex == pluginapi.StreamChunkHeaderInitIndex {
-		if p.vault.HasScope(scope) {
-			var finish func(*restore.Stream)
-			if record, ok := p.recordOf(scope, req.OriginalRequest, req.RequestBody); ok {
-				finish = func(s *restore.Stream) { p.restored(record, s.Tally()) }
-			}
-			p.streams.start(key, unique, func(hold bool) *restore.Stream { return p.restorer.NewStream(scope, hold) }, finish)
+	init := req.ChunkIndex == pluginapi.StreamChunkHeaderInitIndex
+	var finish func(*restore.Tally)
+	if init {
+		if record, ok := p.recordOf(scope, requestID, req.OriginalRequest, req.RequestBody); ok {
+			finish = func(t *restore.Tally) { p.restored(record, t) }
 		}
-		return resp, nil
 	}
-	// An empty chunk, such as the blank line between two events that CPA
-	// v8's Codex path hands over as a chunk of its own, still takes its index:
-	// the stream would otherwise lose its place and be restored without
-	// holding from there on.
-	entry := p.streams.take(key, req.ChunkIndex)
-	if len(req.Body) == 0 {
+	out := p.streams.chunk(streamCall{scope: scope, requestID: requestID, requestBody: req.RequestBody, body: req.Body, index: req.ChunkIndex, init: init}, finish)
+	if init || len(req.Body) == 0 {
 		return resp, nil
-	}
-	var stream *restore.Stream
-	switch {
-	case entry != nil:
-		stream = entry.stream
-	case p.vault.HasScope(scope):
-		stream = p.restorer.NewStream(scope, false)
-	default:
-		return resp, nil
-	}
-	out, done := stream.Chunk(req.Body)
-	if done && entry != nil {
-		p.streams.end(key, entry)
 	}
 	switch {
 	case len(out) == 0:
@@ -306,22 +282,6 @@ func kindSummary(counts map[string]int) string {
 		parts[i] = fmt.Sprintf("%s=%d", kind, counts[kind])
 	}
 	return strings.Join(parts, ", ")
-}
-
-// streamKey is what the chunks of a stream are known by: the ID of its
-// request, which CPA v8 gives every chunk and no other request shares, or
-// else its Caller scope and request body, which identical requests share.
-func streamKey(scope, requestID string, body []byte) (key [sha256.Size]byte, unique bool) {
-	if requestID == "" {
-		return bodySum(scope, body), false
-	}
-	h := sha256.New()
-	h.Write([]byte("request\x00"))
-	h.Write([]byte(scope))
-	h.Write([]byte{0})
-	h.Write([]byte(requestID))
-	h.Sum(key[:0])
-	return key, true
 }
 
 func bodySum(scope string, body []byte) [sha256.Size]byte {

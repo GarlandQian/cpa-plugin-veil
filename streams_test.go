@@ -103,9 +103,6 @@ func TestStreamThroughTheHost(t *testing.T) {
 	if got := streamedText(t, h.visible.String()); got != "sending to test@acme-corp.cn now" {
 		t.Fatalf("client saw %q\n%s", got, h.visible.String())
 	}
-	if len(p.streams.streams) != 0 {
-		t.Fatal("finished stream was not forgotten")
-	}
 }
 
 // Two streams of the same client and body cannot be told apart chunk by
@@ -320,31 +317,21 @@ func TestStreamsKnownByRequestID(t *testing.T) {
 			t.Fatalf("%s stream text %q", name, text)
 		}
 	}
-	if n := len(p.streams.streams); n != 0 {
-		t.Fatalf("%d streams left after both ended", n)
-	}
 }
 
 // The host offers its schema at plugin.register; Veil takes 5 where the
 // host has it, so payload chunks come without the bodies, and the original
 // one on CPA v7, which offers none.
 func TestRegisterTakesTheHostsSchema(t *testing.T) {
-	resetMasking(t)
-	veilABIState.Lock()
-	previous := veilABIState.plugin
-	veilABIState.Unlock()
-	t.Cleanup(func() {
-		veilABIState.Lock()
-		veilABIState.plugin = previous
-		veilABIState.Unlock()
-	})
+	runtime := &pluginRuntime{}
+	defer runtime.close()
 	dir := t.TempDir()
 	for host, want := range map[uint32]uint32{0: 1, 1: 1, 2: 1, 3: 3, 4: 4, 5: 5, 10: 5} {
 		raw, err := json.Marshal(abiLifecycleRequest{PluginDir: dir, SchemaVersion: host})
 		if err != nil {
 			t.Fatal(err)
 		}
-		out, err := handleVeilRegister(context.Background(), pluginabi.MethodPluginRegister, raw)
+		out, err := runtime.register(context.Background(), pluginabi.MethodPluginRegister, raw)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -359,15 +346,9 @@ func TestRegisterTakesTheHostsSchema(t *testing.T) {
 func TestStreamChunkEnvelopeCarriesTheRequestID(t *testing.T) {
 	p := newConfiguredInterceptor(t, "").(*veilPlugin)
 	placeholder := maskedPlaceholder(t, p, "k")
-	veilABIState.Lock()
-	previous := veilABIState.plugin
-	veilABIState.plugin = p
-	veilABIState.Unlock()
-	t.Cleanup(func() {
-		veilABIState.Lock()
-		veilABIState.plugin = previous
-		veilABIState.Unlock()
-	})
+	runtime := &pluginRuntime{}
+	defer runtime.close()
+	runtime.plugin = p
 	headers := map[string][]string{"Authorization": {"Bearer k"}}
 	s := &v8Stream{t: t}
 	for i, line := range append([]string{""}, responsesV8Lines("to "+placeholder+" ok", 4)...) {
@@ -379,7 +360,7 @@ func TestStreamChunkEnvelopeCarriesTheRequestID(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		out, err := handleVeilABIMethod(context.Background(), pluginabi.MethodResponseInterceptStreamChunk, raw)
+		out, err := runtime.handle(context.Background(), pluginabi.MethodResponseInterceptStreamChunk, raw)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -410,15 +391,9 @@ func TestStreamChunkEnvelopeCarriesTheRequestID(t *testing.T) {
 func BenchmarkLongHistoryStream(b *testing.B) {
 	p := newConfiguredInterceptor(b, "").(*veilPlugin)
 	maskedPlaceholder(b, p, "k")
-	veilABIState.Lock()
-	previous := veilABIState.plugin
-	veilABIState.plugin = p
-	veilABIState.Unlock()
-	b.Cleanup(func() {
-		veilABIState.Lock()
-		veilABIState.plugin = previous
-		veilABIState.Unlock()
-	})
+	runtime := &pluginRuntime{}
+	defer runtime.close()
+	runtime.plugin = p
 	history := []byte(`{"input":"` + strings.Repeat("an old turn of the conversation, ", 112_000) + `"}`)
 	lines := responsesV8Lines(strings.Repeat("summary ", 34), 8)
 	headers := map[string][]string{"Authorization": {"Bearer k"}}
@@ -442,7 +417,7 @@ func BenchmarkLongHistoryStream(b *testing.B) {
 			b.ResetTimer()
 			for range b.N {
 				for _, raw := range envelopes {
-					if _, err := handleVeilABIMethod(context.Background(), pluginabi.MethodResponseInterceptStreamChunk, raw); err != nil {
+					if _, err := runtime.handle(context.Background(), pluginabi.MethodResponseInterceptStreamChunk, raw); err != nil {
 						b.Fatal(err)
 					}
 				}

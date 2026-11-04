@@ -16,40 +16,29 @@ import (
 
 var emailPlaceholder = regexp.MustCompile(`\{\{EMAIL_[a-z2-7]{8}\}\}`)
 
-// resetMasking forgets the process-wide Vault, as a restart does, and
-// restores it when the test ends.
-func resetMasking(t testing.TB) {
-	t.Helper()
-	masking.Lock()
-	dir, v, m, st := masking.dir, masking.vault, masking.masker, masking.streams
-	key, explicit, noted, recs := masking.key, masking.explicitKey, masking.shadowNoted, masking.records
-	masking.dir, masking.vault, masking.masker, masking.streams = "", nil, nil, nil
-	masking.key, masking.explicitKey, masking.shadowNoted, masking.records = nil, false, false, nil
-	masking.Unlock()
-	t.Cleanup(func() {
-		masking.Lock()
-		masking.dir, masking.vault, masking.masker, masking.streams = dir, v, m, st
-		masking.key, masking.explicitKey, masking.shadowNoted, masking.records = key, explicit, noted, recs
-		masking.Unlock()
-	})
-}
-
 // Build the public plugin with a minimal rules file so these tests exercise
 // configuration and hooks without depending on optional sidecar rules.
 func newConfiguredInterceptor(t testing.TB, configYAML string) pluginapi.RequestInterceptor {
 	t.Helper()
-	resetMasking(t)
+
 	return buildInterceptor(t, t.TempDir(), configYAML)
 }
 
 func buildInterceptor(t testing.TB, dir, configYAML string) pluginapi.RequestInterceptor {
 	t.Helper()
+	i := &pluginInstance{}
+	return reloadInterceptor(t, i, dir, configYAML)
+}
+
+func reloadInterceptor(t testing.TB, i *pluginInstance, dir, configYAML string) pluginapi.RequestInterceptor {
+	t.Helper()
 	if err := os.WriteFile(filepath.Join(dir, "rules.toml"), []byte("title = \"consumer test\"\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	plugin, err := buildPlugin([]byte("gitleaks_toml: rules.toml\n"+configYAML), dir)
+	t.Cleanup(i.close)
+	plugin, err := i.configure([]byte("gitleaks_toml: rules.toml\n"+configYAML), dir)
 	if err != nil {
-		t.Fatalf("buildPlugin() error = %v", err)
+		t.Fatalf("configure() error = %v", err)
 	}
 	return plugin.Capabilities.RequestInterceptor
 }
@@ -140,12 +129,10 @@ func TestCallerScopesGetDifferentPlaceholders(t *testing.T) {
 // The placeholder key lives in the plugin directory, so a restart masks the
 // same value to the same placeholder.
 func TestPlaceholdersSurviveRestart(t *testing.T) {
-	resetMasking(t)
 	dir := t.TempDir()
 	body := []byte(`{"input":"test@acme-corp.cn"}`)
 	first := intercept(t, buildInterceptor(t, dir, ""), pluginapi.RequestInterceptRequest{Body: body})
 
-	resetMasking(t)
 	second := intercept(t, buildInterceptor(t, dir, ""), pluginapi.RequestInterceptRequest{Body: body})
 	if string(first) != string(second) {
 		t.Fatalf("restart changed the placeholder: %s vs %s", first, second)
@@ -158,11 +145,11 @@ func TestPlaceholdersSurviveRestart(t *testing.T) {
 // A config reload keeps the Vault, so placeholders handed out before it still
 // restore after it.
 func TestReloadKeepsTheVault(t *testing.T) {
-	resetMasking(t)
 	dir := t.TempDir()
-	first := buildInterceptor(t, dir, "").(*veilPlugin)
+	instance := &pluginInstance{}
+	first := reloadInterceptor(t, instance, dir, "").(*veilPlugin)
 	intercept(t, first, pluginapi.RequestInterceptRequest{Body: []byte(`{"input":"test@acme-corp.cn"}`)})
-	second := buildInterceptor(t, dir, "skip_models: [other]").(*veilPlugin)
+	second := reloadInterceptor(t, instance, dir, "skip_models: [other]").(*veilPlugin)
 	if second.vault != first.vault || second.vault.Len() == 0 {
 		t.Fatal("reload dropped the vault")
 	}
@@ -191,8 +178,7 @@ func TestInterceptRequest_SkippedModel(t *testing.T) {
 }
 
 func TestInterceptMasksSecrets(t *testing.T) {
-	resetMasking(t)
-	plugin, err := buildPlugin(nil, t.TempDir())
+	plugin, err := buildPlugin(t, nil, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -279,9 +265,11 @@ func TestRegistrationCapabilityJSON(t *testing.T) {
 // and the next turn re-sends that answer, which masks to the same
 // placeholder again.
 func TestRoundTripThroughTheABI(t *testing.T) {
-	resetMasking(t)
+	runtime := &pluginRuntime{}
+	defer runtime.close()
+
 	dir := t.TempDir()
-	raw, err := handleVeilRegister(context.Background(), "plugin.register", registerRequest(t, dir, ""))
+	raw, err := runtime.register(context.Background(), "plugin.register", registerRequest(t, dir, ""))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -294,7 +282,7 @@ func TestRoundTripThroughTheABI(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		out, err := handleVeilABIMethod(context.Background(), method, payload)
+		out, err := runtime.handle(context.Background(), method, payload)
 		if err != nil {
 			t.Fatal(err)
 		}

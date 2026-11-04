@@ -23,6 +23,7 @@ func record(caller, kind, placeholder string, at time.Time) Record {
 
 func TestMemoryKeepsTheNewestAndTheirSnips(t *testing.T) {
 	s := New()
+	t.Cleanup(s.Close)
 	now := time.Now()
 	for i := 0; i < keepRecords+5; i++ {
 		if _, ok := s.Add(record("c", "EMAIL", fmt.Sprintf("{{EMAIL_%08d}}", i), now)); !ok {
@@ -51,7 +52,7 @@ func TestMemoryKeepsTheNewestAndTheirSnips(t *testing.T) {
 }
 
 func TestAFullQueueDropsAndCounts(t *testing.T) {
-	s := &Store{queue: make(chan item, 1), clock: time.Now} // no writer running
+	s := &Store{queue: make(chan item, 2), clock: time.Now} // no writer running
 	if _, ok := s.Add(record("c", "EMAIL", "{{EMAIL_a}}", time.Now())); !ok {
 		t.Fatal("the first record was dropped")
 	}
@@ -63,6 +64,7 @@ func TestAFullQueueDropsAndCounts(t *testing.T) {
 func TestDaysOnDiskWithoutSnips(t *testing.T) {
 	dir := t.TempDir()
 	s := New()
+	t.Cleanup(s.Close)
 	s.SetDir(dir)
 	today := time.Now()
 	yesterday := today.AddDate(0, 0, -1)
@@ -120,6 +122,7 @@ func TestPruneKeepsThirtyDaysAndTheByteLimit(t *testing.T) {
 	t.Cleanup(func() { keepBytes = saved })
 
 	s := New()
+	t.Cleanup(s.Close)
 	s.SetDir(dir)
 	s.Add(record("c", "EMAIL", "{{EMAIL_a}}", now))
 	s.Flush()
@@ -140,6 +143,7 @@ func TestPruneKeepsThirtyDaysAndTheByteLimit(t *testing.T) {
 func TestClearDeletesRecordsOnly(t *testing.T) {
 	dir := t.TempDir()
 	s := New()
+	t.Cleanup(s.Close)
 	s.SetDir(dir)
 	s.Add(record("c", "EMAIL", "{{EMAIL_a}}", time.Now()))
 	s.Flush()
@@ -156,6 +160,7 @@ func TestClearDeletesRecordsOnly(t *testing.T) {
 
 func TestMemoryOnlyWithoutADirectory(t *testing.T) {
 	s := New()
+	t.Cleanup(s.Close)
 	s.Add(record("c", "EMAIL", "{{EMAIL_a}}", time.Now()))
 	s.Flush()
 	if s.Persisted() {
@@ -168,6 +173,7 @@ func TestMemoryOnlyWithoutADirectory(t *testing.T) {
 
 func TestListFiltersAndPages(t *testing.T) {
 	s := New()
+	t.Cleanup(s.Close)
 	now := time.Now()
 	stopped := record("", "SECRET", "{{SECRET_s}}", now)
 	stopped.Stopped = StoppedBlock
@@ -203,9 +209,11 @@ func TestListFiltersAndPages(t *testing.T) {
 
 func TestSummary(t *testing.T) {
 	for _, persisted := range []bool{false, true} {
+		dir := t.TempDir()
 		s := New()
+		t.Cleanup(s.Close)
 		if persisted {
-			s.SetDir(t.TempDir())
+			s.SetDir(dir)
 		}
 		now := time.Now()
 		r1 := record("a", "EMAIL", "{{EMAIL_1}}", now)
@@ -255,8 +263,10 @@ func TestKeysGrowWithinOneMicrosecond(t *testing.T) {
 }
 
 func TestRestoreAddsToTheRecordInMemoryAndOnDisk(t *testing.T) {
+	dir := t.TempDir()
 	s := New()
-	s.SetDir(t.TempDir())
+	t.Cleanup(s.Close)
+	s.SetDir(dir)
 	key, _ := s.Add(record("c", "EMAIL", "{{EMAIL_a}}", time.Now()))
 	s.Restore(key, map[string]int{"{{EMAIL_a}}": 2}, nil)
 	s.Restore(key, map[string]int{"{{EMAIL_a}}": 1}, map[string]int{"{{EMAIL_gonegone}}": 1})
@@ -267,13 +277,13 @@ func TestRestoreAddsToTheRecordInMemoryAndOnDisk(t *testing.T) {
 			t.Fatalf("%s: record = %+v (%v)", where, r.Restored, ok)
 		}
 	}
-	r, ok := s.Get(key)
+	r, ok := s.Get(key.Key)
 	check("memory", r, ok)
 
 	s.mu.Lock()
 	s.ring = nil
 	s.mu.Unlock()
-	r, ok = s.Get(key)
+	r, ok = s.Get(key.Key)
 	check("disk", r, ok)
 	list, _ := s.List(0, 10, Filter{})
 	if len(list) != 1 {

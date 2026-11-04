@@ -10,13 +10,12 @@ import (
 )
 
 func TestDetectionOptionsFromConfig(t *testing.T) {
-	resetMasking(t)
 	dir := t.TempDir()
 	extra := "[[rules]]\nid = \"internal-ticket\"\nregex = '''TKT-[0-9]{6}'''\nkeywords = [\"tkt-\"]\nkind = \"TICKET\"\n"
 	if err := os.WriteFile(filepath.Join(dir, "extra.toml"), []byte(extra), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	plugin, err := buildPlugin([]byte(`
+	plugin, err := buildPlugin(t, []byte(`
 rules_toml: extra.toml
 disabled_rules: [phone-cn]
 categories:
@@ -57,8 +56,8 @@ func TestInvalidDetectionOptionsFailTheConfig(t *testing.T) {
 		"rules_toml: missing.toml",
 		"terms: [' ']",
 	} {
-		resetMasking(t)
-		if _, err := buildPlugin([]byte(yaml), t.TempDir()); err == nil {
+
+		if _, err := buildPlugin(t, []byte(yaml), t.TempDir()); err == nil {
 			t.Errorf("accepted %q", yaml)
 		}
 	}

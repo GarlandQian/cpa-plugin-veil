@@ -107,7 +107,7 @@ sets `plugins.configs.veil.enabled` to `true`. No restart is needed.
 ### By hand
 
 1. Download `veil_<version>_<os>_<arch>.zip` for your platform from
-   [Releases](https://github.com/GarlandQian/cpa-plugin-veil/releases), for example `veil_0.6.1_darwin_arm64.zip` on
+   [Releases](https://github.com/GarlandQian/cpa-plugin-veil/releases), for example `veil_0.6.2_darwin_arm64.zip` on
    an Apple silicon Mac. You can check it against `checksums.txt` from the same page:
 
    ```bash
@@ -225,8 +225,16 @@ To preserve placeholders from v0.4.0 on v7, copy the contents of your existing `
 key during that migration. A v8 key already deleted with its old shadow directory cannot be recovered.
 
 Hot reloads keep the Vault and active streams. Moving the same key from `veil.key` into `key` works on reload;
-changing the key, removing an explicit key, or changing the directory used for a file key requires a CPA restart.
+changing the key, removing an explicit key, or changing the directory used for a file key requires a CPA restart
+or, on CPA v8, disabling and re-enabling Veil.
 Such a reload is rejected with a log message and the previous valid configuration remains active.
+
+When the host calls shutdown, Veil stops accepting calls, waits for current calls, finishes active stream counts
+and drains the record writer before releasing its instance. CPA v8 does this when disabling or uninstalling Veil;
+re-enabling then starts a new Vault and new Sent forms. CPA v7 config disable does not notify the plugin and
+re-enabling reuses the instance, so a key change still requires a CPA restart or a host operation that actually
+calls shutdown. The persisted key and record files remain, but a new instance can restore old placeholders only
+after their original values are masked again. An ordinary config reload keeps this memory state.
 
 ### External rule files on CPA v8
 
@@ -424,7 +432,8 @@ CPA-Manager-Plus, and the page below can be opened directly too. It has:
   output"), the context as the upstream saw it with each Placeholder shown as its Kind, how many places the response
   restored, and what to change in the config if it is not sensitive (turn the rule off, let the value through with
   `allow`, or set the Kind to `warn`). The Placeholder, rule ID and field paths are under its technical details.
-- **Clear records**: deletes the records only; conversations in progress keep restoring.
+- **Clear records**: deletes the current directory’s records, including queued writes. Late restore counts cannot
+  bring cleared records back; new requests continue recording and conversations in progress keep restoring.
 - **Try it**: shows how a text would be masked under the current settings, keeping nothing and touching no
   conversation.
 
@@ -441,6 +450,14 @@ last four characters, and "Default caller" for requests without a key. Veil keep
 - With a persistent directory, records also go to `veil-records/` there, a file a day with mode 0600, kept 30 days and
   100 MB in all, without context. The directory is `base_dir`, or on CPA v7 without it the plugin library's directory.
   On CPA v8 without `base_dir` records live in memory and are gone when CPA restarts.
+- Changing `base_dir` finishes records already accepted in the old directory; later records use the new one.
+  Restore counts follow their original record, even if its response finishes after the switch. The page shows
+  only the current directory. Old files stay in place, and clearing the page does not delete them. With a file
+  key, changing directories still requires a new instance as described above.
+- CPA v8 associates restore counts by caller and request ID. Without request IDs (CPA v7), Veil skips counts for
+  requests or streams it cannot distinguish. A body association that becomes ambiguous stays unusable until the
+  instance ends. If the bounded association cache fills, it stops associating counts for all requests without IDs
+  until a new instance starts. Masking, response restoration and the Masking records themselves continue.
 - Records are written in the background and never make a request wait; when the queue is full a record is dropped,
   and the page says how many were.
 - "First time" is judged from the mappings in memory and starts over when CPA restarts.

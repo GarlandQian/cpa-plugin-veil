@@ -2,16 +2,23 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
+	"github.com/GarlandQian/cpa-plugin-veil/internal/records"
 	"github.com/GarlandQian/cpa-plugin-veil/internal/restore"
 
 	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginapi"
 )
 
-var pluginVersion = "0.6.1"
+var pluginVersion = "0.6.2"
 
-func buildPlugin(configYAML []byte, pluginDir string) (pluginapi.Plugin, error) {
+func (i *pluginInstance) configure(configYAML []byte, pluginDir string) (pluginapi.Plugin, error) {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	if i.closed {
+		return pluginapi.Plugin{}, fmt.Errorf("veil instance is closed")
+	}
 	cfg, removed, errParse := parseConfig(configYAML)
 	if errParse != nil {
 		return pluginapi.Plugin{}, errParse
@@ -21,7 +28,7 @@ func buildPlugin(configYAML []byte, pluginDir string) (pluginapi.Plugin, error) 
 			"removed_fields": removed,
 		})
 	}
-	pluginDir, errDir := resolvePluginDir(cfg.BaseDir, pluginDir)
+	pluginDir, errDir := i.resolvePluginDir(cfg.BaseDir, pluginDir)
 	if errDir != nil {
 		return pluginapi.Plugin{}, errDir
 	}
@@ -38,21 +45,28 @@ func buildPlugin(configYAML []byte, pluginDir string) (pluginapi.Plugin, error) 
 	if errKey != nil {
 		return pluginapi.Plugin{}, errKey
 	}
-	masker, v, streams, errState := maskerFor(pluginDir, key, d, actions)
-	if errState != nil {
+	if errState := i.configureMasking(pluginDir, key, d, actions); errState != nil {
 		return pluginapi.Plugin{}, errState
+	}
+	i.explicitKey = len(key) > 0
+	if cfg.recordsOn() && i.records == nil {
+		i.records = records.New()
+	}
+	if i.records != nil {
+		i.records.SetDir(pluginDir)
 	}
 	p := &veilPlugin{
 		cfg:       cfg,
 		pluginDir: pluginDir,
-		masker:    masker.WithValues(cfg.recordsOn()),
-		restorer:  restore.New(v),
-		vault:     v,
-		streams:   streams,
+		masker:    i.masker.WithValues(cfg.recordsOn()),
+		restorer:  restore.New(i.vault),
+		vault:     i.vault,
+		streams:   i.streams,
 		clean:     newBodySet(),
+		links:     i.links,
 	}
 	if cfg.recordsOn() {
-		p.records, p.links = recordStore(pluginDir)
+		p.records = i.records
 	}
 
 	return pluginapi.Plugin{
@@ -75,7 +89,7 @@ func pluginMetadata() pluginapi.Metadata {
 			{
 				Name:        "key",
 				Type:        pluginapi.ConfigFieldTypeString,
-				Description: "Secret placeholder key: 64 hexadecimal characters (32 random bytes). Keep it in config.yaml for stable placeholders across restarts; changing it requires a restart.",
+				Description: "Secret placeholder key: 64 hexadecimal characters (32 random bytes). Keep it in config.yaml for stable placeholders across restarts; changing it requires a CPA restart, or on CPA v8 a full disable and re-enable.",
 			},
 			{
 				Name:        "base_dir",

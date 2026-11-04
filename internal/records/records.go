@@ -96,93 +96,178 @@ func (r *Restored) merge(o Restored) *Restored {
 	return out
 }
 
-// Store keeps records. It is safe for concurrent use.
-type Store struct {
-	queue   chan item
-	dropped atomic.Int64
-	last    atomic.Int64
-	clock   func() time.Time
-
-	mu   sync.Mutex
-	dir  string   // where the days are kept, or "" for memory only
-	ring []Record // the newest last
-	disk diskState
+// Ref follows an accepted record across directory changes. It belongs to the
+// Store that returned it; only Key is part of the public record format.
+type Ref struct {
+	Key   int64
+	at    time.Time
+	dir   string
+	owner *Store
 }
 
-// item is a record to keep, what a response restored, or a flush to answer
-// once those before it are.
+// Store keeps records. Submission never holds the lock used for disk I/O.
+// The writer orders records, restore counts, directory changes and clears.
+type Store struct {
+	queue    chan item
+	finished chan struct{}
+	dropped  atomic.Int64
+	last     atomic.Int64
+	clock    func() time.Time
+
+	control  sync.Mutex // at most one control item awaiting the writer
+	intake   sync.Mutex
+	closed   bool
+	draining bool
+	target   string
+	// Only cleared directories need a watermark, not every record or directory
+	// ever seen. This also invalidates old refs when a directory is revisited.
+	cleared map[string]int64
+
+	mu       sync.Mutex
+	dir      string
+	ring     []Record
+	disk     diskState
+	revision uint64
+}
+
 type item struct {
 	rec      Record
-	restored *Restored // for the record rec.Key
-	done     chan struct{}
+	ref      Ref
+	restored *Restored
+	control  func() error // runs under mu, after all preceding records
+	done     chan error
 }
 
-// New returns a Store keeping records in memory only, until SetDir.
+// New returns a Store keeping records in memory only, until SetDir. Close
+// must be called before its owner releases the plugin or its directory.
 func New() *Store {
-	s := &Store{queue: make(chan item, queueLen), clock: time.Now}
+	// One reserved slot lets a control operation enter even with a full data
+	// queue, without making requests wait for disk I/O.
+	s := &Store{queue: make(chan item, queueLen+1), finished: make(chan struct{}), clock: time.Now, cleared: make(map[string]int64)}
 	go s.run()
 	return s
 }
 
-// SetDir keeps the records on disk under dir from now on, or in memory only
-// when dir is "".
+// SetDir finishes previously accepted records in their old directory, then
+// shows only records in dir. Old files stay where they are. A response's Ref
+// continues to target the directory where its request was accepted.
 func (s *Store) SetDir(dir string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	if dir != "" {
 		dir = recordsDir(dir)
 	}
-	if dir != s.dir {
-		s.dir = dir
-		s.disk = diskState{}
-	}
+	_ = s.command(func() {
+		s.target = dir
+	}, func() error {
+		if s.dir != dir {
+			s.dir, s.ring, s.disk = dir, nil, diskState{}
+			s.revision++
+		}
+		return nil
+	})
 }
 
-// Persisted says the records go to disk too.
+// Persisted says the current view has a persistent directory.
 func (s *Store) Persisted() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.dir != ""
 }
 
-// Dropped is how many records were dropped because too many waited.
-func (s *Store) Dropped() int64 {
-	return s.dropped.Load()
-}
+// Dropped counts submissions rejected because the queue was full.
+func (s *Store) Dropped() int64 { return s.dropped.Load() }
 
-// Add hands r to be kept, giving it its Key and, where unset, its Time, and
-// returns the Key. It never waits: when too many records wait already, r is
-// dropped, counted, and Add returns false.
-func (s *Store) Add(r Record) (int64, bool) {
+// Add assigns a Key and accepts r without waiting for the writer. A full
+// queue drops and counts r; a closed Store rejects it.
+func (s *Store) Add(r Record) (Ref, bool) {
+	s.intake.Lock()
+	defer s.intake.Unlock()
+	if s.closed || s.draining {
+		return Ref{}, false
+	}
 	if r.Time.IsZero() {
 		r.Time = s.clock()
 	}
 	r.Key = s.nextKey(r.Time)
-	select {
-	case s.queue <- item{rec: r}:
-		return r.Key, true
-	default:
-		s.dropped.Add(1)
-		return 0, false
+	ref := Ref{Key: r.Key, at: r.Time, dir: s.target, owner: s}
+	if !s.enqueue(item{rec: r, ref: ref}) {
+		return Ref{}, false
 	}
+	return ref, true
 }
 
-// Restore adds what a response restored to the record with key. Like Add, it
-// never waits, and drops what does not fit.
-func (s *Store) Restore(key int64, back, unrestored map[string]int) {
+// Restore follows the original record, even after SetDir. A clear in that
+// directory invalidates older refs, including ones held by active streams.
+// Like Add, it drops excess submissions without waiting, until BeginDrain.
+func (s *Store) Restore(ref Ref, back, unrestored map[string]int) {
+	s.intake.Lock()
+	defer s.intake.Unlock()
+	if s.closed || ref.owner != s || ref.Key <= s.cleared[ref.dir] {
+		return
+	}
 	r := &Restored{Back: back, Unrestored: unrestored, Time: s.clock()}
-	select {
-	case s.queue <- item{rec: Record{Key: key}, restored: r}:
-	default:
-		s.dropped.Add(1)
+	it := item{ref: ref, restored: r}
+	if s.draining {
+		// Only final stream tallies remain after the runtime drains its calls.
+		s.queue <- it
+	} else {
+		s.enqueue(it)
 	}
 }
 
-// Flush waits until every record added before it is kept.
-func (s *Store) Flush() {
-	done := make(chan struct{})
-	s.queue <- item{done: done}
-	<-done
+// enqueue runs under intake. Leave the reserved slot to command.
+func (s *Store) enqueue(it item) bool {
+	if len(s.queue) >= cap(s.queue)-1 {
+		s.dropped.Add(1)
+		return false
+	}
+	s.queue <- it
+	return true
+}
+
+// command changes intake at the same point it queues a writer operation.
+// Requests may keep enqueueing while the caller waits for the operation.
+func (s *Store) command(accept func(), apply func() error) error {
+	s.control.Lock()
+	defer s.control.Unlock()
+	s.intake.Lock()
+	if s.closed {
+		s.intake.Unlock()
+		<-s.finished
+		return nil
+	}
+	if accept != nil {
+		accept()
+	}
+	done := make(chan error, 1)
+	s.queue <- item{control: apply, done: done}
+	s.intake.Unlock()
+	return <-done
+}
+
+// Flush waits for everything accepted before it. It is also safe after Close.
+func (s *Store) Flush() { _ = s.command(nil, func() error { return nil }) }
+
+// BeginDrain rejects new records and lets final Restore calls wait for queue
+// space instead of dropping them. The owner must first stop request calls;
+// after finalizing active streams it calls Close to join the writer.
+func (s *Store) BeginDrain() {
+	s.intake.Lock()
+	defer s.intake.Unlock()
+	s.draining = true
+}
+
+// Close rejects new submissions, drains accepted records and stops the
+// writer. Concurrent or repeated closes wait for the same completion.
+func (s *Store) Close() {
+	s.control.Lock()
+	defer s.control.Unlock()
+	s.intake.Lock()
+	if !s.closed {
+		s.closed = true
+		close(s.queue)
+	}
+	s.intake.Unlock()
+	<-s.finished
 }
 
 // nextKey is a key larger than any before, near t in microseconds.
@@ -197,22 +282,23 @@ func (s *Store) nextKey(t time.Time) int64 {
 }
 
 func (s *Store) run() {
+	defer close(s.finished)
 	for it := range s.queue {
+		s.mu.Lock()
 		switch {
-		case it.done != nil:
-			close(it.done)
+		case it.control != nil:
+			it.done <- it.control()
 		case it.restored != nil:
-			s.patch(it.rec.Key, *it.restored)
+			s.patch(it.ref, *it.restored)
 		default:
 			s.keep(it.rec)
 		}
+		s.mu.Unlock()
 	}
 }
 
 // keep puts r in memory and, with a directory, on disk.
 func (s *Store) keep(r Record) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.ring = append(s.ring, r)
 	if n := len(s.ring); n > keepSnips {
 		s.ring[n-keepSnips-1].Snips = nil
@@ -225,29 +311,36 @@ func (s *Store) keep(r Record) {
 	}
 }
 
-// patch adds what a response restored to the record with key, in memory and
-// on disk.
-func (s *Store) patch(key int64, r Restored) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	at := time.UnixMicro(key)
+// patch runs on the writer. Old-directory responses never enter the current
+// memory view or prune the files the operator left in an old directory.
+func (s *Store) patch(ref Ref, r Restored) {
+	patch := Record{Key: ref.Key, Time: ref.at, Patch: true, Restored: &r}
+	if ref.dir != s.dir {
+		if ref.dir != "" {
+			appendRecord(ref.dir, patch)
+		}
+		return
+	}
 	for i := len(s.ring) - 1; i >= 0; i-- {
-		if s.ring[i].Key == key {
+		if s.ring[i].Key == ref.Key {
 			s.ring[i].Restored = s.ring[i].Restored.merge(r)
-			at = s.ring[i].Time
 			break
 		}
 	}
 	if s.dir != "" {
-		s.write(Record{Key: key, Time: at, Patch: true, Restored: &r})
+		s.write(patch)
 	}
 }
 
-// Clear deletes every record kept, in memory and on disk. The Vault is not
-// touched: what is being restored goes on restoring.
+// Clear removes the current view and its files after all preceding writes.
+// New records continue after the cutoff; older restore counts cannot recreate
+// a cleared record. Other directories and the Vault are untouched.
 func (s *Store) Clear() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.ring = nil
-	return s.clearDisk()
+	return s.command(func() {
+		s.cleared[s.target] = s.last.Load()
+	}, func() error {
+		s.ring = nil
+		s.revision++
+		return s.clearDisk()
+	})
 }
