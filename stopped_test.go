@@ -68,8 +68,7 @@ func TestMaskingFailureStopsTheRequest(t *testing.T) {
 }
 
 func TestInvalidActionIsRejected(t *testing.T) {
-	resetMasking(t)
-	if _, err := buildPlugin([]byte("actions:\n  EMAIL: hide\n"), t.TempDir()); err == nil {
+	if _, err := buildPlugin(t, []byte("actions:\n  EMAIL: hide\n"), t.TempDir()); err == nil {
 		t.Fatal("an unknown action must fail the config")
 	}
 }

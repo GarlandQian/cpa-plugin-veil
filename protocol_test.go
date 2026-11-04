@@ -104,16 +104,8 @@ func decodeRegistration(t *testing.T, raw []byte) abiRegistration {
 }
 
 func TestReconfigureKeepsPreviousConfigOnInvalidConfig(t *testing.T) {
-	resetMasking(t)
-	veilABIState.Lock()
-	previous := veilABIState.plugin
-	veilABIState.plugin = nil
-	veilABIState.Unlock()
-	t.Cleanup(func() {
-		veilABIState.Lock()
-		veilABIState.plugin = previous
-		veilABIState.Unlock()
-	})
+	runtime := &pluginRuntime{}
+	defer runtime.close()
 
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "rules.toml"), []byte("title = \"reconfigure test\"\n"), 0600); err != nil {
@@ -121,11 +113,11 @@ func TestReconfigureKeepsPreviousConfigOnInvalidConfig(t *testing.T) {
 	}
 	ctx := context.Background()
 
-	if _, err := handleVeilRegister(ctx, pluginabi.MethodPluginRegister, registerRequest(t, dir, "gitleaks_toml: rules.toml\nskip_models: 123")); err == nil {
+	if _, err := runtime.register(ctx, pluginabi.MethodPluginRegister, registerRequest(t, dir, "gitleaks_toml: rules.toml\nskip_models: 123")); err == nil {
 		t.Fatal("initial register must reject invalid config")
 	}
 
-	raw, err := handleVeilRegister(ctx, pluginabi.MethodPluginRegister, registerRequest(t, dir, "gitleaks_toml: rules.toml\nskip_models: [first]"))
+	raw, err := runtime.register(ctx, pluginabi.MethodPluginRegister, registerRequest(t, dir, "gitleaks_toml: rules.toml\nskip_models: [first]"))
 	if err != nil {
 		t.Fatalf("register error = %v", err)
 	}
@@ -133,11 +125,9 @@ func TestReconfigureKeepsPreviousConfigOnInvalidConfig(t *testing.T) {
 	if !registration.Capabilities.RequestInterceptor || registration.Metadata.Name != pluginName {
 		t.Fatalf("unexpected registration %+v", registration)
 	}
-	veilABIState.RLock()
-	valid := veilABIState.plugin
-	veilABIState.RUnlock()
+	valid := runtime.plugin
 
-	raw, err = handleVeilRegister(ctx, pluginabi.MethodPluginReconfigure, registerRequest(t, dir, "gitleaks_toml: rules.toml\nskip_formats: true"))
+	raw, err = runtime.register(ctx, pluginabi.MethodPluginReconfigure, registerRequest(t, dir, "gitleaks_toml: rules.toml\nskip_formats: true"))
 	if err != nil {
 		t.Fatalf("reconfigure with invalid config must keep serving, got %v", err)
 	}
@@ -145,9 +135,7 @@ func TestReconfigureKeepsPreviousConfigOnInvalidConfig(t *testing.T) {
 	if !registration.Capabilities.RequestInterceptor || registration.Metadata.Version != pluginVersion {
 		t.Fatalf("unexpected registration %+v", registration)
 	}
-	veilABIState.RLock()
-	current := veilABIState.plugin
-	veilABIState.RUnlock()
+	current := runtime.plugin
 	if current != valid {
 		t.Fatal("invalid reconfigure must keep the previous plugin instance")
 	}
@@ -159,12 +147,10 @@ func TestReconfigureKeepsPreviousConfigOnInvalidConfig(t *testing.T) {
 		t.Fatalf("expected a placeholder: %s", resp.Body)
 	}
 
-	if _, err = handleVeilRegister(ctx, pluginabi.MethodPluginReconfigure, registerRequest(t, dir, "gitleaks_toml: rules.toml\nskip_models: [second]")); err != nil {
+	if _, err = runtime.register(ctx, pluginabi.MethodPluginReconfigure, registerRequest(t, dir, "gitleaks_toml: rules.toml\nskip_models: [second]")); err != nil {
 		t.Fatalf("valid reconfigure error = %v", err)
 	}
-	veilABIState.RLock()
-	current = veilABIState.plugin
-	veilABIState.RUnlock()
+	current = runtime.plugin
 	if current == valid {
 		t.Fatal("valid reconfigure must replace the plugin instance")
 	}

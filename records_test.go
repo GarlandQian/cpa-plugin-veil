@@ -116,17 +116,9 @@ func TestClearingRecordsKeepsRestoring(t *testing.T) {
 }
 
 func TestRecordsOnDiskHoldNoValues(t *testing.T) {
-	resetMasking(t)
-	recordsOnDisk = true
-	t.Cleanup(func() { recordsOnDisk = false })
 	dir := t.TempDir()
 	i := buildInterceptor(t, dir, "")
 	p := i.(*veilPlugin)
-	t.Cleanup(func() {
-		// Before the directory goes: nothing left to write into it.
-		p.records.Flush()
-		p.records.SetDir("")
-	})
 	intercept(t, i, pluginapi.RequestInterceptRequest{Body: []byte(`{"input":"mail ` + recordedEmail + `"}`)})
 	p.records.Flush()
 	files, _ := filepath.Glob(filepath.Join(dir, "veil-records", "*.jsonl"))

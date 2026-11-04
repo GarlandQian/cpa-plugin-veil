@@ -12,7 +12,7 @@ import (
 // resolvePluginDir prefers an operator's explicit base_dir, then the host's
 // original directory when supplied, then the loaded library's directory. CPA
 // v8 shadow copies contain only the library and cannot hold persistent data.
-func resolvePluginDir(baseDir, pluginDir string) (string, error) {
+func (i *pluginInstance) resolvePluginDir(baseDir, pluginDir string) (string, error) {
 	if baseDir != "" {
 		pluginDir = baseDir
 	} else if pluginDir == "" {
@@ -34,7 +34,7 @@ func resolvePluginDir(baseDir, pluginDir string) (string, error) {
 		if baseDir != "" {
 			return "", fmt.Errorf("base_dir points to a temporary CPA shadow directory; use a persistent directory")
 		}
-		noteShadowCopy()
+		i.noteShadowCopy()
 		return "", nil
 	}
 	if baseDir != "" {
@@ -49,15 +49,13 @@ func resolvePluginDir(baseDir, pluginDir string) (string, error) {
 	return dir, nil
 }
 
-// noteShadowCopy says once per process that files beside the installed
+// noteShadowCopy says once per instance that files beside the installed
 // library are out of reach. It is no warning: a configured key and the
 // embedded rules need nothing from that directory, and a missing key or a
 // relative rule path is reported where it goes wrong.
-func noteShadowCopy() {
-	masking.Lock()
-	noted := masking.shadowNoted
-	masking.shadowNoted = true
-	masking.Unlock()
+func (i *pluginInstance) noteShadowCopy() {
+	noted := i.shadowNoted
+	i.shadowNoted = true
 	if !noted {
 		pluginLog(context.Background(), logLevelInfo, "veil runs from a temporary CPA shadow copy, so files beside the installed library such as rules/gitleaks.toml are not read; set base_dir to use them", nil)
 	}

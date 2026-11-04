@@ -1,14 +1,13 @@
 package main
 
 import (
-	"os"
+	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginapi"
 	"testing"
 )
 
-// TestMain keeps Masking records in memory: most tests use a temporary
-// directory as the plugin's, which the records' writer could still be
-// writing to as the test removes it.
-func TestMain(m *testing.M) {
-	recordsOnDisk = false
-	os.Exit(m.Run())
+func buildPlugin(t testing.TB, config []byte, dir string) (pluginapi.Plugin, error) {
+	t.Helper()
+	i := &pluginInstance{}
+	t.Cleanup(i.close)
+	return i.configure(config, dir)
 }

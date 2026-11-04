@@ -12,70 +12,64 @@ import (
 	"github.com/GarlandQian/cpa-plugin-veil/internal/vault"
 )
 
-// masking is the state that outlives a config reload: the Vault, so
-// Placeholders handed out before the reload still restore, the Sent forms, so
-// prompt prefixes stay the same, the streams in flight and the Masking
-// records.
-var masking = struct {
-	sync.Mutex
+// pluginInstance owns state until the host calls shutdown. Configuration
+// views share its Vault, Sent forms, streams and records; close ends them all.
+// The runtime drains calls before closing the instance.
+type pluginInstance struct {
+	mu          sync.Mutex
+	closed      bool
 	dir         string
 	key         []byte
 	explicitKey bool
 	shadowNoted bool
 	vault       *vault.Vault
 	masker      *mask.Masker
-	streams     *streamRegistry
+	streams     *streamRestorer
 	records     *records.Store
 	links       *recordLinks
-}{}
-
-// recordsOnDisk says Masking records go to disk where Veil has a persistent
-// directory; the tests keep them in memory unless they test the disk.
-var recordsOnDisk = true
-
-// recordStore returns the process's Masking records, kept on disk under dir
-// when it is a persistent directory, and the links from responses to them.
-func recordStore(dir string) (*records.Store, *recordLinks) {
-	masking.Lock()
-	defer masking.Unlock()
-	if masking.records == nil {
-		masking.records = records.New()
-		masking.links = newRecordLinks()
-	}
-	if !recordsOnDisk {
-		dir = ""
-	}
-	masking.records.SetDir(dir)
-	return masking.records, masking.links
 }
 
-// maskerFor keeps the Vault, Sent forms and active streams on reload. A key
-// change needs a restart rather than discarding mappings under live requests.
-func maskerFor(pluginDir string, configuredKey []byte, d *detect.Detector, actions map[string]mask.Action) (*mask.Masker, *vault.Vault, *streamRegistry, error) {
-	masking.Lock()
-	defer masking.Unlock()
-	if masking.vault != nil {
-		if len(configuredKey) > 0 {
-			if !bytes.Equal(configuredKey, masking.key) {
-				return nil, nil, nil, fmt.Errorf("changing the veil key requires a CPA restart")
+func (i *pluginInstance) configureMasking(dir string, key []byte, d *detect.Detector, actions map[string]mask.Action) error {
+	if i.vault != nil {
+		if len(key) > 0 {
+			if !bytes.Equal(key, i.key) {
+				return fmt.Errorf("changing the veil key requires a CPA restart, or a full disable and re-enable on a host that calls shutdown (CPA v8; CPA v7 config disable does not)")
 			}
-		} else if masking.explicitKey || masking.dir != pluginDir {
-			return nil, nil, nil, fmt.Errorf("changing the veil key source requires a CPA restart")
+		} else if i.explicitKey || i.dir != dir {
+			return fmt.Errorf("changing the veil key source requires a CPA restart, or a full disable and re-enable on a host that calls shutdown (CPA v8; CPA v7 config disable does not)")
 		}
 	} else {
-		key := configuredKey
 		if len(key) == 0 {
-			key = placeholderKey(pluginDir)
+			key = placeholderKey(dir)
 		}
-		masking.key = bytes.Clone(key)
-		masking.vault = vault.New(key, vault.DefaultLimit)
-		masking.masker = mask.New(d, masking.vault)
-		masking.streams = newStreamRegistry()
+		i.key = bytes.Clone(key)
+		i.vault = vault.New(key, vault.DefaultLimit)
+		i.masker = mask.New(d, i.vault)
+		i.streams = newStreamRestorer(i.vault)
+		i.links = newRecordLinks()
 	}
-	masking.dir = pluginDir
-	masking.explicitKey = len(configuredKey) > 0
-	masking.masker = masking.masker.WithPolicy(d, actions)
-	return masking.masker, masking.vault, masking.streams, nil
+	i.dir = dir
+	i.masker = i.masker.WithPolicy(d, actions)
+	return nil
+}
+
+func (i *pluginInstance) close() {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	if i.closed {
+		return
+	}
+	i.closed = true
+	if i.records != nil {
+		i.records.BeginDrain()
+	}
+	if i.streams != nil {
+		i.streams.close()
+	}
+	if i.records != nil {
+		i.records.Close()
+	}
+	i.key, i.vault, i.masker, i.streams, i.records, i.links = nil, nil, nil, nil, nil, nil
 }
 
 // placeholderKey loads the key from the plugin directory. Without a usable
