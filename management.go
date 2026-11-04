@@ -61,19 +61,20 @@ func managementRoutes(resourceBase string) abiManagementRegistration {
 			{Method: http.MethodGet, Path: base + "/summary"},
 			{Method: http.MethodGet, Path: base + "/records"},
 			{Method: http.MethodGet, Path: base + "/record"},
+			{Method: http.MethodGet, Path: base + "/record-values"},
 			{Method: http.MethodPost, Path: base + "/clear"},
 			{Method: http.MethodPost, Path: base + "/preview"},
 		},
 		Resources: []abiManagementRoute{{
 			Path:        "/index.html",
 			Menu:        recordsMenu,
-			Description: "Masking records of Veil: what was masked in each request, never the values themselves.",
+			Description: "Masking records of Veil, with original values available on demand while still in memory.",
 		}},
 	}
 }
 
-// handleManagement answers the records page and its Management API. No
-// answer holds a value.
+// handleManagement answers the records page and its authenticated Management
+// API. Only record-values reads originals from the Vault (ADR-0005).
 func (p *veilPlugin) handleManagement(req pluginapi.ManagementRequest) pluginapi.ManagementResponse {
 	path := strings.TrimRight(req.Path, "/")
 	if strings.HasPrefix(path, resourcePrefix) {
@@ -90,6 +91,9 @@ func (p *veilPlugin) handleManagement(req pluginapi.ManagementRequest) pluginapi
 		}
 		return jsonResponse(http.StatusNotFound, map[string]string{"error": "not found"})
 	}
+	if !strings.HasPrefix(path, managementPrefix) {
+		return jsonResponse(http.StatusNotFound, map[string]string{"error": "not found"})
+	}
 	name := path[strings.LastIndexByte(path, '/')+1:]
 	switch req.Method + " " + name {
 	case "GET summary":
@@ -98,6 +102,8 @@ func (p *veilPlugin) handleManagement(req pluginapi.ManagementRequest) pluginapi
 		return p.list(req)
 	case "GET record":
 		return p.recordDetail(req)
+	case "GET record-values":
+		return p.recordValues(req)
 	case "POST clear":
 		return p.clearRecords()
 	case "POST preview":
@@ -195,6 +201,35 @@ func (p *veilPlugin) recordDetail(req pluginapi.ManagementRequest) pluginapi.Man
 		return jsonResponse(http.StatusNotFound, map[string]string{"error": "no such record"})
 	}
 	return jsonResponse(http.StatusOK, r)
+}
+
+// recordValues reveals only the values of an existing record, in its own
+// Caller scope. A warn or stopped value was only Peeked, not retained: its
+// candidate must not accidentally resolve to another value in the Vault.
+func (p *veilPlugin) recordValues(req pluginapi.ManagementRequest) pluginapi.ManagementResponse {
+	if p.records == nil {
+		return jsonResponse(http.StatusNotFound, map[string]string{"error": "records are off"})
+	}
+	key, err := strconv.ParseInt(req.Query.Get("key"), 10, 64)
+	if err != nil || key <= 0 {
+		return badRequest("key must be a record key")
+	}
+	r, ok := p.records.Get(key)
+	if !ok {
+		return jsonResponse(http.StatusNotFound, map[string]string{"error": "no such record"})
+	}
+	values := make(map[string]string)
+	if p.vault != nil && r.Stopped == "" {
+		for _, v := range r.Values {
+			if v.Action != "mask" {
+				continue
+			}
+			if value, ok := p.vault.Lookup(r.Caller, v.Placeholder); ok {
+				values[v.Placeholder] = value
+			}
+		}
+	}
+	return jsonResponse(http.StatusOK, map[string]any{"values": values})
 }
 
 func (p *veilPlugin) clearRecords() pluginapi.ManagementResponse {
