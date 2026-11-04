@@ -107,7 +107,7 @@ sets `plugins.configs.veil.enabled` to `true`. No restart is needed.
 ### By hand
 
 1. Download `veil_<version>_<os>_<arch>.zip` for your platform from
-   [Releases](https://github.com/GarlandQian/cpa-plugin-veil/releases), for example `veil_0.7.0_darwin_arm64.zip` on
+   [Releases](https://github.com/GarlandQian/cpa-plugin-veil/releases), for example `veil_0.8.0_darwin_arm64.zip` on
    an Apple silicon Mac. You can check it against `checksums.txt` from the same page:
 
    ```bash
@@ -426,14 +426,18 @@ CPA-Manager-Plus, and the page below can be opened directly too. It has:
   the responses restored and Placeholders they could not, values sent as written; requests per day; what Kinds, how
   they were found (each rule told in plain words), which callers and models; the values seen most often.
 - **Requests**: newest first, each with its Kinds and counts, what the response restored and a line of context;
-  filtered by Kind, caller, model or Action, or Stopped requests only.
-- **A request**: a sentence on what happened to it, then a card for each value: its Kind and Action, a hint (its first
-  character, or a key's prefix) and length, why it was taken for sensitive, where it was (such as "item 68 · tool
-  output"), safe context with the actual Placeholders or Stand-ins, how many places the response
-  restored, and what to change in the config if it is not sensitive (turn the rule off, let the value through with
-  `allow`, or set the Kind to `warn`). Rule IDs and field paths are under its technical details. **Show originals**
+  filtered by Kind, caller, model or Action, or Stopped requests only. This is the default view; empty records show
+  a single explanation and an entry to Try it. An empty overview hides its charts and breakdown cards.
+- **A request**: a full-width detail page with safe context on the left and detected values on the right. Repeated
+  snippets appear once; selecting a value highlights its occurrences. Each value shows its Kind, Action, hint,
+  length, rule, places and restore count. Rule explanations, field paths and false-positive guidance can be expanded.
+  Previous/next buttons move through loaded requests. **Show originals**
   reads available values from the current Vault and adds original snippets beside the safe preview; **Hide originals**
   removes them from the page. Snippets are reconstructed from current mappings, not a saved original request.
+- **Live updates**: while visible, the page checks for new records and restore statistics every 3 seconds, including
+  the open request. The switch pauses or resumes updates; hidden pages and Try it do not poll. Filters, loaded pages,
+  selected values and expanded explanations are preserved. While reading older rows, new records wait behind a
+  clickable notice so the list does not move. Original values are fetched only by Show originals, never by polling.
 - **Clear records**: deletes the current directory’s records, including queued writes. Late restore counts cannot
   bring cleared records back; new requests continue recording and conversations in progress keep restoring.
 - **Try it**: shows how a text would be masked under the current settings, keeping nothing and touching no
