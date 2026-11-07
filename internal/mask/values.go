@@ -15,7 +15,7 @@ type Value struct {
 	// or held back, the one it would have gone as.
 	Placeholder string
 	Kind        string
-	// Rule names what found it: a detection rule's ID, RuleSecretField for a
+	// Rule names what found it: a detection rule's ID, detect.RuleSecretField for a
 	// field named for a secret, RuleKnown for a Known value.
 	Rule string
 	// Head is a key's well-known prefix or its first character, and Len its
@@ -33,11 +33,8 @@ type Value struct {
 	Snip string
 }
 
-// Rule names for the values no detection rule names.
-const (
-	RuleSecretField = "secret-field"
-	RuleKnown       = "known"
-)
+// RuleKnown is the Rule of a Known value no detection rule found this time.
+const RuleKnown = "known"
 
 // snipRunes is how much text a Snip keeps on either side of its value.
 const snipRunes = 40

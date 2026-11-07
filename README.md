@@ -524,8 +524,8 @@ The `home`, `userhost`, `ip` and `bucket` categories are off by default because 
 nearly every coding request and the model has to copy them exactly.
 
 Beyond what a value looks like, Veil masks the whole value of a field named for a secret (`api_key`, `password`,
-`client_secret`, `Authorization`, `db_pass`, ...) when it has 8 characters or more, whatever it looks like. To keep
-false positives down it leaves alone UUIDs, long hex ids and digests (and any piece of one), decimals, bare JSON
+`client_secret`, `Authorization`, `db_pass`, ...) when it has 8 characters or more, whatever it looks like, unless the
+value is in `allow` or the `secrets` category is off. To keep false positives down it leaves alone UUIDs, long hex ids and digests (and any piece of one), decimals, bare JSON
 numbers, values of fields named for an id, code that names a secret (`token = get_token_v2`), versions, paths,
 file positions and placeholders such as `${API_KEY}`. A random string with no secret's name near it is not a secret.
 

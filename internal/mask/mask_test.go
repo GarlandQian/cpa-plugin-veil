@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"regexp"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
@@ -197,6 +198,34 @@ func TestParallelDetectingMasksAsOneCoreDoes(t *testing.T) {
 	}
 	if strings.Contains(serial, "@acme-corp.cn") || strings.Contains(serial, "hunter") {
 		t.Fatalf("a value went through: %.300s", serial)
+	}
+}
+
+// allow and the secrets Category hold for a field named for a secret as they
+// do for any other: an allowed value goes through, and with the Category off
+// the name alone masks nothing.
+func TestAllowAndCategoriesHoldForSecretFields(t *testing.T) {
+	const body = `{"api_key":"public-demo-value","password":"other-demo-value"}`
+	for name, tt := range map[string]struct {
+		opts detect.Options
+		want []string // what still goes upstream
+	}{
+		"no option":    {detect.Options{}, nil},
+		"allowed":      {detect.Options{Allow: []string{"PUBLIC-demo-value"}}, []string{"public-demo-value"}},
+		"category off": {detect.Options{Categories: map[string]bool{"secrets": false}}, []string{"public-demo-value", "other-demo-value"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			d, err := detect.New(nil, tt.opts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := mask(t, New(d, vault.New([]byte("0123456789abcdef0123456789abcdef"), 0)), "", body)
+			for _, v := range []string{"public-demo-value", "other-demo-value"} {
+				if sent := strings.Contains(got, v); sent != slices.Contains(tt.want, v) {
+					t.Errorf("%s sent as written: %v in %s", v, sent, got)
+				}
+			}
+		})
 	}
 }
 
