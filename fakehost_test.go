@@ -18,7 +18,8 @@ import (
 type hostProfile struct {
 	name string
 	// schema is what the Host offers at plugin.register. CPA v7 offers none,
-	// gives no request IDs and sends the request bodies with every chunk.
+	// gives no request IDs, sends the request bodies with every chunk and has
+	// no Terminate.
 	schema uint32
 }
 
@@ -45,10 +46,13 @@ type fakeRequest struct {
 	id       string
 	headers  http.Header
 	original []byte // as the client sent it
-	upstream []byte // as the upstream gets it
+	upstream []byte // as the upstream gets it; nil when it gets nothing
+	// rejected is the answer of the hook that kept the request from the
+	// upstream, and with it what the client gets.
+	rejected *abiRequestInterceptResponse
 }
 
-func newFakeHost(t *testing.T, profile hostProfile) *fakeHost {
+func newFakeHost(t *testing.T, profile hostProfile, configure ...func(*veilConfig)) *fakeHost {
 	t.Helper()
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "rules.toml"), []byte("title = \"fake host\"\n"), 0600); err != nil {
@@ -56,7 +60,11 @@ func newFakeHost(t *testing.T, profile hostProfile) *fakeHost {
 	}
 	h := &fakeHost{t: t, profile: profile, runtime: &pluginRuntime{}}
 	t.Cleanup(h.runtime.close)
-	register := map[string]any{"config_yaml": configBytes(t, veilConfig{Key: strings.Repeat("42", 32), BaseDir: dir, GitleaksTOML: "rules.toml"})}
+	cfg := veilConfig{Key: strings.Repeat("42", 32), BaseDir: dir, GitleaksTOML: "rules.toml"}
+	for _, change := range configure {
+		change(&cfg)
+	}
+	register := map[string]any{"config_yaml": configBytes(t, cfg)}
 	if profile.schema > 0 {
 		register["schema_version"] = profile.schema
 	}
@@ -118,20 +126,31 @@ func (h *fakeHost) send(caller, body string) *fakeRequest {
 		r.id = fmt.Sprintf("request-%d", h.ids)
 	}
 	for _, method := range []string{pluginabi.MethodRequestInterceptBefore, pluginabi.MethodRequestInterceptAfter} {
-		r.upstream = h.acted(h.call(method, h.requestCall(r, r.upstream)), r.upstream)
+		r.upstream, r.rejected = h.acted(h.call(method, h.requestCall(r, r.upstream)), r.upstream)
+		if r.rejected != nil {
+			r.upstream = nil
+			break
+		}
 	}
 	return r
 }
 
-// acted is the body the Host goes on with after a request hook's answer: one
-// that failed leaves it the body it had, as does an answer without a body.
-func (h *fakeHost) acted(envelope abiEnvelope, body []byte) []byte {
+// acted is what the Host goes on with after a request hook's answer: one that
+// failed leaves it the body it had, as does an answer without a body. A Host
+// that has Terminate also returns the answer that refuses the request.
+func (h *fakeHost) acted(envelope abiEnvelope, body []byte) ([]byte, *abiRequestInterceptResponse) {
 	h.t.Helper()
-	var out pluginapi.RequestInterceptResponse
-	if !h.result(envelope, &out) || len(out.Body) == 0 {
-		return body
+	var out abiRequestInterceptResponse
+	if !h.result(envelope, &out) {
+		return body, nil
 	}
-	return out.Body
+	if len(out.Body) > 0 {
+		body = out.Body
+	}
+	if out.Terminate && h.profile.schema > 0 {
+		return body, &out
+	}
+	return body, nil
 }
 
 func (h *fakeHost) responseCall(r *fakeRequest, bodies bool) map[string]any {

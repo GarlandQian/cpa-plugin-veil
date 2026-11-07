@@ -45,8 +45,15 @@ func TestRequestHooksNeverLetTheOriginalThrough(t *testing.T) {
 					if tt.state != nil {
 						tt.state(h)
 					}
-					if got := h.acted(h.callRaw(method, tt.call), []byte(seamBody)); string(got) != tt.want {
-						t.Fatalf("the upstream gets %s, want %s", got, tt.want)
+					got, rejected := h.acted(h.callRaw(method, tt.call), []byte(seamBody))
+					if string(got) != tt.want {
+						t.Fatalf("the body the Host goes on with is %s, want %s", got, tt.want)
+					}
+					if (rejected != nil) != (profile.schema > 0) {
+						t.Fatalf("refused: %+v", rejected)
+					}
+					if rejected != nil && strings.Contains(string(rejected.ResponseBody), seamEmail) {
+						t.Fatalf("the client is told %s", rejected.ResponseBody)
 					}
 				})
 			}
@@ -59,8 +66,8 @@ func TestRequestHooksNeverLetTheOriginalThrough(t *testing.T) {
 func TestARequestHookLeavesAnEmptyBodyAlone(t *testing.T) {
 	h := newFakeHost(t, hostV8)
 	h.runtime.close()
-	if got := h.acted(h.callRaw(pluginabi.MethodRequestInterceptBefore, []byte(`{"Model":"m","Body":null}`)), nil); got != nil {
-		t.Fatalf("the upstream gets %s", got)
+	if got, rejected := h.acted(h.callRaw(pluginabi.MethodRequestInterceptBefore, []byte(`{"Model":"m","Body":null}`)), nil); got != nil || rejected != nil {
+		t.Fatalf("the upstream gets %s, refused: %+v", got, rejected)
 	}
 }
 
@@ -134,13 +141,87 @@ func TestFieldsVeilDoesNotReadCannotFailACall(t *testing.T) {
 		"Metadata": "no longer an object", "ToFormat": 7, "Stream": "yes", "TraceID": []int{1}, "CallerScope": map[string]any{"a": 1},
 		"Headers": bearer("k"), "Body": []byte(seamBody),
 	}
-	got := h.acted(h.call(pluginabi.MethodRequestInterceptBefore, call), []byte(seamBody))
-	if strings.Contains(string(got), seamEmail) || !emailPlaceholder.Match(got) {
-		t.Fatalf("the upstream gets %s", got)
+	got, rejected := h.acted(h.call(pluginabi.MethodRequestInterceptBefore, call), []byte(seamBody))
+	if strings.Contains(string(got), seamEmail) || !emailPlaceholder.Match(got) || rejected != nil {
+		t.Fatalf("the upstream gets %s, refused: %+v", got, rejected)
 	}
 	chunk := map[string]any{"Metadata": 1, "HistoryChunks": "gone", "ResponseHeaders": 2, "RequestHeaders": bearer("k"), "Body": []byte("hello"), "ChunkIndex": 0}
 	if !h.call(pluginabi.MethodResponseInterceptStreamChunk, chunk).OK {
 		t.Fatal("a chunk failed on a field Veil does not read")
+	}
+}
+
+// On a Host with Terminate a Stopped request never reaches the upstream, and
+// the client gets a refusal it can read; on one without, the upstream gets the
+// emptied body and rejects it itself.
+func TestAStoppedRequestIsRefusedWhereTheHostCan(t *testing.T) {
+	block := func(c *veilConfig) { c.Actions = map[string]string{"EMAIL": "block"} }
+
+	r := newFakeHost(t, hostV8, block).send("k", seamBody)
+	if r.upstream != nil || r.rejected == nil || r.rejected.StatusCode != http.StatusForbidden {
+		t.Fatalf("CPA v8: the upstream gets %s, refused: %+v", r.upstream, r.rejected)
+	}
+	if got := r.rejected.ResponseHeaders.Get("Content-Type"); got != "application/json" {
+		t.Fatalf("Content-Type = %q", got)
+	}
+
+	r = newFakeHost(t, hostV7, block).send("k", seamBody)
+	if string(r.upstream) != `{"model":"m","stream":true,"input":[]}` || r.rejected != nil {
+		t.Fatalf("CPA v7: the upstream gets %s, refused: %+v", r.upstream, r.rejected)
+	}
+}
+
+// The client gets the error its protocol has, saying which Kinds stopped the
+// request and nothing of the values or where they were.
+func TestAStoppedRequestTellsTheClientInItsProtocol(t *testing.T) {
+	h := newFakeHost(t, hostV8, func(c *veilConfig) { c.Actions = map[string]string{"EMAIL": "block", "PHONE": "block"} })
+	const body = `{"input":"mail ` + seamEmail + ` or 13800138000"}`
+	for _, tt := range []struct {
+		format, field, want string // the field of error that marks the shape
+	}{
+		{"openai", "code", "veil_stopped"},
+		{"openai-response", "code", "veil_stopped"},
+		{"", "code", "veil_stopped"},
+		{"claude", "type", "permission_error"},
+		{"gemini", "status", "PERMISSION_DENIED"},
+		{"gemini-cli", "status", "PERMISSION_DENIED"},
+	} {
+		t.Run(tt.format, func(t *testing.T) {
+			_, rejected := h.acted(h.call(pluginabi.MethodRequestInterceptBefore, map[string]any{"SourceFormat": tt.format, "Headers": bearer("k"), "Body": []byte(body)}), []byte(body))
+			if rejected == nil {
+				t.Fatal("not refused")
+			}
+			var decoded struct {
+				Error map[string]any `json:"error"`
+			}
+			if err := json.Unmarshal(rejected.ResponseBody, &decoded); err != nil {
+				t.Fatalf("%s: %v", rejected.ResponseBody, err)
+			}
+			if decoded.Error[tt.field] != tt.want {
+				t.Fatalf("not the %q shape: %s", tt.format, rejected.ResponseBody)
+			}
+			if told, _ := decoded.Error["message"].(string); !strings.Contains(told, "EMAIL, PHONE") {
+				t.Fatalf("told %q", told)
+			}
+			for _, secret := range []string{seamEmail, "13800138000", "input"} {
+				if strings.Contains(string(rejected.ResponseBody), secret) {
+					t.Fatalf("the client is told %s", rejected.ResponseBody)
+				}
+			}
+		})
+	}
+}
+
+// A request Veil could not handle says only that: the reason is for the log.
+func TestAFailedRequestToldNothingOfWhy(t *testing.T) {
+	logs := capturePluginLogs(t)
+	h := newFakeHost(t, hostV8)
+	_, rejected := h.acted(h.callRaw(pluginabi.MethodRequestInterceptBefore, []byte(`{"Model":13800138000}`)), []byte(seamBody))
+	if rejected == nil || !strings.Contains(string(rejected.ResponseBody), "See the CLIProxyAPI log") || strings.Contains(string(rejected.ResponseBody), "Model") {
+		t.Fatalf("refused: %+v", rejected)
+	}
+	if !strings.Contains(logs.String(), "Model") {
+		t.Fatalf("log = %s", logs)
 	}
 }
 

@@ -271,11 +271,12 @@ plugins:
 - `warn` sends the value as it is and logs a warning with the kind and the JSON path, never the value.
 - `block` stops the request.
 
-A stopped request never carries its text upstream. CLIProxyAPI gives plugins no way to fail a request themselves and
-has already chosen the upstream by the time Veil runs, so Veil replaces the body with one that keeps only the model and
-the stream flag and empties every conversation field, which every provider rejects as a bad request before any
-inference. The client sees that rejection, and the CLIProxyAPI log says why:
-`veil stopped a request, the upstream will reject it: ...`.
+A stopped request never carries its text upstream. On CLIProxyAPI v8 it never reaches the upstream at all: the client
+gets a 403 with an error in the shape of its own protocol, naming the kinds that stopped it, never the values or where
+they were. CLIProxyAPI v7 gives plugins no way to fail a request themselves and has already chosen the upstream by the
+time Veil runs, so there Veil replaces the body with one that keeps only the model and the stream flag and empties
+every conversation field, which every provider rejects as a bad request before any inference, and the client sees that
+rejection. Either way the CLIProxyAPI log says why: `veil stopped a request: ...`.
 
 Veil fails closed the same way: if it cannot mask a request, for example because the body starts like JSON but does
 not parse, or because masking failed, it stops the request instead of letting it through. A plugin error would make

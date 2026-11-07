@@ -44,7 +44,8 @@ func (p *veilPlugin) Identifier() string {
 }
 
 func (p *veilPlugin) InterceptRequestBeforeAuth(ctx context.Context, req pluginapi.RequestInterceptRequest) (pluginapi.RequestInterceptResponse, error) {
-	return p.interceptRequest(ctx, req, "", false)
+	resp, err := p.interceptRequest(ctx, req, "", false)
+	return pluginapi.RequestInterceptResponse{Body: resp.Body}, err
 }
 
 // InterceptRequestAfterAuth masks again because other plugins can add text
@@ -52,18 +53,19 @@ func (p *veilPlugin) InterceptRequestBeforeAuth(ctx context.Context, req plugina
 // higher-priority after-auth interceptors both run later in the chain.
 // Masking is idempotent, so an already-masked body produces no hits.
 func (p *veilPlugin) InterceptRequestAfterAuth(ctx context.Context, req pluginapi.RequestInterceptRequest) (pluginapi.RequestInterceptResponse, error) {
-	return p.interceptRequest(ctx, req, "", true)
+	resp, err := p.interceptRequest(ctx, req, "", true)
+	return pluginapi.RequestInterceptResponse{Body: resp.Body}, err
 }
 
 // interceptRequest masks a request. It never returns an error: the host would
 // send the original body upstream. A request Veil cannot mask, or one holding
 // a Kind whose Action is block, becomes a Stopped request instead.
-func (p *veilPlugin) interceptRequest(ctx context.Context, req pluginapi.RequestInterceptRequest, requestID string, afterAuth bool) (resp pluginapi.RequestInterceptResponse, _ error) {
+func (p *veilPlugin) interceptRequest(ctx context.Context, req pluginapi.RequestInterceptRequest, requestID string, afterAuth bool) (resp abiRequestInterceptResponse, _ error) {
 	start := time.Now()
 	defer func() {
 		if r := recover(); r != nil {
 			p.record(req, mask.Report{}, records.StoppedError, start)
-			resp = stop(ctx, req, fmt.Sprintf("masking failed: %v", r))
+			resp = stop(ctx, req, fmt.Sprintf("masking failed: %v", r), stoppedUnreadable)
 		}
 	}()
 
@@ -88,11 +90,11 @@ func (p *veilPlugin) interceptRequest(ctx context.Context, req pluginapi.Request
 			stopped = records.StoppedMalformed
 		}
 		p.record(req, report, stopped, start)
-		return stop(ctx, req, "masking failed: "+err.Error()), nil
+		return stop(ctx, req, "masking failed: "+err.Error(), stoppedUnreadable), nil
 	}
 	if len(report.Blocked) > 0 {
 		p.record(req, report, records.StoppedBlock, start)
-		return stop(ctx, req, fmt.Sprintf("it holds %s in %s, whose action is block", kindSummary(report.Blocked), strings.Join(report.BlockedPaths, ", "))), nil
+		return stop(ctx, req, fmt.Sprintf("it holds %s in %s, whose action is block", kindSummary(report.Blocked), strings.Join(report.BlockedPaths, ", ")), stoppedBlocked(report.Blocked)), nil
 	}
 	if len(report.Warned) > 0 {
 		pluginLog(ctx, logLevelWarn, fmt.Sprintf("veil let %d value(s) (%s) through unmasked in %d field(s): %s", total(report.Warned), kindSummary(report.Warned), len(report.WarnedPaths), strings.Join(report.WarnedPaths, ", ")), map[string]any{
@@ -184,13 +186,14 @@ func (p *veilPlugin) restored(key records.Ref, t *restore.Tally) {
 	p.records.Restore(key, t.Back, t.Unrestored)
 }
 
-// stop turns a request into a Stopped request and says why in the log.
-func stop(ctx context.Context, req pluginapi.RequestInterceptRequest, reason string) pluginapi.RequestInterceptResponse {
-	pluginLog(ctx, logLevelError, "veil stopped a request, the upstream will reject it: "+reason, map[string]any{
+// stop turns a request into a Stopped request. The log gets reason in full;
+// told is all the client gets.
+func stop(ctx context.Context, req pluginapi.RequestInterceptRequest, reason, told string) abiRequestInterceptResponse {
+	pluginLog(ctx, logLevelError, "veil stopped a request: "+reason, map[string]any{
 		"model":         req.Model,
 		"source_format": req.SourceFormat,
 	})
-	return pluginapi.RequestInterceptResponse{Body: stoppedBody(req.Body)}
+	return stoppedAnswer(req.SourceFormat, req.Body, told)
 }
 
 // InterceptResponse restores the Placeholders of a non-streaming response,

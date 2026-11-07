@@ -100,6 +100,17 @@ type abiRequestInterceptRequest struct {
 	HostCallbackID string `json:"host_callback_id,omitempty"`
 }
 
+// abiRequestInterceptResponse is a request hook's answer. The fields after Body
+// are CPA v8's: Terminate keeps the request from the upstream and answers the
+// client with the rest. CPA v7 does not know them and goes by Body.
+type abiRequestInterceptResponse struct {
+	Body            []byte
+	Terminate       bool        `json:",omitempty"`
+	StatusCode      int         `json:",omitempty"`
+	ResponseHeaders http.Header `json:",omitempty"`
+	ResponseBody    []byte      `json:",omitempty"`
+}
+
 func (r abiRequestInterceptRequest) sdk() pluginapi.RequestInterceptRequest {
 	return pluginapi.RequestInterceptRequest{SourceFormat: r.SourceFormat, Model: r.Model, RequestedModel: r.RequestedModel, Headers: r.Headers, Body: r.Body}
 }
