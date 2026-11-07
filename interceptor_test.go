@@ -295,7 +295,7 @@ func TestRoundTripThroughTheABI(t *testing.T) {
 	headers := bearer("client-a")
 	request := []byte(`{"messages":[{"role":"user","content":"mail test@acme-corp.cn"}]}`)
 	var masked pluginapi.RequestInterceptResponse
-	if err := json.Unmarshal(call("request.intercept_before", abiRequestInterceptRequest{RequestInterceptRequest: pluginapi.RequestInterceptRequest{Headers: headers, Body: request}}), &masked); err != nil {
+	if err := json.Unmarshal(call("request.intercept_before", abiRequestInterceptRequest{Headers: headers, Body: request}), &masked); err != nil {
 		t.Fatal(err)
 	}
 	p := emailPlaceholder.FindString(string(masked.Body))
@@ -305,7 +305,7 @@ func TestRoundTripThroughTheABI(t *testing.T) {
 
 	answer := []byte(`{"content":[{"type":"text","text":"I will mail ` + p + `"},{"type":"tool_use","id":"t1","name":"send","input":{"to":"` + p + `"}}]}`)
 	var restored pluginapi.ResponseInterceptResponse
-	if err := json.Unmarshal(call("response.intercept_after", abiResponseInterceptRequest{ResponseInterceptRequest: pluginapi.ResponseInterceptRequest{RequestHeaders: headers, Body: answer}}), &restored); err != nil {
+	if err := json.Unmarshal(call("response.intercept_after", abiResponseInterceptRequest{RequestHeaders: headers, Body: answer}), &restored); err != nil {
 		t.Fatal(err)
 	}
 	want := `{"content":[{"type":"text","text":"I will mail test@acme-corp.cn"},{"type":"tool_use","id":"t1","name":"send","input":{"to":"test@acme-corp.cn"}}]}`
@@ -313,9 +313,9 @@ func TestRoundTripThroughTheABI(t *testing.T) {
 		t.Fatalf("restored = %s", restored.Body)
 	}
 
-	other := pluginapi.ResponseInterceptRequest{RequestHeaders: bearer("client-b"), Body: answer}
+	other := abiResponseInterceptRequest{RequestHeaders: bearer("client-b"), Body: answer}
 	var foreign pluginapi.ResponseInterceptResponse
-	if err := json.Unmarshal(call("response.intercept_after", abiResponseInterceptRequest{ResponseInterceptRequest: other}), &foreign); err != nil {
+	if err := json.Unmarshal(call("response.intercept_after", other), &foreign); err != nil {
 		t.Fatal(err)
 	}
 	if foreign.Body != nil {
@@ -324,7 +324,7 @@ func TestRoundTripThroughTheABI(t *testing.T) {
 
 	next := []byte(`{"messages":[{"role":"user","content":"mail test@acme-corp.cn"},{"role":"assistant","content":[{"type":"text","text":"I will mail test@acme-corp.cn"},{"type":"tool_use","id":"t1","name":"send","input":{"to":"test@acme-corp.cn"}}]}]}`)
 	var again pluginapi.RequestInterceptResponse
-	if err := json.Unmarshal(call("request.intercept_before", abiRequestInterceptRequest{RequestInterceptRequest: pluginapi.RequestInterceptRequest{Headers: headers, Body: next}}), &again); err != nil {
+	if err := json.Unmarshal(call("request.intercept_before", abiRequestInterceptRequest{Headers: headers, Body: next}), &again); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(string(again.Body), "test@acme-corp.cn") || strings.Count(string(again.Body), p) != 3 {

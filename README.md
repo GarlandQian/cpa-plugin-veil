@@ -279,8 +279,11 @@ inference. The client sees that rejection, and the CLIProxyAPI log says why:
 
 Veil fails closed the same way: if it cannot mask a request, for example because the body starts like JSON but does
 not parse, or because masking failed, it stops the request instead of letting it through. A plugin error would make
-CLIProxyAPI send the original body, so Veil never returns one. A request body that is not JSON at all passes through
-untouched. If restoring a response fails, the response reaches the client with its placeholders.
+CLIProxyAPI send the original body, so a request hook never answers with one: a request that reaches Veil while it is
+shutting down, or a call Veil cannot read, is stopped too. If a CLIProxyAPI release ever changes what it hands Veil so
+that Veil cannot read it, requests fail with that message in the log instead of going upstream unmasked. A request body
+that is not JSON at all passes through untouched. If restoring a response fails, the response reaches the client with
+its placeholders.
 
 ### Invalid configuration
 

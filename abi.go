@@ -47,7 +47,7 @@ import "C"
 import (
 	"context"
 	"encoding/json"
-	"fmt"
+	"net/http"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -85,26 +85,50 @@ type abiLifecycleRequest struct {
 	SchemaVersion uint32 `json:"schema_version,omitempty"`
 }
 
+// The hook calls hold only the fields Veil reads, not the SDK's types: one
+// field that does not decode fails the whole call, and a request hook's call
+// that fails is a Stopped request (ADR-0002). RequestID is CPA v8's; on CPA v7
+// it stays empty.
+
 type abiRequestInterceptRequest struct {
-	pluginapi.RequestInterceptRequest
-	// RequestID is provided by CPA v8; the v7 SDK predates it.
-	RequestID      string `json:"RequestID,omitempty"`
+	RequestID      string
+	SourceFormat   string
+	Model          string
+	RequestedModel string
+	Headers        http.Header
+	Body           []byte
 	HostCallbackID string `json:"host_callback_id,omitempty"`
+}
+
+func (r abiRequestInterceptRequest) sdk() pluginapi.RequestInterceptRequest {
+	return pluginapi.RequestInterceptRequest{SourceFormat: r.SourceFormat, Model: r.Model, RequestedModel: r.RequestedModel, Headers: r.Headers, Body: r.Body}
 }
 
 type abiResponseInterceptRequest struct {
-	pluginapi.ResponseInterceptRequest
-	// Preserve the same ID used by the request hook, including across reloads.
-	RequestID      string `json:"RequestID,omitempty"`
-	HostCallbackID string `json:"host_callback_id,omitempty"`
+	RequestID       string
+	RequestHeaders  http.Header
+	OriginalRequest []byte
+	RequestBody     []byte
+	Body            []byte
+	HostCallbackID  string `json:"host_callback_id,omitempty"`
+}
+
+func (r abiResponseInterceptRequest) sdk() pluginapi.ResponseInterceptRequest {
+	return pluginapi.ResponseInterceptRequest{RequestHeaders: r.RequestHeaders, OriginalRequest: r.OriginalRequest, RequestBody: r.RequestBody, Body: r.Body}
 }
 
 type abiStreamChunkInterceptRequest struct {
-	pluginapi.StreamChunkInterceptRequest
-	// RequestID is the request's own ID, which CPA v8 gives every chunk of
-	// its stream; the SDK Veil builds with predates it.
-	RequestID      string `json:"RequestID,omitempty"`
-	HostCallbackID string `json:"host_callback_id,omitempty"`
+	RequestID       string
+	RequestHeaders  http.Header
+	OriginalRequest []byte
+	RequestBody     []byte
+	Body            []byte
+	ChunkIndex      int
+	HostCallbackID  string `json:"host_callback_id,omitempty"`
+}
+
+func (r abiStreamChunkInterceptRequest) sdk() pluginapi.StreamChunkInterceptRequest {
+	return pluginapi.StreamChunkInterceptRequest{RequestHeaders: r.RequestHeaders, OriginalRequest: r.OriginalRequest, RequestBody: r.RequestBody, Body: r.Body, ChunkIndex: r.ChunkIndex}
 }
 
 type abiRegistration struct {
@@ -259,20 +283,13 @@ func VeilPluginCall(method *C.char, request *C.uint8_t, requestLen C.size_t, res
 		writeABIResponse(response, abiErrorEnvelope("invalid_method", "method is required"))
 		return 0
 	}
+	// A request too large to copy stays unread, which the Host seam answers
+	// as it does any call it cannot read.
 	var requestBytes []byte
-	if request != nil && requestLen > 0 {
-		if requestLen > maxCGoBytesLen {
-			writeABIResponse(response, abiErrorEnvelope("request_too_large", "request payload is too large"))
-			return 0
-		}
+	if request != nil && requestLen > 0 && requestLen <= maxCGoBytesLen {
 		requestBytes = C.GoBytes(unsafe.Pointer(request), C.int(requestLen))
 	}
-	raw, errHandle := handleVeilABIMethod(context.Background(), C.GoString(method), requestBytes)
-	if errHandle != nil {
-		writeABIResponse(response, abiErrorEnvelope("plugin_error", errHandle.Error()))
-		return 0
-	}
-	writeABIResponse(response, raw)
+	writeABIResponse(response, answerHost(context.Background(), C.GoString(method), requestBytes))
 	return 0
 }
 
@@ -298,14 +315,12 @@ func VeilPluginShutdown() {
 	veilABIState.Unlock()
 }
 
-func handleVeilABIMethod(ctx context.Context, method string, request []byte) ([]byte, error) {
+// answerHost hands a call of the Host to the current runtime, if there is one.
+func answerHost(ctx context.Context, method string, request []byte) []byte {
 	veilABIState.RLock()
 	runtime := veilABIState.runtime
 	veilABIState.RUnlock()
-	if runtime == nil {
-		return nil, fmt.Errorf("veil plugin is not initialized")
-	}
-	return runtime.handle(ctx, method, request)
+	return runtime.answer(ctx, method, request)
 }
 
 // veilSchemaVersion is the plugin schema Veil speaks where the host does

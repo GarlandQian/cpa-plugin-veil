@@ -37,6 +37,10 @@ An original value masked once in a Caller scope, masked again wherever it reappe
 The masked text a piece of request text became the first time it went upstream in a Caller scope; that text keeps its Sent form in later requests, even after Veil learns new Known values.
 _Avoid_: snapshot, frozen text
 
+**Host** (宿主):
+The CLIProxyAPI process that loads Veil and hands it each request, response and stream chunk; when Veil answers with a failure, the Host carries on with what it had, so a request goes upstream as it stands.
+_Avoid_: server, proxy
+
 ### Isolation
 
 **Caller scope** (调用方范围):
@@ -80,7 +84,7 @@ A value the user lists never to be masked, even when a detection finds it.
 _Avoid_: whitelist, exception
 
 **Stopped request** (被拦请求):
-A request Veil keeps from reaching the upstream, either because a Hit carries the block Action or because Veil could not mask it; a request Veil cannot mask is never sent as it is.
+A request Veil keeps from reaching the upstream, either because a Hit carries the block Action or because Veil could not mask it; a request Veil cannot mask is never sent as it is, whatever state Veil is in and even when it cannot read what the Host handed it.
 _Avoid_: rejected request, fail-open
 
 ### Records
