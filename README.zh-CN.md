@@ -101,7 +101,7 @@ curl -X POST "http://127.0.0.1:8317/v0/management/plugin-store/veil/install" \
 ### 手动安装
 
 1. 从 [Releases](https://github.com/GarlandQian/cpa-plugin-veil/releases) 下载对应平台的 `veil_<版本>_<系统>_<架构>.zip`，
-   例如 Apple 芯片的 Mac 用 `veil_0.8.1_darwin_arm64.zip`。可以用同一页的 `checksums.txt` 校验：
+   例如 Apple 芯片的 Mac 用 `veil_0.8.2_darwin_arm64.zip`。可以用同一页的 `checksums.txt` 校验：
 
    ```bash
    shasum -a 256 -c checksums.txt --ignore-missing   # Linux 上用 sha256sum
@@ -445,7 +445,7 @@ plugins:
 `home`、`userhost`、`ip`、`bucket` 默认关闭，因为主目录和主机名几乎出现在每个编程请求里，而且模型需要逐字照抄它们。
 
 除了按值的样子识别，名字表明存放密钥的字段（`api_key`、`password`、`client_secret`、`Authorization`、`db_pass` 等），
-只要值不少于 8 个字符，不论长什么样都整值掩码。为了减少误报，以下内容不会被掩码：UUID、长十六进制 id 和摘要（以及它们的任何片段）、
+只要值不少于 8 个字符，不论长什么样都整值掩码，除非这个值在 `allow` 里，或者 `secrets` 类别已关闭。为了减少误报，以下内容不会被掩码：UUID、长十六进制 id 和摘要（以及它们的任何片段）、
 小数、JSON 里的裸数字、id 类字段的值、给密钥起名的代码（`token = get_token_v2`）、版本号、路径、文件行号，以及 `${API_KEY}` 这类占位写法。
 附近没有密钥名称的随机串不算密钥。
 

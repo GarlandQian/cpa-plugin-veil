@@ -196,16 +196,16 @@ func TestInvalidOptions(t *testing.T) {
 	}
 }
 
-func TestSecretField(t *testing.T) {
+func TestSecretFieldNames(t *testing.T) {
 	for name, want := range map[string]bool{
 		"api_key": true, "db_pass": true, "Authorization": true, "client_secret": true, "key": true, "refreshToken": true,
 		"max_tokens": false, "sort_key": false, "token_count": false, "name": false,
 	} {
-		if got := SecretField(name, "abcd1234efgh"); got != want {
-			t.Errorf("SecretField(%q) = %v", name, got)
+		if got := secretField(name, "abcd1234efgh"); got != want {
+			t.Errorf("secretField(%q) = %v", name, got)
 		}
 	}
-	if SecretField("api_key", "short") || SecretField("api_key", "${API_KEY}") {
+	if secretField("api_key", "short") || secretField("api_key", "${API_KEY}") {
 		t.Error("a short value or a variable is no secret")
 	}
 }

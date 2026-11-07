@@ -209,6 +209,20 @@ func (d *Detector) Detect(text string) []Hit {
 	return hits
 }
 
+// RuleSecretField is the Rule of a Hit on a whole field named for a secret.
+const RuleSecretField = "secret-field"
+
+// DetectField returns the sensitive spans of the value text of a field called
+// name. A field named for a secret is one whatever it looks like, {"api_key":
+// "…"} with a value no rule knows, unless the value is allowed or the secrets
+// Category is off; any other is what Detect finds.
+func (d *Detector) DetectField(name, text string) []Hit {
+	if d.cats[catSecrets] && secretField(name, text) && !d.Allowed(text) {
+		return []Hit{{End: len(text), Kind: KindSecret, Rule: RuleSecretField}}
+	}
+	return d.Detect(text)
+}
+
 // Allowed says v is one of the values the allow option lets through.
 func (d *Detector) Allowed(v string) bool {
 	return d.allow[strings.ToLower(strings.TrimSpace(v))]

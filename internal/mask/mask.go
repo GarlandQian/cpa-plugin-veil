@@ -125,14 +125,8 @@ func (m *Masker) detectAll(fs []*fields.Field, todo []int) [][]span {
 	out := make([][]span, len(fs))
 	one := func(i int) {
 		f := fs[i]
-		if detect.SecretField(fieldKey(f.Path), f.Text) {
-			// A field named for a secret holds one whatever it looks like:
-			// {"api_key": "…"} with a value no rule knows.
-			out[i] = []span{{0, len(f.Text), string(detect.KindSecret), RuleSecretField}}
-			return
-		}
 		var hits []span
-		for _, h := range m.detector.Detect(f.Text) {
+		for _, h := range m.detector.DetectField(fieldKey(f.Path), f.Text) {
 			hits = append(hits, span{h.Start, h.End, string(h.Kind), h.Rule})
 		}
 		out[i] = hits

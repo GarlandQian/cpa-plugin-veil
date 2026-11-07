@@ -107,7 +107,7 @@ sets `plugins.configs.veil.enabled` to `true`. No restart is needed.
 ### By hand
 
 1. Download `veil_<version>_<os>_<arch>.zip` for your platform from
-   [Releases](https://github.com/GarlandQian/cpa-plugin-veil/releases), for example `veil_0.8.1_darwin_arm64.zip` on
+   [Releases](https://github.com/GarlandQian/cpa-plugin-veil/releases), for example `veil_0.8.2_darwin_arm64.zip` on
    an Apple silicon Mac. You can check it against `checksums.txt` from the same page:
 
    ```bash
@@ -524,8 +524,8 @@ The `home`, `userhost`, `ip` and `bucket` categories are off by default because 
 nearly every coding request and the model has to copy them exactly.
 
 Beyond what a value looks like, Veil masks the whole value of a field named for a secret (`api_key`, `password`,
-`client_secret`, `Authorization`, `db_pass`, ...) when it has 8 characters or more, whatever it looks like. To keep
-false positives down it leaves alone UUIDs, long hex ids and digests (and any piece of one), decimals, bare JSON
+`client_secret`, `Authorization`, `db_pass`, ...) when it has 8 characters or more, whatever it looks like, unless the
+value is in `allow` or the `secrets` category is off. To keep false positives down it leaves alone UUIDs, long hex ids and digests (and any piece of one), decimals, bare JSON
 numbers, values of fields named for an id, code that names a secret (`token = get_token_v2`), versions, paths,
 file positions and placeholders such as `${API_KEY}`. A random string with no secret's name near it is not a secret.
 

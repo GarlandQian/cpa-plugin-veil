@@ -152,11 +152,11 @@ const (
 // (a db_pass) is one too; a name that only ends in key is not.
 var secretFieldName = regexp.MustCompile(`(?i)` + secretNames.pattern() + `|authori[sz]ation|cookie|^key$|^pass$|_pass$`)
 
-// SecretField says a field called name holds a secret whatever its value
+// secretField says a field called name holds a secret whatever its value
 // looks like, as {"api_key": "…"} or "Authorization" do: a value of 8
 // characters or more that does not stand for a variable. A count of tokens
 // (max_tokens) is no secret.
-func SecretField(name, value string) bool {
+func secretField(name, value string) bool {
 	n := strings.ToLower(name)
 	return len(value) >= 8 && notAVariable(value) && secretFieldName.MatchString(n) &&
 		!strings.HasSuffix(n, "tokens") && !strings.HasSuffix(n, "token_count")
