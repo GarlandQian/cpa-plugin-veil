@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginabi"
 	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginapi"
 )
 
@@ -18,19 +19,19 @@ var emailPlaceholder = regexp.MustCompile(`\{\{EMAIL_[a-z2-7]{8}\}\}`)
 
 // Build the public plugin with a minimal rules file so these tests exercise
 // configuration and hooks without depending on optional sidecar rules.
-func newConfiguredInterceptor(t testing.TB, configYAML string) pluginapi.RequestInterceptor {
+func newConfiguredInterceptor(t testing.TB, configYAML string) *veilPlugin {
 	t.Helper()
 
 	return buildInterceptor(t, t.TempDir(), configYAML)
 }
 
-func buildInterceptor(t testing.TB, dir, configYAML string) pluginapi.RequestInterceptor {
+func buildInterceptor(t testing.TB, dir, configYAML string) *veilPlugin {
 	t.Helper()
 	i := &pluginInstance{}
 	return reloadInterceptor(t, i, dir, configYAML)
 }
 
-func reloadInterceptor(t testing.TB, i *pluginInstance, dir, configYAML string) pluginapi.RequestInterceptor {
+func reloadInterceptor(t testing.TB, i *pluginInstance, dir, configYAML string) *veilPlugin {
 	t.Helper()
 	if err := os.WriteFile(filepath.Join(dir, "rules.toml"), []byte("title = \"consumer test\"\n"), 0600); err != nil {
 		t.Fatal(err)
@@ -40,16 +41,32 @@ func reloadInterceptor(t testing.TB, i *pluginInstance, dir, configYAML string) 
 	if err != nil {
 		t.Fatalf("configure() error = %v", err)
 	}
-	return plugin.Capabilities.RequestInterceptor
+	return plugin
 }
 
-func intercept(t testing.TB, interceptor pluginapi.RequestInterceptor, req pluginapi.RequestInterceptRequest) []byte {
+// intercept is the body the before-auth hook answers with, nil if it leaves
+// the request as it is.
+func intercept(t testing.TB, p *veilPlugin, req abiRequestInterceptRequest) []byte {
 	t.Helper()
-	resp, err := interceptor.InterceptRequestBeforeAuth(context.Background(), req)
-	if err != nil {
-		t.Fatal(err)
+	return hostOf(t, p).requestHook(pluginabi.MethodRequestInterceptBefore, req).Body
+}
+
+// interceptAfter is intercept for the after-auth hook.
+func interceptAfter(t testing.TB, p *veilPlugin, req abiRequestInterceptRequest) []byte {
+	t.Helper()
+	return hostOf(t, p).requestHook(pluginabi.MethodRequestInterceptAfter, req).Body
+}
+
+// respondTo is the body the response hook answers with, nil if it leaves the
+// response as it is.
+func respondTo(t testing.TB, p *veilPlugin, req abiResponseInterceptRequest) []byte {
+	t.Helper()
+	h := hostOf(t, p)
+	var out pluginapi.ResponseInterceptResponse
+	if !h.result(h.call(pluginabi.MethodResponseInterceptAfter, req), &out) {
+		t.Fatal("the response hook failed")
 	}
-	return resp.Body
+	return out.Body
 }
 
 func bearer(key string) http.Header {
@@ -60,7 +77,7 @@ func bearer(key string) http.Header {
 
 func TestInterceptMasksWithPlaceholders(t *testing.T) {
 	interceptor := newConfiguredInterceptor(t, "")
-	body := intercept(t, interceptor, pluginapi.RequestInterceptRequest{
+	body := intercept(t, interceptor, abiRequestInterceptRequest{
 		Body: []byte(`{"model":"gpt-4","messages":[{"role":"user","content":"my email is test@acme-corp.cn"}]}`),
 	})
 	if strings.Contains(string(body), "test@acme-corp.cn") || !emailPlaceholder.Match(body) {
@@ -75,7 +92,7 @@ func TestInterceptPassesCleanAndNonJSONBodiesThrough(t *testing.T) {
 		`not JSON test@acme-corp.cn`,
 		"",
 	} {
-		if got := intercept(t, interceptor, pluginapi.RequestInterceptRequest{Body: []byte(body)}); got != nil {
+		if got := intercept(t, interceptor, abiRequestInterceptRequest{Body: []byte(body)}); got != nil {
 			t.Fatalf("expected passthrough for %q, got %s", body, got)
 		}
 	}
@@ -85,11 +102,11 @@ func TestInterceptPassesCleanAndNonJSONBodiesThrough(t *testing.T) {
 // pass must catch it while leaving the already-masked text alone.
 func TestInterceptAfterAuthMasksTextInjectedLater(t *testing.T) {
 	interceptor := newConfiguredInterceptor(t, "")
-	before := intercept(t, interceptor, pluginapi.RequestInterceptRequest{
+	before := intercept(t, interceptor, abiRequestInterceptRequest{
 		Body: []byte(`{"messages":[{"role":"user","content":"my email is test@acme-corp.cn"}]}`),
 	})
-	if again, err := interceptor.InterceptRequestAfterAuth(context.Background(), pluginapi.RequestInterceptRequest{Body: before}); err != nil || again.Body != nil {
-		t.Fatalf("after-auth changed an already-masked body: %s %v", again.Body, err)
+	if again := interceptAfter(t, interceptor, abiRequestInterceptRequest{Body: before}); again != nil {
+		t.Fatalf("after-auth changed an already-masked body: %s", again)
 	}
 	var payload map[string]any
 	if err := json.Unmarshal(before, &payload); err != nil {
@@ -100,24 +117,21 @@ func TestInterceptAfterAuthMasksTextInjectedLater(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	after, err := interceptor.InterceptRequestAfterAuth(context.Background(), pluginapi.RequestInterceptRequest{Body: injected})
-	if err != nil {
-		t.Fatal(err)
+	after := interceptAfter(t, interceptor, abiRequestInterceptRequest{Body: injected})
+	if after == nil || strings.Contains(string(after), "other@acme-corp.cn") {
+		t.Fatalf("after-auth hook must mask injected text, got %s", after)
 	}
-	if after.Body == nil || strings.Contains(string(after.Body), "other@acme-corp.cn") {
-		t.Fatalf("after-auth hook must mask injected text, got %s", after.Body)
-	}
-	if got := emailPlaceholder.FindAllString(string(after.Body), -1); len(got) != 2 || got[0] == got[1] {
-		t.Fatalf("expected two distinct placeholders, got %v in %s", got, after.Body)
+	if got := emailPlaceholder.FindAllString(string(after), -1); len(got) != 2 || got[0] == got[1] {
+		t.Fatalf("expected two distinct placeholders, got %v in %s", got, after)
 	}
 }
 
 func TestCallerScopesGetDifferentPlaceholders(t *testing.T) {
 	interceptor := newConfiguredInterceptor(t, "")
 	body := []byte(`{"input":"test@acme-corp.cn"}`)
-	a := intercept(t, interceptor, pluginapi.RequestInterceptRequest{Headers: bearer("client-a"), Body: body})
-	b := intercept(t, interceptor, pluginapi.RequestInterceptRequest{Headers: bearer("client-b"), Body: body})
-	again := intercept(t, interceptor, pluginapi.RequestInterceptRequest{Headers: bearer("client-a"), Body: body})
+	a := intercept(t, interceptor, abiRequestInterceptRequest{Headers: bearer("client-a"), Body: body})
+	b := intercept(t, interceptor, abiRequestInterceptRequest{Headers: bearer("client-b"), Body: body})
+	again := intercept(t, interceptor, abiRequestInterceptRequest{Headers: bearer("client-a"), Body: body})
 	if string(a) == string(b) {
 		t.Fatalf("two API keys got the same placeholder: %s", a)
 	}
@@ -131,9 +145,9 @@ func TestCallerScopesGetDifferentPlaceholders(t *testing.T) {
 func TestPlaceholdersSurviveRestart(t *testing.T) {
 	dir := t.TempDir()
 	body := []byte(`{"input":"test@acme-corp.cn"}`)
-	first := intercept(t, buildInterceptor(t, dir, ""), pluginapi.RequestInterceptRequest{Body: body})
+	first := intercept(t, buildInterceptor(t, dir, ""), abiRequestInterceptRequest{Body: body})
 
-	second := intercept(t, buildInterceptor(t, dir, ""), pluginapi.RequestInterceptRequest{Body: body})
+	second := intercept(t, buildInterceptor(t, dir, ""), abiRequestInterceptRequest{Body: body})
 	if string(first) != string(second) {
 		t.Fatalf("restart changed the placeholder: %s vs %s", first, second)
 	}
@@ -147,9 +161,9 @@ func TestPlaceholdersSurviveRestart(t *testing.T) {
 func TestReloadKeepsTheVault(t *testing.T) {
 	dir := t.TempDir()
 	instance := &pluginInstance{}
-	first := reloadInterceptor(t, instance, dir, "").(*veilPlugin)
-	intercept(t, first, pluginapi.RequestInterceptRequest{Body: []byte(`{"input":"test@acme-corp.cn"}`)})
-	second := reloadInterceptor(t, instance, dir, "skip_models: [other]").(*veilPlugin)
+	first := reloadInterceptor(t, instance, dir, "")
+	intercept(t, first, abiRequestInterceptRequest{Body: []byte(`{"input":"test@acme-corp.cn"}`)})
+	second := reloadInterceptor(t, instance, dir, "skip_models: [other]")
 	if second.vault != first.vault || second.vault.Len() == 0 {
 		t.Fatal("reload dropped the vault")
 	}
@@ -158,21 +172,13 @@ func TestReloadKeepsTheVault(t *testing.T) {
 func TestInterceptRequest_SkippedModel(t *testing.T) {
 	interceptor := newConfiguredInterceptor(t, "skip_models: [' GPT-4 ']\nskip_formats: [' OPENAI ']")
 	body := []byte(`{"input":"test@acme-corp.cn"}`)
-	for _, req := range []pluginapi.RequestInterceptRequest{
+	for _, req := range []abiRequestInterceptRequest{
 		{Model: "gpt-4", Body: body},
 		{Model: "upstream-model", RequestedModel: "gpt-4", Body: body},
 		{SourceFormat: "openai", Body: body},
 	} {
-		before, err := interceptor.InterceptRequestBeforeAuth(context.Background(), req)
-		if err != nil {
-			t.Fatal(err)
-		}
-		after, err := interceptor.InterceptRequestAfterAuth(context.Background(), req)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if before.Body != nil || after.Body != nil {
-			t.Fatalf("skip config must preserve request body: before=%s after=%s", before.Body, after.Body)
+		if before, after := intercept(t, interceptor, req), interceptAfter(t, interceptor, req); before != nil || after != nil {
+			t.Fatalf("skip config must preserve request body: before=%s after=%s", before, after)
 		}
 	}
 }
@@ -182,7 +188,7 @@ func TestInterceptMasksSecrets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	body := intercept(t, plugin.Capabilities.RequestInterceptor, pluginapi.RequestInterceptRequest{
+	body := intercept(t, plugin, abiRequestInterceptRequest{
 		Body: []byte(`{"messages":[{"role":"user","content":"my api key is AKIAIOSFODNN7EXAMPLE"}]}`),
 	})
 	if strings.Contains(string(body), "AKIAIOSFODNN7EXAMPLE") || !strings.Contains(string(body), "{{SECRET_") {
@@ -242,7 +248,7 @@ func TestConfigParseReportsRemovedFields(t *testing.T) {
 	if len(cfg.SkipModels) != 1 {
 		t.Fatalf("skip_models = %v, want [gpt-4]", cfg.SkipModels)
 	}
-	body := intercept(t, newConfiguredInterceptor(t, raw), pluginapi.RequestInterceptRequest{Body: []byte(`{"input":"test@acme-corp.cn"}`)})
+	body := intercept(t, newConfiguredInterceptor(t, raw), abiRequestInterceptRequest{Body: []byte(`{"input":"test@acme-corp.cn"}`)})
 	if !emailPlaceholder.Match(body) {
 		t.Fatalf("expected a placeholder: %s", body)
 	}
@@ -269,7 +275,7 @@ func TestRoundTripThroughTheABI(t *testing.T) {
 	defer runtime.close()
 
 	dir := t.TempDir()
-	raw, err := runtime.register(context.Background(), "plugin.register", registerRequest(t, dir, ""))
+	raw, err := seamCall(context.Background(), runtime, "plugin.register", registerRequest(t, dir, ""))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -282,7 +288,7 @@ func TestRoundTripThroughTheABI(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		out, err := runtime.handle(context.Background(), method, payload)
+		out, err := seamCall(context.Background(), runtime, method, payload)
 		if err != nil {
 			t.Fatal(err)
 		}

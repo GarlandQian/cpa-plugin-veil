@@ -11,7 +11,6 @@ import (
 
 	"github.com/GarlandQian/cpa-plugin-veil/internal/vault"
 	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginabi"
-	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginapi"
 	log "github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v3"
 )
@@ -37,7 +36,7 @@ func reconfigurePlugin(t *testing.T, i *pluginInstance, dir string, cfg veilConf
 	if err != nil {
 		t.Fatal(err)
 	}
-	return p.Capabilities.RequestInterceptor.(*veilPlugin)
+	return p
 }
 
 func shadowDir(t *testing.T, pid string) string {
@@ -64,7 +63,7 @@ func TestConfiguredKeySurvivesShadowCopyRestart(t *testing.T) {
 		Key:        hex.EncodeToString(bytes.Repeat([]byte{0x42}, 32)),
 		Categories: map[string]bool{"home": true, "ip": true},
 	}
-	req := pluginapi.RequestInterceptRequest{
+	req := abiRequestInterceptRequest{
 		Headers: bearer("test-client"),
 		Body:    []byte(`{"input":"mail test@acme-corp.cn, /Users/alice/project, server 47.100.12.34"}`),
 	}
@@ -100,7 +99,7 @@ func TestConfiguredKeySurvivesShadowCopyRestart(t *testing.T) {
 func TestShadowCopyWithoutKeyWarnsAndKeepsReloadStable(t *testing.T) {
 	logs := capturePluginLogs(t)
 	dir := shadowDir(t, "100")
-	req := pluginapi.RequestInterceptRequest{Headers: bearer("test-client"), Body: []byte(`{"input":"test@acme-corp.cn"}`)}
+	req := abiRequestInterceptRequest{Headers: bearer("test-client"), Body: []byte(`{"input":"test@acme-corp.cn"}`)}
 	instance := &pluginInstance{}
 	first := intercept(t, reconfigurePlugin(t, instance, dir, veilConfig{}), req)
 	reloaded := intercept(t, reconfigurePlugin(t, instance, dir, veilConfig{}), req)
@@ -137,7 +136,7 @@ func TestShadowCopyWithKeyLogsOneNoticeAndNoWarning(t *testing.T) {
 
 func TestLegacyKeyMigratesToConfigWithoutChangingPlaceholders(t *testing.T) {
 	dir := t.TempDir()
-	req := pluginapi.RequestInterceptRequest{Headers: bearer("test-client"), Body: []byte(`{"input":"test@acme-corp.cn"}`)}
+	req := abiRequestInterceptRequest{Headers: bearer("test-client"), Body: []byte(`{"input":"test@acme-corp.cn"}`)}
 	first := intercept(t, configuredPlugin(t, dir, veilConfig{}), req)
 	key, err := os.ReadFile(filepath.Join(dir, vault.KeyFile))
 	if err != nil {
@@ -194,7 +193,7 @@ func TestShadowRuleFilesUseExplicitBaseOrAbsolutePaths(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			p := configuredPlugin(t, dir, tc.cfg)
-			body := intercept(t, p, pluginapi.RequestInterceptRequest{Body: []byte(`{"input":"MAIN-123456 EXTRA-123456"}`)})
+			body := intercept(t, p, abiRequestInterceptRequest{Body: []byte(`{"input":"MAIN-123456 EXTRA-123456"}`)})
 			if !strings.Contains(string(body), "{{SECRET_") || !strings.Contains(string(body), "{{EXTRA_") {
 				t.Fatalf("rule files did not load: %s", body)
 			}
@@ -262,18 +261,18 @@ func TestKeyChangesOnReloadKeepThePreviousPlugin(t *testing.T) {
 	defer runtime.close()
 	dir := t.TempDir()
 	ctx := context.Background()
-	if _, err := runtime.register(ctx, pluginabi.MethodPluginRegister, registerRequest(t, dir, "")); err != nil {
+	if _, err := seamCall(ctx, runtime, pluginabi.MethodPluginRegister, registerRequest(t, dir, "")); err != nil {
 		t.Fatal(err)
 	}
 	first := runtime.plugin
-	req := pluginapi.RequestInterceptRequest{Body: []byte(`{"input":"test@acme-corp.cn"}`)}
+	req := abiRequestInterceptRequest{Body: []byte(`{"input":"test@acme-corp.cn"}`)}
 	masked := intercept(t, first, req)
 	key, err := os.ReadFile(filepath.Join(dir, vault.KeyFile))
 	if err != nil {
 		t.Fatal(err)
 	}
 	// Moving the very same key into config can be done without a restart.
-	if _, err := runtime.register(ctx, pluginabi.MethodPluginReconfigure, registerRequest(t, dir, string(configBytes(t, veilConfig{Key: string(key)})))); err != nil {
+	if _, err := seamCall(ctx, runtime, pluginabi.MethodPluginReconfigure, registerRequest(t, dir, string(configBytes(t, veilConfig{Key: string(key)})))); err != nil {
 		t.Fatal(err)
 	}
 	valid := runtime.plugin
@@ -285,7 +284,7 @@ func TestKeyChangesOnReloadKeepThePreviousPlugin(t *testing.T) {
 		{Key: "do-not-log-this"},
 		{}, // Removing an explicit key also changes its source.
 	} {
-		if _, err := runtime.register(ctx, pluginabi.MethodPluginReconfigure, registerRequest(t, dir, string(configBytes(t, cfg)))); err != nil {
+		if _, err := seamCall(ctx, runtime, pluginabi.MethodPluginReconfigure, registerRequest(t, dir, string(configBytes(t, cfg)))); err != nil {
 			t.Fatal(err)
 		}
 		if runtime.plugin != valid {

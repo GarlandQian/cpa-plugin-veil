@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginabi"
-	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginapi"
 )
 
 func TestHostCallbackIDContext(t *testing.T) {
@@ -113,11 +112,11 @@ func TestReconfigureKeepsPreviousConfigOnInvalidConfig(t *testing.T) {
 	}
 	ctx := context.Background()
 
-	if _, err := runtime.register(ctx, pluginabi.MethodPluginRegister, registerRequest(t, dir, "gitleaks_toml: rules.toml\nskip_models: 123")); err == nil {
+	if _, err := seamCall(ctx, runtime, pluginabi.MethodPluginRegister, registerRequest(t, dir, "gitleaks_toml: rules.toml\nskip_models: 123")); err == nil {
 		t.Fatal("initial register must reject invalid config")
 	}
 
-	raw, err := runtime.register(ctx, pluginabi.MethodPluginRegister, registerRequest(t, dir, "gitleaks_toml: rules.toml\nskip_models: [first]"))
+	raw, err := seamCall(ctx, runtime, pluginabi.MethodPluginRegister, registerRequest(t, dir, "gitleaks_toml: rules.toml\nskip_models: [first]"))
 	if err != nil {
 		t.Fatalf("register error = %v", err)
 	}
@@ -127,7 +126,7 @@ func TestReconfigureKeepsPreviousConfigOnInvalidConfig(t *testing.T) {
 	}
 	valid := runtime.plugin
 
-	raw, err = runtime.register(ctx, pluginabi.MethodPluginReconfigure, registerRequest(t, dir, "gitleaks_toml: rules.toml\nskip_formats: true"))
+	raw, err = seamCall(ctx, runtime, pluginabi.MethodPluginReconfigure, registerRequest(t, dir, "gitleaks_toml: rules.toml\nskip_formats: true"))
 	if err != nil {
 		t.Fatalf("reconfigure with invalid config must keep serving, got %v", err)
 	}
@@ -139,15 +138,11 @@ func TestReconfigureKeepsPreviousConfigOnInvalidConfig(t *testing.T) {
 	if current != valid {
 		t.Fatal("invalid reconfigure must keep the previous plugin instance")
 	}
-	resp, err := current.InterceptRequestBeforeAuth(ctx, pluginapi.RequestInterceptRequest{Body: []byte(`{"input":"test@acme-corp.cn"}`)})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !emailPlaceholder.Match(resp.Body) {
-		t.Fatalf("expected a placeholder: %s", resp.Body)
+	if body := intercept(t, current, abiRequestInterceptRequest{Body: []byte(`{"input":"test@acme-corp.cn"}`)}); !emailPlaceholder.Match(body) {
+		t.Fatalf("expected a placeholder: %s", body)
 	}
 
-	if _, err = runtime.register(ctx, pluginabi.MethodPluginReconfigure, registerRequest(t, dir, "gitleaks_toml: rules.toml\nskip_models: [second]")); err != nil {
+	if _, err = seamCall(ctx, runtime, pluginabi.MethodPluginReconfigure, registerRequest(t, dir, "gitleaks_toml: rules.toml\nskip_models: [second]")); err != nil {
 		t.Fatalf("valid reconfigure error = %v", err)
 	}
 	current = runtime.plugin
@@ -161,12 +156,9 @@ func TestReconfigureKeepsPreviousConfigOnInvalidConfig(t *testing.T) {
 func TestMaskingKeepsUntouchedBytes(t *testing.T) {
 	interceptor := newConfiguredInterceptor(t, "")
 	body := `{"seed":12345678901234567890,"z":1,"a":"<b>&é",` + "\n" + `"messages":[{"role":"user","content":"mail test@acme-corp.cn"}]}`
-	resp, err := interceptor.InterceptRequestBeforeAuth(context.Background(), pluginapi.RequestInterceptRequest{Body: []byte(body)})
-	if err != nil {
-		t.Fatal(err)
-	}
+	got := intercept(t, interceptor, abiRequestInterceptRequest{Body: []byte(body)})
 	want := regexp.MustCompile("^" + regexp.QuoteMeta(`{"seed":12345678901234567890,"z":1,"a":"<b>&é",`+"\n"+`"messages":[{"role":"user","content":"mail `) + `\{\{EMAIL_[a-z2-7]{8}\}\}` + regexp.QuoteMeta(`"}]}`) + "$")
-	if !want.Match(resp.Body) {
-		t.Fatalf("body = %s", resp.Body)
+	if !want.Match(got) {
+		t.Fatalf("body = %s", got)
 	}
 }

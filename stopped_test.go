@@ -1,14 +1,11 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"strings"
 	"testing"
 
 	"github.com/GarlandQian/cpa-plugin-veil/internal/mask"
-
-	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginapi"
 )
 
 func TestStoppedBodyKeepsNoText(t *testing.T) {
@@ -30,13 +27,9 @@ func TestStoppedBodyKeepsNoText(t *testing.T) {
 	}
 }
 
-func stoppedFor(t *testing.T, interceptor pluginapi.RequestInterceptor, body string) []byte {
+func stoppedFor(t *testing.T, interceptor *veilPlugin, body string) []byte {
 	t.Helper()
-	resp, err := interceptor.InterceptRequestBeforeAuth(context.Background(), pluginapi.RequestInterceptRequest{Body: []byte(body)})
-	if err != nil {
-		t.Fatalf("a stop must not be an error, the host would send the original: %v", err)
-	}
-	return resp.Body
+	return intercept(t, interceptor, abiRequestInterceptRequest{Body: []byte(body)})
 }
 
 func TestBlockActionStopsTheRequest(t *testing.T) {
@@ -55,7 +48,7 @@ func TestWarnActionLetsTheValueThrough(t *testing.T) {
 }
 
 func TestMaskingFailureStopsTheRequest(t *testing.T) {
-	p := newConfiguredInterceptor(t, "").(*veilPlugin)
+	p := newConfiguredInterceptor(t, "")
 	// A masker without a detector panics on the first field.
 	p.masker = mask.New(nil, p.vault)
 	got := stoppedFor(t, p, `{"model":"m","input":"mail test@acme-corp.cn"}`)
@@ -74,10 +67,9 @@ func TestInvalidActionIsRejected(t *testing.T) {
 }
 
 func TestRestoreFailureLetsTheResponseThrough(t *testing.T) {
-	p := newConfiguredInterceptor(t, "").(*veilPlugin)
+	p := newConfiguredInterceptor(t, "")
 	p.restorer = nil
-	resp, err := p.InterceptResponse(context.Background(), pluginapi.ResponseInterceptRequest{Body: []byte(`{"a":1}`)})
-	if err != nil || resp.Body != nil {
-		t.Fatalf("resp = %s, %v", resp.Body, err)
+	if resp := respondTo(t, p, abiResponseInterceptRequest{Body: []byte(`{"a":1}`)}); resp != nil {
+		t.Fatalf("resp = %s", resp)
 	}
 }

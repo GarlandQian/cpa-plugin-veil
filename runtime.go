@@ -94,9 +94,9 @@ func (r *pluginRuntime) register(ctx context.Context, method string, request []b
 		}
 		return nil, err
 	}
-	r.plugin = plugin.Capabilities.RequestInterceptor.(*veilPlugin)
+	r.plugin = plugin
 	r.mu.Unlock()
-	return abiOKEnvelope(newABIRegistration(plugin.Metadata, req.SchemaVersion))
+	return abiOKEnvelope(newABIRegistration(pluginMetadata(), req.SchemaVersion))
 }
 
 // answer is the Host seam: it takes a call of the Host and always returns the
@@ -141,10 +141,10 @@ func (r *pluginRuntime) stopUnmasked(ctx context.Context, method string, request
 	if r != nil {
 		if p, done, err := r.begin(); err == nil {
 			defer done()
-			p.record(req.sdk(), mask.Report{}, records.StoppedError, start)
+			p.record(req, mask.Report{}, records.StoppedError, start)
 		}
 	}
-	out, _ = abiOKEnvelope(stop(withHostCallbackID(ctx, req.HostCallbackID), req.sdk(), method+": "+cause.Error(), stoppedUnreadable))
+	out, _ = abiOKEnvelope(stop(withHostCallbackID(ctx, req.HostCallbackID), req, method+": "+cause.Error(), stoppedUnreadable))
 	return out
 }
 
@@ -210,29 +210,25 @@ func (r *pluginRuntime) handle(ctx context.Context, method string, request []byt
 		if errDecode != nil {
 			return nil, errDecode
 		}
-		resp, errCall := p.interceptRequest(withHostCallbackID(ctx, req.HostCallbackID), req.sdk(), req.RequestID, false)
-		return abiOKEnvelopeWithError(resp, errCall)
+		return abiOKEnvelope(p.interceptRequest(withHostCallbackID(ctx, req.HostCallbackID), req, false))
 	case pluginabi.MethodRequestInterceptAfter:
 		req, errDecode := readRequestCall(request)
 		if errDecode != nil {
 			return nil, errDecode
 		}
-		resp, errCall := p.interceptRequest(withHostCallbackID(ctx, req.HostCallbackID), req.sdk(), req.RequestID, true)
-		return abiOKEnvelopeWithError(resp, errCall)
+		return abiOKEnvelope(p.interceptRequest(withHostCallbackID(ctx, req.HostCallbackID), req, true))
 	case pluginabi.MethodResponseInterceptAfter:
 		var req abiResponseInterceptRequest
 		if errDecode := json.Unmarshal(request, &req); errDecode != nil {
 			return nil, errDecode
 		}
-		resp, errCall := p.interceptResponse(withHostCallbackID(ctx, req.HostCallbackID), req.sdk(), req.RequestID)
-		return abiOKEnvelopeWithError(resp, errCall)
+		return abiOKEnvelope(p.interceptResponse(withHostCallbackID(ctx, req.HostCallbackID), req))
 	case pluginabi.MethodResponseInterceptStreamChunk:
 		var req abiStreamChunkInterceptRequest
 		if errDecode := json.Unmarshal(request, &req); errDecode != nil {
 			return nil, errDecode
 		}
-		resp, errCall := p.interceptStreamChunk(withHostCallbackID(ctx, req.HostCallbackID), req.sdk(), req.RequestID)
-		return abiOKEnvelopeWithError(resp, errCall)
+		return abiOKEnvelope(p.interceptStreamChunk(withHostCallbackID(ctx, req.HostCallbackID), req))
 	case pluginabi.MethodManagementRegister:
 		var req pluginapi.ManagementRegistrationRequest
 		if errDecode := json.Unmarshal(request, &req); errDecode != nil {
