@@ -101,7 +101,7 @@ curl -X POST "http://127.0.0.1:8317/v0/management/plugin-store/veil/install" \
 ### 手动安装
 
 1. 从 [Releases](https://github.com/GarlandQian/cpa-plugin-veil/releases) 下载对应平台的 `veil_<版本>_<系统>_<架构>.zip`，
-   例如 Apple 芯片的 Mac 用 `veil_0.8.2_darwin_arm64.zip`。可以用同一页的 `checksums.txt` 校验：
+   例如 Apple 芯片的 Mac 用 `veil_0.9.0_darwin_arm64.zip`。可以用同一页的 `checksums.txt` 校验：
 
    ```bash
    shasum -a 256 -c checksums.txt --ignore-missing   # Linux 上用 sha256sum
@@ -251,9 +251,10 @@ plugins:
 - `warn`：原样发出，同时记一条告警日志，只写类型和 JSON 路径，不写值。
 - `block`：拦下整个请求。
 
-被拦下的请求不会把原文带到上游。CLIProxyAPI 没有给插件提供让请求失败的接口，而且 Veil 运行时上游已经选好，
-所以 Veil 会把请求体换成只保留模型和 stream 标志、清空所有对话字段的版本。任何厂商都会在推理前把它当作错误请求拒绝。
-客户端看到的是这次拒绝，CLIProxyAPI 日志里会写明原因：`veil stopped a request, the upstream will reject it: ...`。
+被拦下的请求不会把原文带到上游。在 CLIProxyAPI v8 上，这个请求根本不会到达上游：客户端收到 403 和符合自己协议格式的错误，
+里面写明是哪些类型导致被拦，不含具体的值和所在位置。CLIProxyAPI v7 没有给插件提供让请求失败的接口，而且 Veil 运行时上游已经选好，
+所以在 v7 上 Veil 会把请求体换成只保留模型和 stream 标志、清空所有对话字段的版本，任何厂商都会在推理前把它当作错误请求拒绝，
+客户端看到的是这次拒绝。无论哪个版本，CLIProxyAPI 日志里都会写明原因：`veil stopped a request: ...`。
 
 出错时 Veil 同样选择拒绝：如果无法掩码某个请求（例如请求体看起来是 JSON 却解析失败，或者掩码过程出错），
 就拦下这个请求，而不是放行。插件返回错误会让 CLIProxyAPI 发出原始请求体，所以请求 hook 从不返回错误：Veil 正在关闭时到达的请求、

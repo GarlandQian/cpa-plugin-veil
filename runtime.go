@@ -127,7 +127,7 @@ var errNotInitialized = errors.New("veil plugin is not initialized")
 func (r *pluginRuntime) stopUnmasked(ctx context.Context, method string, request []byte, cause error) (out []byte) {
 	defer func() {
 		if recover() != nil {
-			out, _ = abiOKEnvelope(pluginapi.RequestInterceptResponse{Body: stoppedBody(nil)})
+			out, _ = abiOKEnvelope(stoppedAnswer("", nil, stoppedUnreadable))
 		}
 	}()
 	start := time.Now()
@@ -135,7 +135,7 @@ func (r *pluginRuntime) stopUnmasked(ctx context.Context, method string, request
 	if err != nil {
 		cause = err
 	} else if len(req.Body) == 0 {
-		out, _ = abiOKEnvelope(pluginapi.RequestInterceptResponse{})
+		out, _ = abiOKEnvelope(abiRequestInterceptResponse{})
 		return out
 	}
 	if r != nil {
@@ -144,7 +144,7 @@ func (r *pluginRuntime) stopUnmasked(ctx context.Context, method string, request
 			p.record(req.sdk(), mask.Report{}, records.StoppedError, start)
 		}
 	}
-	out, _ = abiOKEnvelope(stop(withHostCallbackID(ctx, req.HostCallbackID), req.sdk(), method+": "+cause.Error()))
+	out, _ = abiOKEnvelope(stop(withHostCallbackID(ctx, req.HostCallbackID), req.sdk(), method+": "+cause.Error(), stoppedUnreadable))
 	return out
 }
 
