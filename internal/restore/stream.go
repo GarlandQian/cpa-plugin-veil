@@ -152,24 +152,8 @@ func (s *Stream) event(b *bytes.Buffer, eventLine, payload, ending []byte) bool 
 		return false
 	}
 
-	if held := s.held; held != nil {
-		s.held = nil
-		continues := true
-		for ctx := range held.tails {
-			if ev.byCtx[ctx] == nil {
-				continues = false
-			}
-		}
-		if continues {
-			s.render(b, held.eventLine, held.cut)
-			s.tally.Add(held.cutTally)
-			for ctx, tail := range held.tails {
-				ev.byCtx[ctx].Text = tail + ev.byCtx[ctx].Text
-			}
-		} else {
-			s.render(b, held.eventLine, held.full)
-			s.tally.Add(held.fullTally)
-		}
+	if eventLine, data, ok := s.settle(ev); ok {
+		s.render(b, eventLine, data)
 	}
 
 	r := s.restore(ev, !isFinal(ev.doc, ev.typ))
@@ -188,11 +172,7 @@ func (s *Stream) event(b *bytes.Buffer, eventLine, payload, ending []byte) bool 
 		b.Write(r.full)
 	}
 	b.Write(ending)
-	switch ev.typ {
-	case "message_stop", "response.completed", "response.failed", "response.incomplete":
-		return true
-	}
-	return false
+	return streamEnd(ev.typ)
 }
 
 // bare handles a chunk that is one JSON event with no SSE framing: the
@@ -203,24 +183,8 @@ func (s *Stream) event(b *bytes.Buffer, eventLine, payload, ending []byte) bool 
 // never held, so nothing held is left when it does.
 func (s *Stream) bare(ev streamEvent, chunk []byte) ([]byte, bool) {
 	var payloads [][]byte
-	if held := s.held; held != nil {
-		s.held = nil
-		continues := true
-		for ctx := range held.tails {
-			if ev.byCtx[ctx] == nil {
-				continues = false
-			}
-		}
-		if continues {
-			payloads = append(payloads, held.cut)
-			s.tally.Add(held.cutTally)
-			for ctx, tail := range held.tails {
-				ev.byCtx[ctx].Text = tail + ev.byCtx[ctx].Text
-			}
-		} else {
-			payloads = append(payloads, held.full)
-			s.tally.Add(held.fullTally)
-		}
+	if _, data, ok := s.settle(ev); ok {
+		payloads = append(payloads, data)
 	}
 	final := isFinal(ev.doc, ev.typ)
 	r := s.restore(ev, !final)
@@ -239,6 +203,28 @@ func (s *Stream) bare(ev streamEvent, chunk []byte) ([]byte, bool) {
 		payloads = append(payloads, bytes.TrimSpace(chunk))
 	}
 	return bytes.Join(payloads, []byte("\n\ndata: ")), final
+}
+
+// settle decides the held event, if any, now the next event ev is here. If ev
+// continues every field held, the held event goes out without its tails and
+// ev takes them; if not, it goes out as it came. It returns what to write.
+func (s *Stream) settle(ev streamEvent) (eventLine, data []byte, ok bool) {
+	held := s.held
+	if held == nil {
+		return nil, nil, false
+	}
+	s.held = nil
+	for ctx := range held.tails {
+		if ev.byCtx[ctx] == nil {
+			s.tally.Add(held.fullTally)
+			return held.eventLine, held.full, true
+		}
+	}
+	s.tally.Add(held.cutTally)
+	for ctx, tail := range held.tails {
+		ev.byCtx[ctx].Text = tail + ev.byCtx[ctx].Text
+	}
+	return held.eventLine, held.cut, true
 }
 
 // release writes out a held event and a waiting event line.
@@ -439,10 +425,20 @@ func isJSONFragment(path, typ string) bool {
 	return last == "arguments" || last == "partial_json" || (last == "delta" && strings.Contains(typ, "arguments"))
 }
 
+// streamEnd reports an event type after which its stream has nothing more,
+// however it ended.
+func streamEnd(typ string) bool {
+	switch typ {
+	case "message_stop", "response.completed", "response.failed", "response.incomplete":
+		return true
+	}
+	return false
+}
+
 // isFinal reports an event after which no text of its block follows, so
-// nothing may be held back from it.
+// nothing may be held back from it: nothing would come to release it.
 func isFinal(doc *jsontree.Doc, typ string) bool {
-	if typ == "message_stop" || typ == "response.completed" {
+	if streamEnd(typ) {
 		return true
 	}
 	for _, key := range []string{"choices", "candidates"} {

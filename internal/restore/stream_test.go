@@ -323,6 +323,65 @@ func TestStreamResponses(t *testing.T) {
 	}
 }
 
+// However a stream ends, nothing comes after its last event to release it, so
+// the event goes out even when its text ends like the start of a Placeholder,
+// as code cut short by a token limit can.
+func TestStreamEndingEventsAreNeverHeld(t *testing.T) {
+	r, v := newRestorer(t)
+	p := v.Placeholder("", "EMAIL", "a@b.com")
+	for _, typ := range []string{"response.completed", "response.incomplete", "response.failed"} {
+		for _, tail := range []string{"", "{", "{{", "{{EMA"} {
+			text := "to " + p + " func main() " + tail
+			b, _ := json.Marshal(map[string]any{"type": typ, "response": map[string]any{"output": []any{
+				map[string]any{"type": "message", "content": []any{map[string]any{"type": "output_text", "text": text}}},
+			}}})
+			name := typ + " ending in " + tail
+			for how, chunks := range map[string][]string{
+				"whole":    {"event: " + typ + "\ndata: " + string(b) + "\n\n"},
+				"by lines": {"event: " + typ, "data: " + string(b)},
+			} {
+				s := r.NewStream("", true)
+				var out strings.Builder
+				done := false
+				for _, c := range chunks {
+					got, end := s.Chunk([]byte(c))
+					out.Write(got)
+					done = done || end
+				}
+				if !done {
+					t.Errorf("%s, %s: the stream did not end", name, how)
+				}
+				evs := events(t, out.String())
+				if len(evs) != 1 || evs[0]["type"] != typ {
+					t.Fatalf("%s, %s: delivered %q", name, how, out.String())
+				}
+				want := "to a@b.com func main() " + tail
+				if got := dig(evs[0], "response", "output", 0, "content", 0, "text"); got != want {
+					t.Errorf("%s, %s: text = %v", name, how, got)
+				}
+				if n := s.Tally().Back[p]; n != 1 {
+					t.Errorf("%s, %s: tally = %d", name, how, n)
+				}
+			}
+		}
+	}
+}
+
+// A delta held when the stream ends goes out with the event that ends it.
+func TestStreamEndingEventReleasesAHeldDelta(t *testing.T) {
+	r, _ := newRestorer(t)
+	s := r.NewStream("", true)
+	delta := `{"type":"response.output_text.delta","item_id":"m1","output_index":0,"content_index":0,"delta":"code {"}`
+	if out, done := s.Chunk([]byte("event: response.output_text.delta\ndata: " + delta + "\n\n")); len(out) != 0 || done {
+		t.Fatalf("the delta was not held: %q, done %v", out, done)
+	}
+	out, done := s.Chunk([]byte("event: response.incomplete\ndata: {\"type\":\"response.incomplete\",\"response\":{\"id\":\"r1\"}}\n\n"))
+	evs := events(t, string(out))
+	if !done || len(evs) != 2 || evs[0]["delta"] != "code {" || evs[1]["type"] != "response.incomplete" {
+		t.Fatalf("delivered %q, done %v", out, done)
+	}
+}
+
 func TestStreamGemini(t *testing.T) {
 	r, v := newRestorer(t)
 	p := v.Placeholder("", "EMAIL", "a@b.com")
