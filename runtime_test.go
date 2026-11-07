@@ -205,7 +205,7 @@ func TestConcurrentReconfigureAndCalls(t *testing.T) {
 	var wg sync.WaitGroup
 	for n := 0; n < 4; n++ {
 		wg.Go(func() {
-			req, _ := json.Marshal(abiRequestInterceptRequest{RequestInterceptRequest: pluginapi.RequestInterceptRequest{Body: []byte(`{"input":"mail ` + recordedEmail + `"}`)}})
+			req, _ := json.Marshal(abiRequestInterceptRequest{Body: []byte(`{"input":"mail ` + recordedEmail + `"}`)})
 			for n := 0; n < 20; n++ {
 				if _, err := r.handle(context.Background(), pluginabi.MethodRequestInterceptBefore, req); err != nil {
 					t.Error(err)

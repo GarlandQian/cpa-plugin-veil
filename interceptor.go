@@ -63,7 +63,7 @@ func (p *veilPlugin) interceptRequest(ctx context.Context, req pluginapi.Request
 	defer func() {
 		if r := recover(); r != nil {
 			p.record(req, mask.Report{}, records.StoppedError, start)
-			resp = p.stop(ctx, req, fmt.Sprintf("masking failed: %v", r))
+			resp = stop(ctx, req, fmt.Sprintf("masking failed: %v", r))
 		}
 	}()
 
@@ -88,11 +88,11 @@ func (p *veilPlugin) interceptRequest(ctx context.Context, req pluginapi.Request
 			stopped = records.StoppedMalformed
 		}
 		p.record(req, report, stopped, start)
-		return p.stop(ctx, req, "masking failed: "+err.Error()), nil
+		return stop(ctx, req, "masking failed: "+err.Error()), nil
 	}
 	if len(report.Blocked) > 0 {
 		p.record(req, report, records.StoppedBlock, start)
-		return p.stop(ctx, req, fmt.Sprintf("it holds %s in %s, whose action is block", kindSummary(report.Blocked), strings.Join(report.BlockedPaths, ", "))), nil
+		return stop(ctx, req, fmt.Sprintf("it holds %s in %s, whose action is block", kindSummary(report.Blocked), strings.Join(report.BlockedPaths, ", "))), nil
 	}
 	if len(report.Warned) > 0 {
 		pluginLog(ctx, logLevelWarn, fmt.Sprintf("veil let %d value(s) (%s) through unmasked in %d field(s): %s", total(report.Warned), kindSummary(report.Warned), len(report.WarnedPaths), strings.Join(report.WarnedPaths, ", ")), map[string]any{
@@ -185,7 +185,7 @@ func (p *veilPlugin) restored(key records.Ref, t *restore.Tally) {
 }
 
 // stop turns a request into a Stopped request and says why in the log.
-func (p *veilPlugin) stop(ctx context.Context, req pluginapi.RequestInterceptRequest, reason string) pluginapi.RequestInterceptResponse {
+func stop(ctx context.Context, req pluginapi.RequestInterceptRequest, reason string) pluginapi.RequestInterceptResponse {
 	pluginLog(ctx, logLevelError, "veil stopped a request, the upstream will reject it: "+reason, map[string]any{
 		"model":         req.Model,
 		"source_format": req.SourceFormat,
