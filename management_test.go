@@ -52,8 +52,8 @@ func TestManagementRoutesFollowThePluginID(t *testing.T) {
 
 func TestManagementRecordsWithoutValues(t *testing.T) {
 	i := newConfiguredInterceptor(t, "")
-	p := i.(*veilPlugin)
-	intercept(t, i, pluginapi.RequestInterceptRequest{Headers: bearer("k"), Body: []byte(`{"input":"mail ` + recordedEmail + `"}`)})
+	p := i
+	intercept(t, i, abiRequestInterceptRequest{Headers: bearer("k"), Body: []byte(`{"input":"mail ` + recordedEmail + `"}`)})
 	p.records.Flush()
 	const base = "/v0/management/plugins/veil/"
 
@@ -144,7 +144,7 @@ func TestRecordsPageIsSelfContained(t *testing.T) {
 }
 
 func TestManagementWithRecordsOff(t *testing.T) {
-	p := newConfiguredInterceptor(t, "records: false\n").(*veilPlugin)
+	p := newConfiguredInterceptor(t, "records: false\n")
 	if status, out, _ := manage(t, p, http.MethodGet, "/v0/management/plugins/veil/summary", nil, ""); status != http.StatusOK || out["enabled"] != false {
 		t.Fatalf("summary with records off = %d %v", status, out)
 	}
@@ -157,7 +157,7 @@ func TestManagementThroughTheABI(t *testing.T) {
 	runtime := &pluginRuntime{}
 	defer runtime.close()
 	ctx := context.Background()
-	raw, err := runtime.register(ctx, pluginabi.MethodPluginRegister, registerRequest(t, t.TempDir(), ""))
+	raw, err := seamCall(ctx, runtime, pluginabi.MethodPluginRegister, registerRequest(t, t.TempDir(), ""))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -183,7 +183,7 @@ func TestManagementThroughTheABI(t *testing.T) {
 		Routes    []pluginapi.ManagementRoute `json:"routes"`
 		Resources []pluginapi.ResourceRoute   `json:"resources"`
 	}
-	out, errCall := runtime.handle(ctx, pluginabi.MethodManagementRegister, reqRaw)
+	out, errCall := seamCall(ctx, runtime, pluginabi.MethodManagementRegister, reqRaw)
 	result(out, errCall, &reg)
 	if len(reg.Routes) != 6 || reg.Routes[0].Method != http.MethodGet || reg.Resources[0].Menu != recordsMenu {
 		t.Fatalf("registration = %+v", reg)
@@ -193,7 +193,7 @@ func TestManagementThroughTheABI(t *testing.T) {
 		Method: http.MethodPost, Path: "/v0/management/plugins/veil/preview", Body: []byte(`{"text":"mail test@acme-corp.cn"}`),
 	}})
 	var resp pluginapi.ManagementResponse
-	out, errCall = runtime.handle(ctx, pluginabi.MethodManagementHandle, reqRaw)
+	out, errCall = seamCall(ctx, runtime, pluginabi.MethodManagementHandle, reqRaw)
 	result(out, errCall, &resp)
 	if resp.StatusCode != http.StatusOK || strings.Contains(string(resp.Body), "test@acme-corp.cn") || !strings.Contains(string(resp.Body), "EMAIL") {
 		t.Fatalf("preview through the ABI = %d %s", resp.StatusCode, resp.Body)
@@ -201,7 +201,7 @@ func TestManagementThroughTheABI(t *testing.T) {
 }
 
 func TestManagementRecordValuesFollowTheRecordCaller(t *testing.T) {
-	p := newConfiguredInterceptor(t, "").(*veilPlugin)
+	p := newConfiguredInterceptor(t, "")
 	const route = "/v0/management/plugins/veil/record-values"
 	for _, caller := range []string{"", "caller-a", "caller-b"} {
 		t.Run("scope-"+caller, func(t *testing.T) {
@@ -259,8 +259,8 @@ func TestManagementRecordValuesFollowTheRecordCaller(t *testing.T) {
 }
 
 func TestManagementRecordValuesRequireCurrentMappings(t *testing.T) {
-	p := newConfiguredInterceptor(t, "").(*veilPlugin)
-	req := pluginapi.RequestInterceptRequest{Headers: bearer("caller-a"), Body: []byte(`{"input":"mail ` + recordedEmail + `"}`)}
+	p := newConfiguredInterceptor(t, "")
+	req := abiRequestInterceptRequest{Headers: bearer("caller-a"), Body: []byte(`{"input":"mail ` + recordedEmail + `"}`)}
 	intercept(t, p, req)
 	r := recordsOf(t, p)[0]
 	const route = "/v0/management/plugins/veil/record-values"
@@ -278,7 +278,7 @@ func TestManagementRecordValuesRequireCurrentMappings(t *testing.T) {
 	}
 	assertValues(p, true)
 	// A fresh instance reads the saved key and record, but has an empty Vault.
-	fresh := buildInterceptor(t, p.pluginDir, "").(*veilPlugin)
+	fresh := buildInterceptor(t, p.pluginDir, "")
 	assertValues(fresh, false)
 	other := req
 	other.Headers = bearer("caller-b")
@@ -297,14 +297,14 @@ func TestManagementRecordValuesRequireCurrentMappings(t *testing.T) {
 			t.Fatalf("invalid record key status = %d", status)
 		}
 	}
-	off := newConfiguredInterceptor(t, "records: false\n").(*veilPlugin)
+	off := newConfiguredInterceptor(t, "records: false\n")
 	if status, _, _ := manage(t, off, http.MethodGet, route, q, ""); status != http.StatusNotFound {
 		t.Fatal("originals were available with records disabled")
 	}
 }
 
 func TestManagementRecordValuesDoNotResolveUnretainedCandidates(t *testing.T) {
-	p := newConfiguredInterceptor(t, "").(*veilPlugin)
+	p := newConfiguredInterceptor(t, "")
 	scope := vault.ScopeOf(bearer("caller"))
 	placeholder := p.vault.Placeholder(scope, "TERM", "existing mapped example")
 	for _, tc := range []struct{ action, stopped string }{

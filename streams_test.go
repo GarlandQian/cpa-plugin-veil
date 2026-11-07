@@ -11,44 +11,11 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginapi"
 )
 
-// hostStream delivers chunks through the plugin as the host does: one
-// header-only call, then each chunk by index, replacing it with a non-empty
-// Body and skipping it on DropChunk.
-type hostStream struct {
-	t       *testing.T
-	plugin  *veilPlugin
-	req     pluginapi.StreamChunkInterceptRequest
-	next    int
-	visible strings.Builder
-}
-
-func openStream(t *testing.T, p *veilPlugin, scopeKey string, requestBody []byte) *hostStream {
+// openStream opens a stream as CPA v7 hands it over: no request ID, the
+// request bodies with every chunk.
+func openStream(t *testing.T, p *veilPlugin, scopeKey string, requestBody []byte) *fakeStream {
 	t.Helper()
-	h := &hostStream{t: t, plugin: p, req: pluginapi.StreamChunkInterceptRequest{RequestHeaders: bearer(scopeKey), RequestBody: requestBody}}
-	h.req.ChunkIndex = pluginapi.StreamChunkHeaderInitIndex
-	if _, err := p.InterceptStreamChunk(nil, h.req); err != nil {
-		t.Fatal(err)
-	}
-	return h
-}
-
-func (h *hostStream) send(chunk string) {
-	h.t.Helper()
-	req := h.req
-	req.Body = []byte(chunk)
-	req.ChunkIndex = h.next
-	h.next++
-	resp, err := h.plugin.InterceptStreamChunk(nil, req)
-	if err != nil {
-		h.t.Fatal(err)
-	}
-	switch {
-	case resp.DropChunk:
-	case len(resp.Body) > 0:
-		h.visible.Write(resp.Body)
-	default:
-		h.visible.WriteString(chunk)
-	}
+	return hostOf(t, p).open(&fakeRequest{headers: bearer(scopeKey), upstream: requestBody})
 }
 
 func deltaEvent(text string) []string {
@@ -80,7 +47,7 @@ func streamedText(t *testing.T, stream string) string {
 
 func maskedPlaceholder(t testing.TB, p *veilPlugin, key string) string {
 	t.Helper()
-	body := intercept(t, p, pluginapi.RequestInterceptRequest{Headers: bearer(key), Body: []byte(`{"messages":[{"role":"user","content":"mail test@acme-corp.cn"}]}`)})
+	body := intercept(t, p, abiRequestInterceptRequest{Headers: bearer(key), Body: []byte(`{"messages":[{"role":"user","content":"mail test@acme-corp.cn"}]}`)})
 	placeholder := emailPlaceholder.FindString(string(body))
 	if placeholder == "" {
 		t.Fatalf("not masked: %s", body)
@@ -89,7 +56,7 @@ func maskedPlaceholder(t testing.TB, p *veilPlugin, key string) string {
 }
 
 func TestStreamThroughTheHost(t *testing.T) {
-	p := newConfiguredInterceptor(t, "").(*veilPlugin)
+	p := newConfiguredInterceptor(t, "")
 	placeholder := maskedPlaceholder(t, p, "client-a")
 	h := openStream(t, p, "client-a", []byte(`{"request":1}`))
 	for _, piece := range []string{"sending to ", placeholder[:5], placeholder[5:12], placeholder[12:], " now"} {
@@ -100,15 +67,15 @@ func TestStreamThroughTheHost(t *testing.T) {
 	for _, line := range []string{"event: message_stop\n", "data: {\"type\":\"message_stop\"}\n", "\n"} {
 		h.send(line)
 	}
-	if got := streamedText(t, h.visible.String()); got != "sending to test@acme-corp.cn now" {
-		t.Fatalf("client saw %q\n%s", got, h.visible.String())
+	if got := streamedText(t, h.visible()); got != "sending to test@acme-corp.cn now" {
+		t.Fatalf("client saw %q\n%s", got, h.visible())
 	}
 }
 
 // Two streams of the same client and body cannot be told apart chunk by
 // chunk; neither holds, so neither mixes the other's text into its own.
 func TestConcurrentIdenticalStreams(t *testing.T) {
-	p := newConfiguredInterceptor(t, "").(*veilPlugin)
+	p := newConfiguredInterceptor(t, "")
 	placeholder := maskedPlaceholder(t, p, "client-a")
 	body := []byte(`{"same":true}`)
 	a := openStream(t, p, "client-a", body)
@@ -123,84 +90,49 @@ func TestConcurrentIdenticalStreams(t *testing.T) {
 			b.send(line)
 		}
 	}
-	if got := streamedText(t, a.visible.String()); got != "a: test@acme-corp.cn end" {
+	if got := streamedText(t, a.visible()); got != "a: test@acme-corp.cn end" {
 		t.Fatalf("a saw %q", got)
 	}
-	if got := streamedText(t, b.visible.String()); got != "b: test@acme-corp.cn end" {
+	if got := streamedText(t, b.visible()); got != "b: test@acme-corp.cn end" {
 		t.Fatalf("b saw %q", got)
 	}
 }
 
 func TestStreamOfAnotherClientIsNotRestored(t *testing.T) {
-	p := newConfiguredInterceptor(t, "").(*veilPlugin)
+	p := newConfiguredInterceptor(t, "")
 	placeholder := maskedPlaceholder(t, p, "client-a")
 	h := openStream(t, p, "client-b", []byte(`{"request":2}`))
 	for _, line := range deltaEvent("leak " + placeholder) {
 		h.send(line)
 	}
-	if !strings.Contains(h.visible.String(), placeholder) {
-		t.Fatalf("another client's placeholder was restored:\n%s", h.visible.String())
+	if !strings.Contains(h.visible(), placeholder) {
+		t.Fatalf("another client's placeholder was restored:\n%s", h.visible())
 	}
-}
-
-// v8Stream delivers a Responses stream as CPA v8's Codex path does: one SSE
-// line per chunk with no line ending, the blank separator as an empty chunk
-// no plugin rewrites, and what comes out joined by the framer's line breaks.
-type v8Stream struct {
-	t      *testing.T
-	plugin *veilPlugin
-	req    pluginapi.StreamChunkInterceptRequest
-	id     string // the request's ID, as schema 5 has the payload chunks without the bodies
-	next   int
-	out    []string
 }
 
 // openV8Stream opens a stream as CPA v8 hands it to a schema 1 plugin: no
-// request ID, the request bodies with every chunk.
-func openV8Stream(t *testing.T, p *veilPlugin, scopeKey string, requestBody []byte) *v8Stream {
-	return openV8StreamOf(t, p, scopeKey, requestBody, "")
-}
-
-// openV8StreamOf opens a stream as CPA v8 hands it to a plugin of schema 5
-// when id is set: the request bodies with the header-init call only, its
-// request's ID with every chunk.
-func openV8StreamOf(t *testing.T, p *veilPlugin, scopeKey string, requestBody []byte, id string) *v8Stream {
+// request ID, the request bodies with every chunk. Its Codex path hands over
+// one SSE line per chunk with no line ending, the blank separator as an empty
+// chunk no plugin rewrites, and what comes out is joined by the framer's line
+// breaks, as frames reads it.
+func openV8Stream(t *testing.T, p *veilPlugin, scopeKey string, requestBody []byte) *fakeStream {
 	t.Helper()
-	s := &v8Stream{t: t, plugin: p, id: id, req: pluginapi.StreamChunkInterceptRequest{RequestHeaders: bearer(scopeKey), OriginalRequest: requestBody, RequestBody: requestBody}}
-	s.req.ChunkIndex = pluginapi.StreamChunkHeaderInitIndex
-	if _, err := p.interceptStreamChunk(nil, s.req, id); err != nil {
-		t.Fatal(err)
-	}
-	return s
+	return hostOf(t, p).open(&fakeRequest{headers: bearer(scopeKey), original: requestBody, upstream: requestBody})
 }
 
-func (s *v8Stream) send(line string) {
-	s.t.Helper()
-	req := s.req
-	if s.id != "" {
-		req.OriginalRequest, req.RequestBody = nil, nil
-	}
-	req.Body = []byte(line)
-	req.ChunkIndex = s.next
-	s.next++
-	resp, err := s.plugin.interceptStreamChunk(nil, req, s.id)
-	if err != nil {
-		s.t.Fatal(err)
-	}
-	switch {
-	case resp.DropChunk:
-	case len(resp.Body) > 0:
-		s.out = append(s.out, string(resp.Body))
-	default:
-		s.out = append(s.out, line)
-	}
+// openV8StreamOf opens a stream as CPA v8 hands it to a plugin of schema 5:
+// the request bodies with the header-init call only, the request's ID with
+// every chunk.
+func openV8StreamOf(t *testing.T, p *veilPlugin, scopeKey string, requestBody []byte, id string) *fakeStream {
+	t.Helper()
+	return v8HostOf(t, p).open(&fakeRequest{id: id, headers: bearer(scopeKey), original: requestBody, upstream: requestBody})
 }
 
 // frames checks every event reaches the client as an event line and a data
 // line of its own and returns the restored text of the output deltas. Blank
 // lines end an event; more than one in a row is no event (SSE ignores it).
-func (s *v8Stream) frames() (string, int) {
-	s.t.Helper()
+func (s *fakeStream) frames() (string, int) {
+	s.h.t.Helper()
 	stream := strings.Join(s.out, "\n") + "\n\n"
 	text, n := "", 0
 	var frame []string
@@ -214,14 +146,14 @@ func (s *v8Stream) frames() (string, int) {
 		}
 		n++
 		if len(frame) != 2 || !strings.HasPrefix(frame[0], "event: ") || !strings.HasPrefix(frame[1], "data: ") {
-			s.t.Fatalf("frame %q is not an event line and a data line in\n%s", frame, stream)
+			s.h.t.Fatalf("frame %q is not an event line and a data line in\n%s", frame, stream)
 		}
 		var data struct {
 			Type  string `json:"type"`
 			Delta string `json:"delta"`
 		}
 		if err := json.Unmarshal([]byte(strings.TrimPrefix(frame[1], "data: ")), &data); err != nil || "event: "+data.Type != frame[0] {
-			s.t.Fatalf("frame %q: %v", frame, err)
+			s.h.t.Fatalf("frame %q: %v", frame, err)
 		}
 		text += data.Delta
 		frame = nil
@@ -250,7 +182,7 @@ func responsesV8Lines(text string, size int) []string {
 // with event lines reached the client as "event: xdata: {...}", and the host
 // closed them before the first payload.
 func TestV8ResponsesStreamsKeepTheirEventLines(t *testing.T) {
-	p := newConfiguredInterceptor(t, "").(*veilPlugin)
+	p := newConfiguredInterceptor(t, "")
 	placeholder := maskedPlaceholder(t, p, "k")
 	body := []byte(`{"input":"later"}`)
 
@@ -277,7 +209,7 @@ func TestV8ResponsesStreamsKeepTheirEventLines(t *testing.T) {
 // event line held when holding stops still goes out on a line of its own,
 // and whole Placeholders still restore.
 func TestV8ConcurrentStreamsKeepTheirEventLines(t *testing.T) {
-	p := newConfiguredInterceptor(t, "").(*veilPlugin)
+	p := newConfiguredInterceptor(t, "")
 	placeholder := maskedPlaceholder(t, p, "k")
 	body := []byte(`{"input":"same"}`)
 	a := openV8Stream(t, p, "k", body)
@@ -290,7 +222,7 @@ func TestV8ConcurrentStreamsKeepTheirEventLines(t *testing.T) {
 	for _, line := range lines {
 		b.send(line)
 	}
-	for name, s := range map[string]*v8Stream{"first": a, "second": b} {
+	for name, s := range map[string]*fakeStream{"first": a, "second": b} {
 		if text, _ := s.frames(); text != "to test@acme-corp.cn" {
 			t.Fatalf("%s stream text %q", name, text)
 		}
@@ -302,7 +234,7 @@ func TestV8ConcurrentStreamsKeepTheirEventLines(t *testing.T) {
 // known by that ID, holds Placeholders cut across chunks, and two identical
 // requests at once are two streams, each holding.
 func TestStreamsKnownByRequestID(t *testing.T) {
-	p := newConfiguredInterceptor(t, "").(*veilPlugin)
+	p := newConfiguredInterceptor(t, "")
 	placeholder := maskedPlaceholder(t, p, "k")
 	body := []byte(`{"input":"same"}`)
 	lines := responsesV8Lines("to "+placeholder+" ok", 4)
@@ -312,7 +244,7 @@ func TestStreamsKnownByRequestID(t *testing.T) {
 		a.send(lines[i])
 		b.send(lines[i])
 	}
-	for name, s := range map[string]*v8Stream{"first": a, "second": b} {
+	for name, s := range map[string]*fakeStream{"first": a, "second": b} {
 		if text, _ := s.frames(); text != "to test@acme-corp.cn ok" {
 			t.Fatalf("%s stream text %q", name, text)
 		}
@@ -331,7 +263,7 @@ func TestRegisterTakesTheHostsSchema(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		out, err := runtime.register(context.Background(), pluginabi.MethodPluginRegister, raw)
+		out, err := seamCall(context.Background(), runtime, pluginabi.MethodPluginRegister, raw)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -344,13 +276,13 @@ func TestRegisterTakesTheHostsSchema(t *testing.T) {
 // A chunk as CPA v8 encodes it for a plugin of schema 5, without the bodies,
 // finds its stream by the RequestID field.
 func TestStreamChunkEnvelopeCarriesTheRequestID(t *testing.T) {
-	p := newConfiguredInterceptor(t, "").(*veilPlugin)
+	p := newConfiguredInterceptor(t, "")
 	placeholder := maskedPlaceholder(t, p, "k")
 	runtime := &pluginRuntime{}
 	defer runtime.close()
 	runtime.plugin = p
 	headers := map[string][]string{"Authorization": {"Bearer k"}}
-	s := &v8Stream{t: t}
+	s := &fakeStream{h: &fakeHost{t: t}}
 	for i, line := range append([]string{""}, responsesV8Lines("to "+placeholder+" ok", 4)...) {
 		req := map[string]any{"RequestID": "r1", "RequestHeaders": headers, "Body": []byte(line), "ChunkIndex": i - 1}
 		if i == 0 {
@@ -360,7 +292,7 @@ func TestStreamChunkEnvelopeCarriesTheRequestID(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		out, err := runtime.handle(context.Background(), pluginabi.MethodResponseInterceptStreamChunk, raw)
+		out, err := seamCall(context.Background(), runtime, pluginabi.MethodResponseInterceptStreamChunk, raw)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -389,7 +321,7 @@ func TestStreamChunkEnvelopeCarriesTheRequestID(t *testing.T) {
 // request bodies in every chunk, as a schema 1 plugin gets them, or in the
 // header-init call only, the chunks known by the request's ID.
 func BenchmarkLongHistoryStream(b *testing.B) {
-	p := newConfiguredInterceptor(b, "").(*veilPlugin)
+	p := newConfiguredInterceptor(b, "")
 	maskedPlaceholder(b, p, "k")
 	runtime := &pluginRuntime{}
 	defer runtime.close()
@@ -417,7 +349,7 @@ func BenchmarkLongHistoryStream(b *testing.B) {
 			b.ResetTimer()
 			for range b.N {
 				for _, raw := range envelopes {
-					if _, err := runtime.handle(context.Background(), pluginabi.MethodResponseInterceptStreamChunk, raw); err != nil {
+					if _, err := seamCall(context.Background(), runtime, pluginabi.MethodResponseInterceptStreamChunk, raw); err != nil {
 						b.Fatal(err)
 					}
 				}

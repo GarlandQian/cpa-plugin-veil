@@ -1,15 +1,15 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"strings"
 	"testing"
 
-	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginapi"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginabi"
 )
 
 // sessionTurns builds the request bodies an agent sends over a long session:
@@ -56,7 +56,6 @@ func BenchmarkLongSession(b *testing.B) {
 	log.SetOutput(io.Discard)
 	b.Cleanup(func() { log.SetOutput(output) })
 	bodies := sessionTurns(80)
-	ctx := context.Background()
 	dir := b.TempDir()
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -67,19 +66,13 @@ func BenchmarkLongSession(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
-		interceptor := plugin.Capabilities.RequestInterceptor
+		host := hostOf(b, plugin)
 		b.StartTimer()
 		for _, body := range bodies {
-			before, err := interceptor.InterceptRequestBeforeAuth(ctx, pluginapi.RequestInterceptRequest{Body: body})
-			if err != nil {
-				b.Fatal(err)
-			}
-			if len(before.Body) > 0 {
+			if before := host.requestHook(pluginabi.MethodRequestInterceptBefore, abiRequestInterceptRequest{Body: body}); len(before.Body) > 0 {
 				body = before.Body
 			}
-			if _, err = interceptor.InterceptRequestAfterAuth(ctx, pluginapi.RequestInterceptRequest{Body: body}); err != nil {
-				b.Fatal(err)
-			}
+			host.requestHook(pluginabi.MethodRequestInterceptAfter, abiRequestInterceptRequest{Body: body})
 		}
 		b.StopTimer()
 		instance.close()

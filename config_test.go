@@ -5,8 +5,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginapi"
 )
 
 func TestDetectionOptionsFromConfig(t *testing.T) {
@@ -28,7 +26,7 @@ allow: [ALICE@acme-corp.cn]
 	if err != nil {
 		t.Fatal(err)
 	}
-	body := string(intercept(t, plugin.Capabilities.RequestInterceptor, pluginapi.RequestInterceptRequest{
+	body := string(intercept(t, plugin, abiRequestInterceptRequest{
 		Body: []byte(`{"input":"烛龙 PHOENIX TKT-123456 server 47.100.12.34, mail alice@acme-corp.cn, call 13800138000"}`),
 	}))
 	for _, want := range []string{"{{TERM_", "{{TICKET_", "public-ip-", "alice@acme-corp.cn", "13800138000"} {
@@ -42,7 +40,7 @@ allow: [ALICE@acme-corp.cn]
 		}
 	}
 	// The built-in gitleaks rules are still on beside rules_toml.
-	if strings.Contains(string(intercept(t, plugin.Capabilities.RequestInterceptor, pluginapi.RequestInterceptRequest{
+	if strings.Contains(string(intercept(t, plugin, abiRequestInterceptRequest{
 		Body: []byte(`{"input":"key AKIAIOSFODNN7EXAMPLE"}`),
 	})), "AKIAIOSFODNN7EXAMPLE") {
 		t.Error("rules_toml replaced the built-in rules")

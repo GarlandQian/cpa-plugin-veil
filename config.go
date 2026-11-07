@@ -14,7 +14,6 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const veilProvider = "veil"
 const pluginName = "veil"
 
 type veilConfig struct {

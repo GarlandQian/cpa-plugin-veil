@@ -10,3 +10,4 @@ test-output*
 *.log
 *.tmp*.test
 *.prof
+/cpa-plugin-veil

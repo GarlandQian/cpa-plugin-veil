@@ -1,7 +1,9 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -50,6 +52,30 @@ type fakeRequest struct {
 	// rejected is the answer of the hook that kept the request from the
 	// upstream, and with it what the client gets.
 	rejected *abiRequestInterceptResponse
+}
+
+// hostOf is a CPA v7 at the seam of p, for a test that set p up itself.
+func hostOf(t testing.TB, p *veilPlugin) *fakeHost {
+	return &fakeHost{t: t, profile: hostV7, runtime: &pluginRuntime{plugin: p}}
+}
+
+// v8HostOf is hostOf with CPA v8, Veil having registered with what it takes.
+func v8HostOf(t testing.TB, p *veilPlugin) *fakeHost {
+	return &fakeHost{t: t, profile: hostV8, runtime: &pluginRuntime{plugin: p}, schema: veilSchemaVersion}
+}
+
+// seamCall is one call of a test that drives the seam by hand; a failure
+// answer is its error.
+func seamCall(ctx context.Context, r *pluginRuntime, method string, request []byte) ([]byte, error) {
+	out := r.answer(ctx, method, request)
+	var envelope abiEnvelope
+	if err := json.Unmarshal(out, &envelope); err != nil {
+		return nil, err
+	}
+	if !envelope.OK {
+		return nil, errors.New(envelope.Error.Message)
+	}
+	return out, nil
 }
 
 func newFakeHost(t *testing.T, profile hostProfile, configure ...func(*veilConfig)) *fakeHost {
@@ -116,6 +142,16 @@ func (h *fakeHost) requestCall(r *fakeRequest, body []byte) map[string]any {
 	return call
 }
 
+// requestHook is the answer to one request hook, which a test expects to run.
+func (h *fakeHost) requestHook(method string, req abiRequestInterceptRequest) abiRequestInterceptResponse {
+	h.t.Helper()
+	var out abiRequestInterceptResponse
+	if !h.result(h.call(method, req), &out) {
+		h.t.Fatalf("%s failed", method)
+	}
+	return out
+}
+
 // send takes a request through the request hooks, and returns it as the
 // upstream gets it.
 func (h *fakeHost) send(caller, body string) *fakeRequest {
@@ -178,27 +214,55 @@ func (h *fakeHost) respond(r *fakeRequest, body string) string {
 }
 
 // stream takes a streamed response through the stream hook, and returns it
-// as the client gets it. A plugin of schema 3 or more gets the request bodies
-// with the header-init call only, on a Host that goes by the schema.
+// as the client gets it.
 func (h *fakeHost) stream(r *fakeRequest, chunks []string) string {
+	h.t.Helper()
+	s := h.open(r)
+	for _, chunk := range chunks {
+		s.send(chunk)
+	}
+	return s.visible()
+}
+
+// fakeStream is one response streaming through the Host a chunk at a time,
+// for a test that interleaves streams or looks at the chunks.
+type fakeStream struct {
+	h    *fakeHost
+	r    *fakeRequest
+	next int
+	out  []string
+}
+
+// open starts a stream with the header-init call. A plugin of schema 3 or more
+// gets the request bodies with that call only, on a Host that goes by the
+// schema.
+func (h *fakeHost) open(r *fakeRequest) *fakeStream {
 	h.t.Helper()
 	init := h.responseCall(r, true)
 	init["ChunkIndex"] = pluginapi.StreamChunkHeaderInitIndex
 	h.call(pluginabi.MethodResponseInterceptStreamChunk, init)
-	var delivered strings.Builder
-	for i, chunk := range chunks {
-		call := h.responseCall(r, h.profile.schema == 0 || h.schema < schemaOmittingStreamBodies)
-		call["ChunkIndex"], call["Body"] = i, []byte(chunk)
-		var out pluginapi.StreamChunkInterceptResponse
-		switch {
-		case !h.result(h.call(pluginabi.MethodResponseInterceptStreamChunk, call), &out):
-			delivered.WriteString(chunk)
-		case out.DropChunk:
-		case len(out.Body) > 0:
-			delivered.Write(out.Body)
-		default:
-			delivered.WriteString(chunk)
-		}
+	return &fakeStream{h: h, r: r}
+}
+
+// send delivers one chunk. A hook that failed leaves it as it came.
+func (s *fakeStream) send(chunk string) {
+	s.h.t.Helper()
+	call := s.h.responseCall(s.r, s.h.profile.schema == 0 || s.h.schema < schemaOmittingStreamBodies)
+	call["ChunkIndex"], call["Body"] = s.next, []byte(chunk)
+	s.next++
+	var out pluginapi.StreamChunkInterceptResponse
+	switch {
+	case !s.h.result(s.h.call(pluginabi.MethodResponseInterceptStreamChunk, call), &out):
+		s.out = append(s.out, chunk)
+	case out.DropChunk:
+	case len(out.Body) > 0:
+		s.out = append(s.out, string(out.Body))
+	default:
+		s.out = append(s.out, chunk)
 	}
-	return delivered.String()
+}
+
+// visible is the stream so far as the client gets it.
+func (s *fakeStream) visible() string {
+	return strings.Join(s.out, "")
 }

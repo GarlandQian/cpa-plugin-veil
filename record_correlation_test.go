@@ -21,7 +21,7 @@ func callRecordRuntime(t *testing.T, r *pluginRuntime, method string, request, r
 	if err != nil {
 		t.Fatal(err)
 	}
-	raw, err = r.handle(t.Context(), method, raw)
+	raw, err = seamCall(t.Context(), r, method, raw)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,33 +73,19 @@ func maskRecordRuntime(t *testing.T, r *pluginRuntime, id, caller string) ([]byt
 
 func restoreRecordRuntime(t *testing.T, r *pluginRuntime, id, caller string, masked []byte, placeholder string, count int, stream bool) {
 	t.Helper()
-	req := map[string]any{"RequestHeaders": bearer(caller), "OriginalRequest": masked, "RequestBody": masked}
+	h := &fakeHost{t: t, profile: hostV7, runtime: r}
 	if id != "" {
-		req["RequestID"] = id
+		h.profile, h.schema = hostV8, veilSchemaVersion
 	}
+	req := &fakeRequest{id: id, headers: bearer(caller), original: masked, upstream: masked}
 	text := strings.Repeat(placeholder+" ", count)
-	var restored []byte
+	var restored string
 	if stream {
-		var out pluginapi.StreamChunkInterceptResponse
-		req["ChunkIndex"] = pluginapi.StreamChunkHeaderInitIndex
-		callRecordRuntime(t, r, pluginabi.MethodResponseInterceptStreamChunk, req, &out)
-		if id != "" {
-			// CPA v8 schema 5 omits both request bodies from payload chunks.
-			delete(req, "OriginalRequest")
-			delete(req, "RequestBody")
-		}
-		for n, frame := range []string{strings.Join(deltaEvent(text), ""), "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"} {
-			req["ChunkIndex"], req["Body"] = n, []byte(frame)
-			callRecordRuntime(t, r, pluginabi.MethodResponseInterceptStreamChunk, req, &out)
-			restored = append(restored, out.Body...)
-		}
+		restored = h.stream(req, []string{strings.Join(deltaEvent(text), ""), "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"})
 	} else {
-		req["Body"] = []byte(`{"output_text":"` + text + `"}`)
-		var out pluginapi.ResponseInterceptResponse
-		callRecordRuntime(t, r, pluginabi.MethodResponseInterceptAfter, req, &out)
-		restored = out.Body
+		restored = h.respond(req, `{"output_text":"`+text+`"}`)
 	}
-	if got := strings.Count(string(restored), correlationTerm); got != count {
+	if got := strings.Count(restored, correlationTerm); got != count {
 		t.Fatalf("response restored %d of %d occurrences: %s", got, count, restored)
 	}
 }

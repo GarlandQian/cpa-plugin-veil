@@ -15,7 +15,6 @@ import (
 
 	"github.com/GarlandQian/cpa-plugin-veil/internal/records"
 	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginabi"
-	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginapi"
 )
 
 func TestRuntimeShutdownDrainsCallsStreamsAndRecords(t *testing.T) {
@@ -24,7 +23,7 @@ func TestRuntimeShutdownDrainsCallsStreamsAndRecords(t *testing.T) {
 		r := &pluginRuntime{}
 		defer r.close()
 		config := registerRequest(t, dir, "")
-		if _, err := r.handle(t.Context(), pluginabi.MethodPluginRegister, config); err != nil {
+		if _, err := seamCall(t.Context(), r, pluginabi.MethodPluginRegister, config); err != nil {
 			t.Fatal(err)
 		}
 		p, release, err := r.begin()
@@ -33,7 +32,7 @@ func TestRuntimeShutdownDrainsCallsStreamsAndRecords(t *testing.T) {
 		}
 		release = sync.OnceFunc(release)
 		defer release()
-		request := pluginapi.RequestInterceptRequest{Headers: bearer("k"), Body: []byte(`{"input":"mail ` + recordedEmail + `"}`)}
+		request := abiRequestInterceptRequest{Headers: bearer("k"), Body: []byte(`{"input":"mail ` + recordedEmail + `"}`)}
 		masked := intercept(t, p, request)
 		placeholder := emailPlaceholder.FindString(string(masked))
 		if placeholder == "" {
@@ -61,7 +60,7 @@ func TestRuntimeShutdownDrainsCallsStreamsAndRecords(t *testing.T) {
 		if _, ok := store.Add(records.Record{}); ok {
 			t.Fatal("writer accepts records after shutdown")
 		}
-		if _, err := r.handle(t.Context(), pluginabi.MethodPluginRegister, config); err == nil {
+		if _, err := seamCall(t.Context(), r, pluginabi.MethodPluginRegister, config); err == nil {
 			t.Fatal("register revived a closed runtime")
 		}
 		disk := records.New()
@@ -73,7 +72,7 @@ func TestRuntimeShutdownDrainsCallsStreamsAndRecords(t *testing.T) {
 		}
 		fresh := &pluginRuntime{}
 		defer fresh.close()
-		if _, err := fresh.handle(t.Context(), pluginabi.MethodPluginRegister, config); err != nil {
+		if _, err := seamCall(t.Context(), fresh, pluginabi.MethodPluginRegister, config); err != nil {
 			t.Fatal(err)
 		}
 		if fresh.plugin.vault.Len() != 0 {
@@ -99,7 +98,7 @@ func TestShutdownWinsOverAnAdmittedRegistration(t *testing.T) {
 	payload := registerRequest(t, dir, "")
 	registered := make(chan error, 1)
 	go func() {
-		_, err := r.handle(context.Background(), pluginabi.MethodPluginRegister, payload)
+		_, err := seamCall(context.Background(), r, pluginabi.MethodPluginRegister, payload)
 		registered <- err
 	}()
 	waitFor(t, func() bool {
@@ -141,13 +140,13 @@ func TestReloadRoutesAnOldStreamsTallyToItsOriginalDirectory(t *testing.T) {
 	cfg := veilConfig{Key: strings.Repeat("42", 32), BaseDir: a}
 	register := func() {
 		t.Helper()
-		if _, err := r.handle(t.Context(), pluginabi.MethodPluginReconfigure, registerRequest(t, "", string(configBytes(t, cfg)))); err != nil {
+		if _, err := seamCall(t.Context(), r, pluginabi.MethodPluginReconfigure, registerRequest(t, "", string(configBytes(t, cfg)))); err != nil {
 			t.Fatal(err)
 		}
 	}
 	register()
 	first := r.plugin
-	req := pluginapi.RequestInterceptRequest{Headers: bearer("k"), Body: []byte(`{"input":"mail ` + recordedEmail + `"}`)}
+	req := abiRequestInterceptRequest{Headers: bearer("k"), Body: []byte(`{"input":"mail ` + recordedEmail + `"}`)}
 	masked := intercept(t, first, req)
 	placeholder := emailPlaceholder.FindString(string(masked))
 	if placeholder == "" {
@@ -163,14 +162,14 @@ func TestReloadRoutesAnOldStreamsTallyToItsOriginalDirectory(t *testing.T) {
 	if current.vault != first.vault {
 		t.Fatal("reload replaced Vault")
 	}
-	stream.plugin = current
+	stream.h = hostOf(t, current)
 	for _, line := range deltaEvent(placeholder[7:] + " ok") {
 		stream.send(line)
 	}
 	for _, line := range []string{"event: message_stop\n", "data: {\"type\":\"message_stop\"}\n", "\n"} {
 		stream.send(line)
 	}
-	if got := streamedText(t, stream.visible.String()); got != recordedEmail+" ok" {
+	if got := streamedText(t, stream.visible()); got != recordedEmail+" ok" {
 		t.Fatalf("reload lost Held tail: %q", got)
 	}
 	if got := recordsOf(t, current); len(got) != 0 {
@@ -199,7 +198,7 @@ func TestConcurrentReconfigureAndCalls(t *testing.T) {
 	r := &pluginRuntime{}
 	defer r.close()
 	config := registerRequest(t, dir, "gitleaks_toml: rules.toml\n")
-	if _, err := r.handle(t.Context(), pluginabi.MethodPluginRegister, config); err != nil {
+	if _, err := seamCall(t.Context(), r, pluginabi.MethodPluginRegister, config); err != nil {
 		t.Fatal(err)
 	}
 	var wg sync.WaitGroup
@@ -207,14 +206,14 @@ func TestConcurrentReconfigureAndCalls(t *testing.T) {
 		wg.Go(func() {
 			req, _ := json.Marshal(abiRequestInterceptRequest{Body: []byte(`{"input":"mail ` + recordedEmail + `"}`)})
 			for n := 0; n < 20; n++ {
-				if _, err := r.handle(context.Background(), pluginabi.MethodRequestInterceptBefore, req); err != nil {
+				if _, err := seamCall(context.Background(), r, pluginabi.MethodRequestInterceptBefore, req); err != nil {
 					t.Error(err)
 				}
 			}
 		})
 	}
 	for n := 0; n < 8; n++ {
-		if _, err := r.handle(t.Context(), pluginabi.MethodPluginReconfigure, config); err != nil {
+		if _, err := seamCall(t.Context(), r, pluginabi.MethodPluginReconfigure, config); err != nil {
 			t.Fatal(err)
 		}
 	}

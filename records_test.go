@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -10,14 +9,13 @@ import (
 
 	"github.com/GarlandQian/cpa-plugin-veil/internal/records"
 	"github.com/GarlandQian/cpa-plugin-veil/internal/vault"
-	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginapi"
 )
 
 const recordedEmail = "test@acme-corp.cn"
 
-func recordsOf(t *testing.T, i pluginapi.RequestInterceptor) []records.Record {
+func recordsOf(t *testing.T, i *veilPlugin) []records.Record {
 	t.Helper()
-	p := i.(*veilPlugin)
+	p := i
 	if p.records == nil {
 		return nil
 	}
@@ -28,7 +26,7 @@ func recordsOf(t *testing.T, i pluginapi.RequestInterceptor) []records.Record {
 
 func TestARequestWithValuesLeavesARecordWithoutThem(t *testing.T) {
 	i := newConfiguredInterceptor(t, "actions:\n  PHONE: warn\n")
-	req := pluginapi.RequestInterceptRequest{
+	req := abiRequestInterceptRequest{
 		Model:        "gpt-test",
 		SourceFormat: "openai",
 		Headers:      bearer("client-a"),
@@ -63,9 +61,7 @@ func TestARequestWithValuesLeavesARecordWithoutThem(t *testing.T) {
 	}
 
 	// The after-auth pass of the same request leaves no second record.
-	if _, err := i.InterceptRequestAfterAuth(context.Background(), pluginapi.RequestInterceptRequest{Headers: req.Headers, Body: masked}); err != nil {
-		t.Fatal(err)
-	}
+	interceptAfter(t, i, abiRequestInterceptRequest{Headers: req.Headers, Body: masked})
 	if n := len(recordsOf(t, i)); n != 1 {
 		t.Fatalf("after-auth left %d records", n)
 	}
@@ -73,7 +69,7 @@ func TestARequestWithValuesLeavesARecordWithoutThem(t *testing.T) {
 
 func TestCleanRequestsLeaveNoRecord(t *testing.T) {
 	i := newConfiguredInterceptor(t, "")
-	intercept(t, i, pluginapi.RequestInterceptRequest{Body: []byte(`{"messages":[{"role":"user","content":"hello"}]}`)})
+	intercept(t, i, abiRequestInterceptRequest{Body: []byte(`{"messages":[{"role":"user","content":"hello"}]}`)})
 	if n := len(recordsOf(t, i)); n != 0 {
 		t.Fatalf("a clean request left %d records", n)
 	}
@@ -81,16 +77,16 @@ func TestCleanRequestsLeaveNoRecord(t *testing.T) {
 
 func TestRecordsCanBeTurnedOff(t *testing.T) {
 	i := newConfiguredInterceptor(t, "records: false\n")
-	intercept(t, i, pluginapi.RequestInterceptRequest{Body: []byte(`{"input":"mail ` + recordedEmail + `"}`)})
-	if i.(*veilPlugin).records != nil {
+	intercept(t, i, abiRequestInterceptRequest{Body: []byte(`{"input":"mail ` + recordedEmail + `"}`)})
+	if i.records != nil {
 		t.Fatal("records: false still keeps records")
 	}
 }
 
 func TestStoppedRequestsAreRecorded(t *testing.T) {
 	i := newConfiguredInterceptor(t, "actions:\n  EMAIL: block\n")
-	intercept(t, i, pluginapi.RequestInterceptRequest{Body: []byte(`{"input":"mail ` + recordedEmail + `"}`)})
-	intercept(t, i, pluginapi.RequestInterceptRequest{Body: []byte(`{"input": "cut short`)})
+	intercept(t, i, abiRequestInterceptRequest{Body: []byte(`{"input":"mail ` + recordedEmail + `"}`)})
+	intercept(t, i, abiRequestInterceptRequest{Body: []byte(`{"input": "cut short`)})
 	got := recordsOf(t, i)
 	if len(got) != 2 || got[0].Stopped != records.StoppedMalformed || got[1].Stopped != records.StoppedBlock {
 		t.Fatalf("records = %+v", got)
@@ -102,8 +98,8 @@ func TestStoppedRequestsAreRecorded(t *testing.T) {
 
 func TestClearingRecordsKeepsRestoring(t *testing.T) {
 	i := newConfiguredInterceptor(t, "")
-	masked := intercept(t, i, pluginapi.RequestInterceptRequest{Headers: bearer("k"), Body: []byte(`{"input":"mail ` + recordedEmail + `"}`)})
-	p := i.(*veilPlugin)
+	masked := intercept(t, i, abiRequestInterceptRequest{Headers: bearer("k"), Body: []byte(`{"input":"mail ` + recordedEmail + `"}`)})
+	p := i
 	recordsOf(t, i)
 	if err := p.records.Clear(); err != nil {
 		t.Fatal(err)
@@ -118,8 +114,8 @@ func TestClearingRecordsKeepsRestoring(t *testing.T) {
 func TestRecordsOnDiskHoldNoValues(t *testing.T) {
 	dir := t.TempDir()
 	i := buildInterceptor(t, dir, "")
-	p := i.(*veilPlugin)
-	intercept(t, i, pluginapi.RequestInterceptRequest{Body: []byte(`{"input":"mail ` + recordedEmail + `"}`)})
+	p := i
+	intercept(t, i, abiRequestInterceptRequest{Body: []byte(`{"input":"mail ` + recordedEmail + `"}`)})
 	p.records.Flush()
 	files, _ := filepath.Glob(filepath.Join(dir, "veil-records", "*.jsonl"))
 	if len(files) != 1 {
@@ -137,25 +133,25 @@ func TestRecordsOnDiskHoldNoValues(t *testing.T) {
 
 func TestResponsesAddWhatTheyRestoredToTheRecord(t *testing.T) {
 	i := newConfiguredInterceptor(t, "")
-	p := i.(*veilPlugin)
+	p := i
 	headers := bearer("k")
-	masked := intercept(t, i, pluginapi.RequestInterceptRequest{Headers: headers, Body: []byte(`{"input":"mail ` + recordedEmail + `"}`)})
+	masked := intercept(t, i, abiRequestInterceptRequest{Headers: headers, Body: []byte(`{"input":"mail ` + recordedEmail + `"}`)})
 	placeholder := emailPlaceholder.FindString(string(masked))
 	gone := "{{EMAIL_aaaaaaaa}}"
-	resp, err := p.InterceptResponse(context.Background(), pluginapi.ResponseInterceptRequest{
+	resp := respondTo(t, p, abiResponseInterceptRequest{
 		RequestHeaders:  headers,
 		OriginalRequest: masked,
 		Body:            []byte(`{"output_text":"sent to ` + placeholder + `, not ` + gone + `"}`),
 	})
-	if err != nil || !strings.Contains(string(resp.Body), recordedEmail) {
-		t.Fatalf("response not restored: %s %v", resp.Body, err)
+	if !strings.Contains(string(resp), recordedEmail) {
+		t.Fatalf("response not restored: %s", resp)
 	}
 	got := recordsOf(t, i)
 	if len(got) != 1 || got[0].Restored == nil || got[0].Restored.Back[placeholder] != 1 || got[0].Restored.Unrestored[gone] != 1 {
 		t.Fatalf("record restored = %+v", got[0].Restored)
 	}
 	// A second response to the same request is not linked twice.
-	p.InterceptResponse(context.Background(), pluginapi.ResponseInterceptRequest{RequestHeaders: headers, OriginalRequest: masked, Body: []byte(`{"output_text":"` + placeholder + `"}`)})
+	respondTo(t, p, abiResponseInterceptRequest{RequestHeaders: headers, OriginalRequest: masked, Body: []byte(`{"output_text":"` + placeholder + `"}`)})
 	if got := recordsOf(t, i); got[0].Restored.Back[placeholder] != 1 {
 		t.Fatalf("a second response counted: %+v", got[0].Restored)
 	}
@@ -163,25 +159,16 @@ func TestResponsesAddWhatTheyRestoredToTheRecord(t *testing.T) {
 
 func TestStreamsAddWhatTheyRestoredToTheRecord(t *testing.T) {
 	i := newConfiguredInterceptor(t, "")
-	p := i.(*veilPlugin)
+	p := i
 	headers := bearer("k")
-	masked := intercept(t, i, pluginapi.RequestInterceptRequest{Headers: headers, Body: []byte(`{"messages":[{"role":"user","content":"mail ` + recordedEmail + `"}]}`)})
+	masked := intercept(t, i, abiRequestInterceptRequest{Headers: headers, Body: []byte(`{"messages":[{"role":"user","content":"mail ` + recordedEmail + `"}]}`)})
 	placeholder := emailPlaceholder.FindString(string(masked))
-	req := pluginapi.StreamChunkInterceptRequest{RequestHeaders: headers, OriginalRequest: masked, RequestBody: masked, ChunkIndex: pluginapi.StreamChunkHeaderInitIndex}
-	if _, err := p.InterceptStreamChunk(context.Background(), req); err != nil {
-		t.Fatal(err)
-	}
 	var chunks []string
 	for _, piece := range []string{"to ", placeholder[:7], placeholder[7:], " ok"} {
 		chunks = append(chunks, deltaEvent(piece)...)
 	}
 	chunks = append(chunks, "event: message_stop\n", `data: {"type":"message_stop"}`+"\n", "\n")
-	for n, c := range chunks {
-		req.ChunkIndex, req.Body = n, []byte(c)
-		if _, err := p.InterceptStreamChunk(context.Background(), req); err != nil {
-			t.Fatal(err)
-		}
-	}
+	hostOf(t, p).stream(&fakeRequest{headers: headers, original: masked, upstream: masked}, chunks)
 	got := recordsOf(t, i)
 	if len(got) != 1 || got[0].Restored == nil || got[0].Restored.Back[placeholder] != 1 {
 		t.Fatalf("record restored = %+v", got[0].Restored)

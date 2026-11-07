@@ -13,15 +13,15 @@ import (
 
 var pluginVersion = "0.9.0"
 
-func (i *pluginInstance) configure(configYAML []byte, pluginDir string) (pluginapi.Plugin, error) {
+func (i *pluginInstance) configure(configYAML []byte, pluginDir string) (*veilPlugin, error) {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 	if i.closed {
-		return pluginapi.Plugin{}, fmt.Errorf("veil instance is closed")
+		return nil, fmt.Errorf("veil instance is closed")
 	}
 	cfg, removed, errParse := parseConfig(configYAML)
 	if errParse != nil {
-		return pluginapi.Plugin{}, errParse
+		return nil, errParse
 	}
 	if len(removed) > 0 {
 		pluginLog(context.Background(), logLevelWarn, "veil ignores removed config field(s): "+strings.Join(removed, ", ")+"; delete them from plugins.configs.veil", map[string]any{
@@ -30,23 +30,23 @@ func (i *pluginInstance) configure(configYAML []byte, pluginDir string) (plugina
 	}
 	pluginDir, errDir := i.resolvePluginDir(cfg.BaseDir, pluginDir)
 	if errDir != nil {
-		return pluginapi.Plugin{}, errDir
+		return nil, errDir
 	}
 
 	d, errDetector := newDetector(pluginDir, cfg)
 	if errDetector != nil {
-		return pluginapi.Plugin{}, errDetector
+		return nil, errDetector
 	}
 	actions, errActions := cfg.actions()
 	if errActions != nil {
-		return pluginapi.Plugin{}, errActions
+		return nil, errActions
 	}
 	key, errKey := cfg.configuredKey()
 	if errKey != nil {
-		return pluginapi.Plugin{}, errKey
+		return nil, errKey
 	}
 	if errState := i.configureMasking(pluginDir, key, d, actions); errState != nil {
-		return pluginapi.Plugin{}, errState
+		return nil, errState
 	}
 	i.explicitKey = len(key) > 0
 	if cfg.recordsOn() && i.records == nil {
@@ -69,14 +69,7 @@ func (i *pluginInstance) configure(configYAML []byte, pluginDir string) (plugina
 		p.records = i.records
 	}
 
-	return pluginapi.Plugin{
-		Metadata: pluginMetadata(),
-		Capabilities: pluginapi.Capabilities{
-			RequestInterceptor:     p,
-			ResponseInterceptor:    p,
-			StreamChunkInterceptor: p,
-		},
-	}, nil
+	return p, nil
 }
 
 func pluginMetadata() pluginapi.Metadata {

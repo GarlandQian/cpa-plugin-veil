@@ -111,10 +111,6 @@ type abiRequestInterceptResponse struct {
 	ResponseBody    []byte      `json:",omitempty"`
 }
 
-func (r abiRequestInterceptRequest) sdk() pluginapi.RequestInterceptRequest {
-	return pluginapi.RequestInterceptRequest{SourceFormat: r.SourceFormat, Model: r.Model, RequestedModel: r.RequestedModel, Headers: r.Headers, Body: r.Body}
-}
-
 type abiResponseInterceptRequest struct {
 	RequestID       string
 	RequestHeaders  http.Header
@@ -122,10 +118,6 @@ type abiResponseInterceptRequest struct {
 	RequestBody     []byte
 	Body            []byte
 	HostCallbackID  string `json:"host_callback_id,omitempty"`
-}
-
-func (r abiResponseInterceptRequest) sdk() pluginapi.ResponseInterceptRequest {
-	return pluginapi.ResponseInterceptRequest{RequestHeaders: r.RequestHeaders, OriginalRequest: r.OriginalRequest, RequestBody: r.RequestBody, Body: r.Body}
 }
 
 type abiStreamChunkInterceptRequest struct {
@@ -136,10 +128,6 @@ type abiStreamChunkInterceptRequest struct {
 	Body            []byte
 	ChunkIndex      int
 	HostCallbackID  string `json:"host_callback_id,omitempty"`
-}
-
-func (r abiStreamChunkInterceptRequest) sdk() pluginapi.StreamChunkInterceptRequest {
-	return pluginapi.StreamChunkInterceptRequest{RequestHeaders: r.RequestHeaders, OriginalRequest: r.OriginalRequest, RequestBody: r.RequestBody, Body: r.Body, ChunkIndex: r.ChunkIndex}
 }
 
 type abiRegistration struct {
@@ -362,13 +350,6 @@ func newABIRegistration(metadata pluginapi.Metadata, hostSchema uint32) abiRegis
 		Metadata:      metadata,
 		Capabilities:  abiCapabilities{RequestInterceptor: true, ResponseInterceptor: true, StreamChunkInterceptor: true, ManagementAPI: true},
 	}
-}
-
-func abiOKEnvelopeWithError(v any, err error) ([]byte, error) {
-	if err != nil {
-		return nil, err
-	}
-	return abiOKEnvelope(v)
 }
 
 func abiOKEnvelope(v any) ([]byte, error) {
