@@ -48,8 +48,8 @@ func sessionTurns(turns int) [][]byte {
 }
 
 // BenchmarkLongSession reports the masking cost of one request of an 80-turn
-// session, averaged over the session, with both interception hooks run as the
-// host runs them. Each iteration replays the session on a fresh plugin, so
+// session, averaged over the session, with both interception hooks run and
+// the request completed as the host does. Each iteration replays the session on a fresh plugin, so
 // nothing is cached from an earlier iteration.
 func BenchmarkLongSession(b *testing.B) {
 	output := log.StandardLogger().Out
@@ -69,10 +69,12 @@ func BenchmarkLongSession(b *testing.B) {
 		host := hostOf(b, plugin)
 		b.StartTimer()
 		for _, body := range bodies {
-			if before := host.requestHook(pluginabi.MethodRequestInterceptBefore, abiRequestInterceptRequest{Body: body}); len(before.Body) > 0 {
+			id := newRequestID()
+			if before := host.requestHook(pluginabi.MethodRequestInterceptBefore, abiRequestInterceptRequest{RequestID: id, Body: body}); len(before.Body) > 0 {
 				body = before.Body
 			}
-			host.requestHook(pluginabi.MethodRequestInterceptAfter, abiRequestInterceptRequest{Body: body})
+			host.requestHook(pluginabi.MethodRequestInterceptAfter, abiRequestInterceptRequest{RequestID: id, Body: body})
+			host.complete(&fakeRequest{id: id})
 		}
 		b.StopTimer()
 		instance.close()

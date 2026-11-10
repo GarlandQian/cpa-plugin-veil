@@ -1,5 +1,5 @@
-// Package records keeps the Masking records: what Veil did to each request
-// that had a Hit or was a Stopped request, told without the values
+// Package records keeps the Masking records: what Veil did in each Round trip
+// whose request had a Hit or was a Stopped request, told without the values
 // themselves (ADR-0005). The latest records are in memory, the newest of them
 // with the text around each value as the upstream got it; with a persistent
 // directory they also go to disk, a file a day, without that text.
@@ -41,7 +41,7 @@ const (
 	StoppedError     = "error"     // masking failed
 )
 
-// Record is one request's masking.
+// Record is one Round trip's masking.
 type Record struct {
 	Key     int64     `json:"key"` // unique, a later record's larger
 	Time    time.Time `json:"time"`
@@ -57,9 +57,44 @@ type Record struct {
 	Snips map[string]string `json:"snips,omitempty"`
 	// Restored is what the response put back, once it is done.
 	Restored *Restored `json:"restored,omitempty"`
-	// Patch marks a line on disk that adds Restored to the record of its Key
-	// written before it.
+	// Patch marks a line on disk that adds to the record of its Key written
+	// before it: Restored, or what a later Pass of the request found, which is
+	// more Values with their N, its Took, and Stopped if it stopped the
+	// request.
 	Patch bool `json:"patch,omitempty"`
+}
+
+// patched returns r with what a patch says added to it.
+func (r Record) patched(patch Record) Record {
+	if patch.Restored != nil {
+		r.Restored = r.Restored.merge(*patch.Restored)
+	}
+	if len(patch.Values) > 0 || patch.Stopped != "" || patch.Took != 0 {
+		r = r.extend(patch)
+	}
+	return r
+}
+
+// extend returns r with what a later Pass found added: more's Values, which
+// r does not have, and their Snips. A record already handed out keeps what it
+// had.
+func (r Record) extend(more Record) Record {
+	r.N += more.N
+	r.Took += more.Took
+	r.Values = append(r.Values[:len(r.Values):len(r.Values)], more.Values...)
+	if more.Stopped != "" {
+		r.Stopped = more.Stopped
+	}
+	if len(more.Snips) > 0 {
+		snips := make(map[string]string, len(r.Snips)+len(more.Snips))
+		for _, from := range []map[string]string{r.Snips, more.Snips} {
+			for placeholder, snip := range from {
+				snips[placeholder] = snip
+			}
+		}
+		r.Snips = snips
+	}
+	return r
 }
 
 // Restored is what the responses to a request put back.
@@ -134,6 +169,7 @@ type item struct {
 	rec      Record
 	ref      Ref
 	restored *Restored
+	more     bool         // rec adds to the record ref follows
 	control  func() error // runs under mu, after all preceding records
 	done     chan error
 }
@@ -201,6 +237,23 @@ func (ref Ref) Restore(back, unrestored map[string]int) {
 	if ref.owner != nil {
 		ref.owner.Restore(ref, back, unrestored)
 	}
+}
+
+// Append adds what a later Pass of the request found to the record ref
+// follows: more's Values, which the record must not have yet, its N for them,
+// its Took, its Snips, and Stopped if the Pass stopped the request. Like Add,
+// it drops excess submissions without waiting. The zero Ref follows none.
+func (ref Ref) Append(more Record) {
+	s := ref.owner
+	if s == nil {
+		return
+	}
+	s.intake.Lock()
+	defer s.intake.Unlock()
+	if s.closed || s.draining || ref.Key <= s.cleared[ref.dir] {
+		return
+	}
+	s.enqueue(item{ref: ref, rec: more, more: true})
 }
 
 // Restore follows the original record, even after SetDir. A clear in that
@@ -297,7 +350,9 @@ func (s *Store) run() {
 		case it.control != nil:
 			it.done <- it.control()
 		case it.restored != nil:
-			s.patch(it.ref, *it.restored)
+			s.patch(it.ref, Record{Restored: it.restored})
+		case it.more:
+			s.patch(it.ref, it.rec)
 		default:
 			s.keep(it.rec)
 		}
@@ -319,10 +374,12 @@ func (s *Store) keep(r Record) {
 	}
 }
 
-// patch runs on the writer. Old-directory responses never enter the current
-// memory view or prune the files the operator left in an old directory.
-func (s *Store) patch(ref Ref, r Restored) {
-	patch := Record{Key: ref.Key, Time: ref.at, Patch: true, Restored: &r}
+// patch adds to the record ref follows what its response restored or a later
+// Pass found. It runs on the writer. What comes for a record of an old
+// directory never enters the current memory view or prunes the files the
+// operator left there.
+func (s *Store) patch(ref Ref, patch Record) {
+	patch.Key, patch.Time, patch.Patch = ref.Key, ref.at, true
 	if ref.dir != s.dir {
 		if ref.dir != "" {
 			appendRecord(ref.dir, patch)
@@ -331,7 +388,10 @@ func (s *Store) patch(ref Ref, r Restored) {
 	}
 	for i := len(s.ring) - 1; i >= 0; i-- {
 		if s.ring[i].Key == ref.Key {
-			s.ring[i].Restored = s.ring[i].Restored.merge(r)
+			s.ring[i] = s.ring[i].patched(patch)
+			if len(s.ring)-i > keepSnips {
+				s.ring[i].Snips = nil
+			}
 			break
 		}
 	}

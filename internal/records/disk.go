@@ -171,8 +171,9 @@ func days(dir string) []dayFile {
 }
 
 // read calls fn with each record of a day's file, in the order written,
-// each with what the patch lines after it say its response restored. A line
-// that does not parse, such as one cut short, is skipped.
+// each with what the patch lines after it add: what its response restored,
+// and what later Passes of its request found. A line that does not parse,
+// such as one cut short, is skipped.
 func read(path string, fn func(Record)) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -193,8 +194,8 @@ func read(path string, fn func(Record)) {
 			continue
 		}
 		if r.Patch {
-			if i, ok := at[r.Key]; ok && r.Restored != nil {
-				all[i].Restored = all[i].Restored.merge(*r.Restored)
+			if i, ok := at[r.Key]; ok {
+				all[i] = all[i].patched(r)
 			}
 			continue
 		}

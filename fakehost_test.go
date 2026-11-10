@@ -154,22 +154,42 @@ func (h *fakeHost) requestHook(method string, req abiRequestInterceptRequest) ab
 	return out
 }
 
-// send takes a request through the request hooks, and returns it as the
-// upstream gets it.
-func (h *fakeHost) send(caller, body string) *fakeRequest {
-	h.t.Helper()
+// request is a request the Host has taken through no hook yet.
+func (h *fakeHost) request(caller, body string) *fakeRequest {
 	r := &fakeRequest{headers: bearer(caller), original: []byte(body), upstream: []byte(body)}
 	if h.profile.schema > 0 {
 		r.id = newRequestID()
 	}
-	for _, method := range []string{pluginabi.MethodRequestInterceptBefore, pluginabi.MethodRequestInterceptAfter} {
-		r.upstream, r.rejected = h.acted(h.call(method, h.requestCall(r, r.upstream)), r.upstream)
-		if r.rejected != nil {
-			r.upstream = nil
-			break
-		}
-	}
 	return r
+}
+
+// pass takes a request through one request hook, for a test that does what
+// the Host does between them. It says whether the request goes on.
+func (h *fakeHost) pass(r *fakeRequest, method string) bool {
+	h.t.Helper()
+	r.upstream, r.rejected = h.acted(h.call(method, h.requestCall(r, r.upstream)), r.upstream)
+	if r.rejected != nil {
+		r.upstream = nil
+	}
+	return r.rejected == nil
+}
+
+// send takes a request through the request hooks, and returns it as the
+// upstream gets it.
+func (h *fakeHost) send(caller, body string) *fakeRequest {
+	h.t.Helper()
+	r := h.request(caller, body)
+	_ = h.pass(r, pluginabi.MethodRequestInterceptBefore) && h.pass(r, pluginabi.MethodRequestInterceptAfter)
+	return r
+}
+
+// complete tells Veil the Host is done with a request, as it does once for
+// each request ID after the last hook call about it.
+func (h *fakeHost) complete(r *fakeRequest) {
+	h.t.Helper()
+	if !h.call(methodRequestComplete, map[string]any{"RequestID": r.id, "Outcome": "succeeded"}).OK {
+		h.t.Fatal("request.complete failed")
+	}
 }
 
 // acted is what the Host goes on with after a request hook's answer: one that

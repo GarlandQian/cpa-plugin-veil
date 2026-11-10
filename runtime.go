@@ -9,9 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/GarlandQian/cpa-plugin-veil/internal/mask"
-	"github.com/GarlandQian/cpa-plugin-veil/internal/records"
-
 	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginabi"
 	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginapi"
 )
@@ -116,8 +113,14 @@ func (r *pluginRuntime) answer(ctx context.Context, method string, request []byt
 			return out
 		}
 	}
-	if method == pluginabi.MethodRequestInterceptBefore || method == pluginabi.MethodRequestInterceptAfter {
+	switch method {
+	case pluginabi.MethodRequestInterceptBefore, pluginabi.MethodRequestInterceptAfter:
 		return r.stopUnmasked(ctx, method, request, err)
+	case methodRequestComplete:
+		// With no instance there is nothing to release, and the Host would
+		// only log a failure for every request.
+		out, _ := abiOKEnvelope(struct{}{})
+		return out
 	}
 	return abiErrorEnvelope("plugin_error", err.Error())
 }
@@ -145,7 +148,7 @@ func (r *pluginRuntime) stopUnmasked(ctx context.Context, method string, request
 	if r != nil {
 		if p, done, err := r.begin(); err == nil {
 			defer done()
-			p.record(req, mask.Report{}, records.StoppedError, start)
+			p.keepStopped(req, start)
 		}
 	}
 	out, _ = abiOKEnvelope(stop(withHostCallbackID(ctx, req.HostCallbackID), req, method+": "+cause.Error(), stoppedUnreadable))
@@ -214,7 +217,14 @@ func (r *pluginRuntime) handle(ctx context.Context, method string, request []byt
 		if errDecode != nil {
 			return nil, errDecode
 		}
-		return abiOKEnvelope(p.interceptRequest(withHostCallbackID(ctx, req.HostCallbackID), req))
+		return abiOKEnvelope(p.interceptRequest(withHostCallbackID(ctx, req.HostCallbackID), req, method == pluginabi.MethodRequestInterceptBefore))
+	case methodRequestComplete:
+		var done abiRequestCompletion
+		if errDecode := json.Unmarshal(request, &done); errDecode != nil {
+			return nil, errDecode
+		}
+		p.trips.Complete(done.RequestID)
+		return abiOKEnvelope(struct{}{})
 	case pluginabi.MethodResponseInterceptAfter:
 		var req abiResponseInterceptRequest
 		if errDecode := json.Unmarshal(request, &req); errDecode != nil {

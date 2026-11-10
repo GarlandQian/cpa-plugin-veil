@@ -295,3 +295,58 @@ func TestRestoreAddsToTheRecordInMemoryAndOnDisk(t *testing.T) {
 		t.Fatalf("summary = %+v", sum)
 	}
 }
+
+// A later Pass of a request adds what it found to the request's one record,
+// in memory and on disk, where a version that does not know such lines reads
+// the record without them.
+func TestAppendAddsALaterPassToTheRecord(t *testing.T) {
+	dir := t.TempDir()
+	s := New()
+	t.Cleanup(s.Close)
+	s.SetDir(dir)
+	first := record("c", "EMAIL", "{{EMAIL_a}}", time.Now())
+	first.Took = 5
+	ref, _ := s.Add(first)
+	s.Flush()
+	handed, _ := s.Get(ref.Key)
+	later := record("c", "PHONE", "{{PHONE_b}}", time.Time{})
+	later.N, later.Took, later.Values[0].N = 2, 7, 2
+	ref.Append(later)
+	ref.Append(Record{Stopped: StoppedBlock})
+	ref.Restore(map[string]int{"{{EMAIL_a}}": 1}, nil)
+	s.Flush()
+
+	check := func(where string, r Record, ok bool, snips int) {
+		t.Helper()
+		if !ok || r.N != 3 || r.Took != 12 || r.Stopped != StoppedBlock || len(r.Values) != 2 || r.Values[1].Placeholder != "{{PHONE_b}}" || r.Values[1].N != 2 {
+			t.Fatalf("%s: record = %+v (%v)", where, r, ok)
+		}
+		if r.Restored == nil || r.Restored.Back["{{EMAIL_a}}"] != 1 || len(r.Snips) != snips {
+			t.Fatalf("%s: restored %+v, snips %v", where, r.Restored, r.Snips)
+		}
+	}
+	r, ok := s.Get(ref.Key)
+	check("memory", r, ok, 2)
+	if len(handed.Values) != 1 || len(handed.Snips) != 1 || handed.Stopped != "" {
+		t.Fatalf("a record already handed out changed: %+v", handed)
+	}
+
+	s.mu.Lock()
+	s.ring = nil
+	s.mu.Unlock()
+	r, ok = s.Get(ref.Key)
+	check("disk", r, ok, 0)
+	if list, _ := s.List(0, 10, Filter{}); len(list) != 1 {
+		t.Fatalf("a patch was listed as a record: %d records", len(list))
+	}
+	if sum := s.Summary(1); sum.Requests != 1 || sum.Restored != 1 {
+		t.Fatalf("summary = %+v", sum)
+	}
+
+	files, _ := filepath.Glob(filepath.Join(dir, dirName, "*.jsonl"))
+	raw, _ := os.ReadFile(files[0])
+	lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
+	if len(lines) != 4 || !strings.Contains(lines[1], `"patch":true`) || strings.Contains(lines[1], "snips") || strings.Contains(lines[1], `"restored"`) {
+		t.Fatalf("day file = %s", raw)
+	}
+}

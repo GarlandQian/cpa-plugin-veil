@@ -126,6 +126,15 @@ type abiStreamChunkInterceptRequest struct {
 	HostCallbackID string `json:"host_callback_id,omitempty"`
 }
 
+// abiRequestCompletion is the Host's word that it is done with a request,
+// which it gives once for each request ID, after the last hook call about it.
+type abiRequestCompletion struct {
+	RequestID string
+}
+
+// methodRequestComplete is the call that carries it.
+const methodRequestComplete = "request.complete"
+
 type abiRegistration struct {
 	SchemaVersion uint32             `json:"schema_version"`
 	Metadata      pluginapi.Metadata `json:"metadata"`
@@ -136,6 +145,7 @@ type abiCapabilities struct {
 	RequestInterceptor     bool `json:"request_interceptor"`
 	ResponseInterceptor    bool `json:"response_interceptor"`
 	StreamChunkInterceptor bool `json:"response_stream_interceptor"`
+	RequestLifecycle       bool `json:"request_lifecycle_plugin"`
 	ManagementAPI          bool `json:"management_api"`
 }
 
@@ -357,7 +367,7 @@ func newABIRegistration(metadata pluginapi.Metadata, hostSchema uint32) abiRegis
 	return abiRegistration{
 		SchemaVersion: schemaFor(hostSchema),
 		Metadata:      metadata,
-		Capabilities:  abiCapabilities{RequestInterceptor: true, ResponseInterceptor: true, StreamChunkInterceptor: true, ManagementAPI: true},
+		Capabilities:  abiCapabilities{RequestInterceptor: true, ResponseInterceptor: true, StreamChunkInterceptor: true, RequestLifecycle: true, ManagementAPI: true},
 	}
 }
 
