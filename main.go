@@ -10,7 +10,7 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginapi"
 )
 
-var pluginVersion = "0.9.0"
+var pluginVersion = "0.10.0"
 
 func (i *pluginInstance) configure(configYAML []byte, pluginDir string) (*veilPlugin, error) {
 	i.mu.Lock()
