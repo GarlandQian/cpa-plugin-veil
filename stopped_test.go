@@ -68,7 +68,7 @@ func TestInvalidActionIsRejected(t *testing.T) {
 
 func TestRestoreFailureLetsTheResponseThrough(t *testing.T) {
 	p := newConfiguredInterceptor(t, "")
-	p.restorer = nil
+	p.trips = nil
 	if resp := respondTo(t, p, abiResponseInterceptRequest{Body: []byte(`{"a":1}`)}); resp != nil {
 		t.Fatalf("resp = %s", resp)
 	}

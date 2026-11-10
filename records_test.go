@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/GarlandQian/cpa-plugin-veil/internal/records"
+	"github.com/GarlandQian/cpa-plugin-veil/internal/restore"
 	"github.com/GarlandQian/cpa-plugin-veil/internal/vault"
 )
 
@@ -105,7 +106,7 @@ func TestClearingRecordsKeepsRestoring(t *testing.T) {
 		t.Fatal(err)
 	}
 	placeholder := emailPlaceholder.FindString(string(masked))
-	out := p.restorer.Body(vault.ScopeOf(bearer("k")), []byte(`{"output_text":"sent to `+placeholder+`"}`))
+	out := restore.New(p.vault).Body(vault.ScopeOf(bearer("k")), []byte(`{"output_text":"sent to `+placeholder+`"}`))
 	if !strings.Contains(string(out), recordedEmail) {
 		t.Fatalf("restoring stopped after Clear: %s", out)
 	}

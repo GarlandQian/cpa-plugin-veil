@@ -276,8 +276,8 @@ func TestKeyChangesOnReloadKeepThePreviousPlugin(t *testing.T) {
 		t.Fatal(err)
 	}
 	valid := runtime.plugin
-	if valid.vault != first.vault || valid.streams != first.streams || valid.vault.Len() == 0 {
-		t.Fatal("same-key migration lost the Vault or active streams")
+	if valid.vault != first.vault || valid.trips != first.trips || valid.vault.Len() == 0 {
+		t.Fatal("same-key migration lost the Vault or the Round trips")
 	}
 	for _, cfg := range []veilConfig{
 		{Key: hex.EncodeToString(bytes.Repeat([]byte{0x43}, 32))},

@@ -1,4 +1,4 @@
-package main
+package roundtrip
 
 import (
 	"crypto/sha256"
@@ -11,8 +11,7 @@ import (
 
 const streamIdleTimeout = 10 * time.Minute
 
-// streamCall is the host-independent input to streamed Restore. The adapter
-// only identifies the header-init call and names the request the Host gave.
+// streamCall is one call about a stream: the one that opens it, or a chunk.
 type streamCall struct {
 	scope, requestID string
 	body             []byte
@@ -105,7 +104,7 @@ func (r *streamRestorer) chunk(c streamCall, finish func(*restore.Tally)) []byte
 		out, _ := r.restorer.NewStream(c.scope, false).Chunk(c.body)
 		return out
 	}
-	// Release the entry even on a malformed-frame panic caught by the adapter.
+	// Release the entry even on a malformed-frame panic the caller recovers.
 	out, done := func() ([]byte, bool) {
 		defer entry.mu.Unlock()
 		if len(c.body) == 0 {

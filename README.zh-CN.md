@@ -551,6 +551,7 @@ interceptor.go          请求拦截和脱敏逻辑
 config.go               YAML 配置解析
 internal/detect/        检测引擎：PII 规则、gitleaks 规则、关键词预筛、命中缓存
 internal/jsontree/      保留原始字节的 JSON 解析器，只重写改动过的字符串
+internal/roundtrip/     跟踪每个请求直到回复结束：它的记录、它的流、它的还原统计
 rules/gitleaks.toml     内置检测规则
 ```
 

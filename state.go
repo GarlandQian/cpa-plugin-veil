@@ -9,11 +9,13 @@ import (
 	"github.com/GarlandQian/cpa-plugin-veil/internal/detect"
 	"github.com/GarlandQian/cpa-plugin-veil/internal/mask"
 	"github.com/GarlandQian/cpa-plugin-veil/internal/records"
+	"github.com/GarlandQian/cpa-plugin-veil/internal/roundtrip"
 	"github.com/GarlandQian/cpa-plugin-veil/internal/vault"
 )
 
 // pluginInstance owns state until the host calls shutdown. Configuration
-// views share its Vault, Sent forms, streams and records; close ends them all.
+// views share its Vault, Sent forms, Round trips and records; close ends them
+// all.
 // The runtime drains calls before closing the instance.
 type pluginInstance struct {
 	mu          sync.Mutex
@@ -24,9 +26,8 @@ type pluginInstance struct {
 	shadowNoted bool
 	vault       *vault.Vault
 	masker      *mask.Masker
-	streams     *streamRestorer
+	trips       *roundtrip.Trips
 	records     *records.Store
-	links       *recordLinks
 }
 
 func (i *pluginInstance) configureMasking(dir string, key []byte, d *detect.Detector, actions map[string]mask.Action) error {
@@ -45,8 +46,7 @@ func (i *pluginInstance) configureMasking(dir string, key []byte, d *detect.Dete
 		i.key = bytes.Clone(key)
 		i.vault = vault.New(key, vault.DefaultLimit)
 		i.masker = mask.New(d, i.vault)
-		i.streams = newStreamRestorer(i.vault)
-		i.links = newRecordLinks()
+		i.trips = roundtrip.New(i.vault)
 	}
 	i.dir = dir
 	i.masker = i.masker.WithPolicy(d, actions)
@@ -63,13 +63,13 @@ func (i *pluginInstance) close() {
 	if i.records != nil {
 		i.records.BeginDrain()
 	}
-	if i.streams != nil {
-		i.streams.close()
+	if i.trips != nil {
+		i.trips.Close()
 	}
 	if i.records != nil {
 		i.records.Close()
 	}
-	i.key, i.vault, i.masker, i.streams, i.records, i.links = nil, nil, nil, nil, nil, nil
+	i.key, i.vault, i.masker, i.trips, i.records = nil, nil, nil, nil, nil
 }
 
 // placeholderKey loads the key from the plugin directory. Without a usable

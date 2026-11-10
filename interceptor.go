@@ -13,7 +13,7 @@ import (
 
 	"github.com/GarlandQian/cpa-plugin-veil/internal/mask"
 	"github.com/GarlandQian/cpa-plugin-veil/internal/records"
-	"github.com/GarlandQian/cpa-plugin-veil/internal/restore"
+	"github.com/GarlandQian/cpa-plugin-veil/internal/roundtrip"
 	"github.com/GarlandQian/cpa-plugin-veil/internal/vault"
 
 	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginapi"
@@ -23,14 +23,13 @@ type veilPlugin struct {
 	cfg       veilConfig
 	pluginDir string
 	masker    *mask.Masker
-	restorer  *restore.Restorer
 	vault     *vault.Vault
-	streams   *streamRestorer
-	clean     *bodySet
-	// records is nil when records are off. A response still gives up its
-	// request's link then, so that it cannot count once they are back on.
+	// trips follows each request to the end of its response. The instance's
+	// config views share it, as they do the Vault.
+	trips *roundtrip.Trips
+	clean *bodySet
+	// records is nil when records are off.
 	records *records.Store
-	links   *recordLinks
 	// hostTooOld says why every request of this Host is a Stopped request. It
 	// is empty on a Host Veil works with.
 	hostTooOld string
@@ -92,8 +91,8 @@ func (p *veilPlugin) interceptRequest(ctx context.Context, req abiRequestInterce
 			"warned_fields": report.WarnedPaths,
 		})
 	}
-	if key, recorded := p.record(req, report, "", start); recorded && p.links != nil {
-		p.links.put(scope, req.RequestID, key)
+	if ref, recorded := p.record(req, report, "", start); recorded {
+		p.trips.Recorded(scope, req.RequestID, ref)
 	}
 	if masked == nil {
 		p.clean.add(sum)
@@ -154,21 +153,6 @@ func (p *veilPlugin) record(req abiRequestInterceptRequest, report mask.Report, 
 	return p.records.Add(r)
 }
 
-// recordOf consumes the response's association even when recording has since
-// been disabled.
-func (p *veilPlugin) recordOf(scope, requestID string) (records.Ref, bool) {
-	if p.links == nil {
-		return records.Ref{}, false
-	}
-	ref, ok := p.links.take(scope, requestID)
-	return ref, ok && p.records != nil
-}
-
-// restored adds to a Masking record what its response put back.
-func (p *veilPlugin) restored(key records.Ref, t *restore.Tally) {
-	p.records.Restore(key, t.Back, t.Unrestored)
-}
-
 // stop turns a request into a Stopped request. The log gets reason in full;
 // told is all the client gets.
 func stop(ctx context.Context, req abiRequestInterceptRequest, reason, told string) abiRequestInterceptResponse {
@@ -192,23 +176,12 @@ func (p *veilPlugin) interceptResponse(ctx context.Context, req abiResponseInter
 	if len(req.Body) == 0 {
 		return resp
 	}
-	scope := vault.ScopeOf(req.RequestHeaders)
-	key, recorded := p.recordOf(scope, req.RequestID)
-	var tally *restore.Tally
-	if recorded {
-		tally = &restore.Tally{}
-	}
-	resp.Body = p.restorer.BodyTally(scope, req.Body, tally)
-	if recorded {
-		p.restored(key, tally)
-	}
+	resp.Body = p.trips.Respond(vault.ScopeOf(req.RequestHeaders), req.RequestID, req.Body)
 	return resp
 }
 
-// interceptStreamChunk restores a chunk of a streamed response, of the stream
-// of the request the Host knows by its ID. The header-only call that opens a
-// stream registers it; each chunk then goes through that stream's Held tail
-// state.
+// interceptStreamChunk restores a chunk of a streamed response. The Host
+// opens a stream with a header-only call, and then hands over its chunks.
 func (p *veilPlugin) interceptStreamChunk(ctx context.Context, req abiStreamChunkInterceptRequest) (resp pluginapi.StreamChunkInterceptResponse) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -217,15 +190,12 @@ func (p *veilPlugin) interceptStreamChunk(ctx context.Context, req abiStreamChun
 		}
 	}()
 	scope := vault.ScopeOf(req.RequestHeaders)
-	init := req.ChunkIndex == pluginapi.StreamChunkHeaderInitIndex
-	var finish func(*restore.Tally)
-	if init {
-		if record, ok := p.recordOf(scope, req.RequestID); ok {
-			finish = func(t *restore.Tally) { p.restored(record, t) }
-		}
+	if req.ChunkIndex == pluginapi.StreamChunkHeaderInitIndex {
+		p.trips.Open(scope, req.RequestID)
+		return resp
 	}
-	out := p.streams.chunk(streamCall{scope: scope, requestID: req.RequestID, body: req.Body, index: req.ChunkIndex, init: init}, finish)
-	if init || len(req.Body) == 0 {
+	out := p.trips.Chunk(scope, req.RequestID, req.ChunkIndex, req.Body)
+	if len(req.Body) == 0 {
 		return resp
 	}
 	switch {

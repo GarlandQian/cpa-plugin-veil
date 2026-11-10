@@ -639,6 +639,7 @@ interceptor.go          Request interception and redaction logic
 config.go               YAML configuration parsing
 internal/detect/        Detection engine: PII patterns, gitleaks rules, keyword prefilter, hit cache
 internal/jsontree/      Byte-preserving JSON parser that rewrites only the strings it changes
+internal/roundtrip/     Follows each request to the end of its response: its record, its stream, its restore counts
 rules/gitleaks.toml     Built-in detection rules
 ```
 
