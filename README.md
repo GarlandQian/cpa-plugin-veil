@@ -79,10 +79,13 @@ BUILD_DIR=dist make build
 
 ## Use with CLIProxyAPI
 
+Veil needs CLIProxyAPI v8. An older CLIProxyAPI still loads it, and Veil then stops every request and says why in the
+log: a plugin that refused to load would leave every request going out unmasked.
+
 ### From the plugin store
 
-Veil is not in the official plugin store, but CLIProxyAPI v8 can add plugin sources with `plugins.store-sources` (v7
-does not have this setting yet). Add Veil's source to `config.yaml`:
+Veil is not in the official plugin store, but CLIProxyAPI can add plugin sources with `plugins.store-sources`. Add
+Veil's source to `config.yaml`:
 
 ```yaml
 plugins:
@@ -131,13 +134,14 @@ sets `plugins.configs.veil.enabled` to `true`. No restart is needed.
    `veil loaded ... rules` line in the startup log means it loaded; `GET /v0/management/plugins` also shows
    `effective_enabled: true`.
 
-The gitleaks rules are embedded in the binary, so no extra rule files are required. On CLIProxyAPI v8, configure
-`key` as described below to keep placeholders stable across restarts. v8 loads a temporary copy of the library,
-so its loaded location cannot hold `veil.key` or locate rules next to the installed library. Set `base_dir` when
-you need those files. On v7, Veil still creates and reuses `veil.key` next to the library by default.
+The gitleaks rules are embedded in the binary, so no extra rule files are required. Configure `key` as described
+below to keep placeholders stable across restarts. CLIProxyAPI loads a temporary copy of the library, so its loaded
+location cannot hold `veil.key` or locate rules next to the installed library. Set `base_dir` when you need those
+files. Where CLIProxyAPI loads the library in place, as early v8 releases do, Veil creates and reuses `veil.key` next
+to it.
 
-`key` and `base_dir` arrived in v0.4.1. v0.4.0 does not have them and changes placeholders on every CPA v8
-restart, so upgrade before relying on them.
+`key` and `base_dir` arrived in v0.4.1. v0.4.0 does not have them and changes placeholders on every CPA restart, so
+upgrade before relying on them.
 
 Plugin metadata:
 
@@ -194,7 +198,7 @@ Plugin fields:
 | `actions`       | object | `{}`    | What to do with each kind (`EMAIL`, `SECRET`, ...): `mask` (default), `block` or `warn`.     |
 | `skip_models`   | array  | `[]`    | Models that should skip masking.                                                             |
 | `skip_formats`  | array  | `[]`    | Source formats that should skip masking.                                                     |
-| `records`       | bool   | `true`  | Keep a Masking record of each request with a value masked, warned about or blocked, never the value itself; on disk only under `base_dir` or, on CPA v7, the plugin directory |
+| `records`       | bool   | `true`  | Keep a Masking record of each request with a value masked, warned about or blocked, never the value itself; on disk only under `base_dir`, or the plugin directory where CPA loads the library from it |
 
 When `gitleaks_toml` is empty and no `rules/gitleaks.toml` sidecar file exists in the resolved base directory,
 the plugin uses the rules embedded in the binary at build time.
@@ -216,27 +220,27 @@ Keep this key secret and unchanged. It is independent of client API keys and is 
 embedded rules, Docker needs only the existing persistent CPA config; no additional directory mount is needed.
 
 `key` takes precedence over `veil.key` and does not read or write a key file. Without `key`, Veil loads or creates
-`veil.key` (mode 0600) in `base_dir`, or the original library directory on v7. If no persistent directory is known
-(as on v8 without `base_dir`), or the key file cannot be used, Veil masks with an in-memory key and logs a warning
-or error: placeholders then change on restart. It never writes a key into a recognized CPA shadow directory.
+`veil.key` (mode 0600) in `base_dir`, or in the library's own directory where CLIProxyAPI loads it in place. If no
+persistent directory is known (as when CLIProxyAPI loads a temporary copy and `base_dir` is unset), or the key file
+cannot be used, Veil masks with an in-memory key and logs a warning or error: placeholders then change on restart. It
+never writes a key into a recognized CPA shadow directory.
 
-To preserve placeholders from v0.4.0 on v7, copy the contents of your existing `veil.key` into `key`, or set
-`base_dir` to the directory containing that file. Both preserve its exact key bytes. Do not generate a replacement
-key during that migration. A v8 key already deleted with its old shadow directory cannot be recovered.
+To keep the placeholders of an existing `veil.key`, such as one written under CLIProxyAPI v7, copy its contents into
+`key`, or set `base_dir` to the directory containing that file. Both preserve its exact key bytes. Do not generate a
+replacement key during that migration. A key already deleted with its old shadow directory cannot be recovered.
 
 Hot reloads keep the Vault and active streams. Moving the same key from `veil.key` into `key` works on reload;
-changing the key, removing an explicit key, or changing the directory used for a file key requires a CPA restart
-or, on CPA v8, disabling and re-enabling Veil.
+changing the key, removing an explicit key, or changing the directory used for a file key requires a CPA restart,
+or disabling and re-enabling Veil.
 Such a reload is rejected with a log message and the previous valid configuration remains active.
 
 When the host calls shutdown, Veil stops accepting calls, waits for current calls, finishes active stream counts
-and drains the record writer before releasing its instance. CPA v8 does this when disabling or uninstalling Veil;
-re-enabling then starts a new Vault and new Sent forms. CPA v7 config disable does not notify the plugin and
-re-enabling reuses the instance, so a key change still requires a CPA restart or a host operation that actually
-calls shutdown. The persisted key and record files remain, but a new instance can restore old placeholders only
-after their original values are masked again. An ordinary config reload keeps this memory state.
+and drains the record writer before releasing its instance. CPA does this when disabling or uninstalling Veil;
+re-enabling then starts a new Vault and new Sent forms. The persisted key and record files remain, but a new instance
+can restore old placeholders only after their original values are masked again. An ordinary config reload keeps this
+memory state.
 
-### External rule files on CPA v8
+### External rule files
 
 Set `base_dir` to the original directory containing your rules, for example:
 
@@ -250,7 +254,7 @@ plugins:
 
 This also finds `rules/gitleaks.toml` under that directory when `gitleaks_toml` is empty. `base_dir` must exist and
 is resolved against the CPA process's working directory, not the location of `config.yaml`. Absolute
-`gitleaks_toml` and `rules_toml` paths work without `base_dir`. If v8 has not supplied the original plugin directory,
+`gitleaks_toml` and `rules_toml` paths work without `base_dir`. If CPA has not supplied the original plugin directory,
 relative rule paths without `base_dir` are rejected; Veil does not guess a directory or silently load rules from
 the working directory. With no external rules configured, it uses its embedded rules.
 
@@ -271,12 +275,9 @@ plugins:
 - `warn` sends the value as it is and logs a warning with the kind and the JSON path, never the value.
 - `block` stops the request.
 
-A stopped request never carries its text upstream. On CLIProxyAPI v8 it never reaches the upstream at all: the client
-gets a 403 with an error in the shape of its own protocol, naming the kinds that stopped it, never the values or where
-they were. CLIProxyAPI v7 gives plugins no way to fail a request themselves and has already chosen the upstream by the
-time Veil runs, so there Veil replaces the body with one that keeps only the model and the stream flag and empties
-every conversation field, which every provider rejects as a bad request before any inference, and the client sees that
-rejection. Either way the CLIProxyAPI log says why: `veil stopped a request: ...`.
+A stopped request never reaches the upstream: the client gets a 403 with an error in the shape of its own protocol,
+naming the kinds that stopped it, never the values or where they were. The CLIProxyAPI log says why:
+`veil stopped a request: ...`.
 
 Veil fails closed the same way: if it cannot mask a request, for example because the body starts like JSON but does
 not parse, or because masking failed, it stops the request instead of letting it through. A plugin error would make
@@ -390,11 +391,8 @@ block shows how it continues, then sends both with the value restored. Ping even
 event releases it unchanged, and the last event of a block is never held. Events go out whole and in order, so the
 SSE framing, event names and sequence numbers the client sees are those the provider sent.
 
-On CLIProxyAPI v8, Veil takes the request bodies once per stream, when it starts, and knows its chunks by the
-request's ID after that, so a long conversation costs a stream no more than a short one. On CLIProxyAPI v7, which gives
-neither, every chunk comes with the request bodies, and if two streams of the same client and request body run at
-once, Veil cannot tell their chunks apart and restores each chunk on its own, so a placeholder split across chunks in
-those streams reaches the client unrestored.
+Veil knows a stream's chunks by the request's ID, so CLIProxyAPI does not send it the request bodies with every
+chunk, and a long conversation costs a stream no more than a short one.
 
 Common `skip_formats` values are the host's source format names, such as `openai`, `openai-response`, `claude`,
 `gemini`, `gemini-cli`, `openai-image`, and `openai-video`.
@@ -463,16 +461,14 @@ last four characters, and "Default caller" for requests without a key. Veil keep
   value's first Placeholder); context is in memory only. This safe preview hides every detected value, including
   values sent as written under `warn`, so it is not always the exact text sent upstream.
 - With a persistent directory, records also go to `veil-records/` there, a file a day with mode 0600, kept 30 days and
-  100 MB in all, without context. The directory is `base_dir`, or on CPA v7 without it the plugin library's directory.
-  On CPA v8 without `base_dir` records live in memory and are gone when CPA restarts.
+  100 MB in all, without context. The directory is `base_dir`, or without it the plugin library's directory where
+  CLIProxyAPI loads the library in place. Where it loads a temporary copy, records without `base_dir` live in memory
+  and are gone when CPA restarts.
 - Changing `base_dir` finishes records already accepted in the old directory; later records use the new one.
   Restore counts follow their original record, even if its response finishes after the switch. The page shows
   only the current directory. Old files stay in place, and clearing the page does not delete them. With a file
   key, changing directories still requires a new instance as described above.
-- CPA v8 associates restore counts by caller and request ID. Without request IDs (CPA v7), Veil skips counts for
-  requests or streams it cannot distinguish. A body association that becomes ambiguous stays unusable until the
-  instance ends. If the bounded association cache fills, it stops associating counts for all requests without IDs
-  until a new instance starts. Masking, response restoration and the Masking records themselves continue.
+- Restore counts find their record by caller and request ID.
 - Records are written in the background and never make a request wait; when the queue is full a record is dropped,
   and the page says how many were.
 - "First time" is judged from the mappings in memory and starts over when CPA restarts.
@@ -591,8 +587,8 @@ make update-rules
 make build
 ```
 
-Relative paths are resolved from `base_dir`, or the original plugin directory when known. On CPA v8, set
-`base_dir` or use absolute paths; see [External rule files on CPA v8](#external-rule-files-on-cpa-v8).
+Relative paths are resolved from `base_dir`, or the original plugin directory when known. Set `base_dir` or use
+absolute paths; see [External rule files](#external-rule-files).
 
 ## Migrating from privacyfilter
 

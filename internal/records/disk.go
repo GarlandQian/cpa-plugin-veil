@@ -21,7 +21,7 @@ const (
 	keepDays = 30
 	dayForm  = "2006-01-02"
 	// dirName is the directory the days go in, under the persistent one,
-	// which on CPA v7 is the plugin directory other plugins share.
+	// which may be the plugin directory other plugins share.
 	dirName = "veil-records"
 	// lineMax is the longest record a day's file may hold.
 	lineMax = 4 << 20

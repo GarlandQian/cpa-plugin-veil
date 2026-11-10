@@ -58,30 +58,6 @@ func TestStreamFinishesOnceOnEveryExit(t *testing.T) {
 	}
 }
 
-func TestAmbiguousLegacyStreamsSkipTheirTallies(t *testing.T) {
-	v := vault.New(make([]byte, 32), 100)
-	placeholder := v.Placeholder("scope", "TERM", "fixture")
-	r := newStreamRestorer(v)
-	defer r.close()
-	call := streamCall{scope: "scope", requestBody: []byte("same"), init: true}
-	r.chunk(call, func(*restore.Tally) { t.Error("first ambiguous stream reported a tally") })
-	// The first header has already consumed its record link when the second
-	// request arrives, so the stream registry must detect this ambiguity too.
-	r.chunk(call, func(*restore.Tally) { t.Error("second ambiguous stream reported a tally") })
-	call.init = false
-	for n := 0; n < 2; n++ {
-		call.index = 0
-		call.body = []byte(strings.Join(deltaEvent(placeholder+" ok"), ""))
-		if out := r.chunk(call, nil); !strings.Contains(string(out), "fixture") {
-			t.Fatalf("ambiguous stream stopped restoring: %s", out)
-		}
-		call.index = 1
-		call.body = []byte("event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n")
-		r.chunk(call, nil)
-	}
-	r.close()
-}
-
 func TestStreamChunkAndReplacementAreSerialized(t *testing.T) {
 	v := vault.New(make([]byte, 32), 100)
 	placeholder := v.Placeholder("scope", "EMAIL", "alice@example.test")
@@ -91,8 +67,8 @@ func TestStreamChunkAndReplacementAreSerialized(t *testing.T) {
 	for worker := 0; worker < 16; worker++ {
 		wg.Go(func() {
 			for n := 0; n < 20; n++ {
-				// Several callers intentionally race on each request ID. Chunk, finish
-				// and StopHolding must never mutate a Stream at the same time.
+				// Several callers intentionally race on each request ID. Chunk and
+				// finish must never mutate a Stream at the same time.
 				c := streamCall{scope: "scope", requestID: fmt.Sprintf("r%d", worker%4), init: true}
 				r.chunk(c, func(*restore.Tally) { finished.Add(1) })
 				c.init = false
@@ -108,8 +84,8 @@ func TestStreamChunkAndReplacementAreSerialized(t *testing.T) {
 	}
 }
 
-// Completion may be reporting its tally while the next request with the same
-// body opens. A completed stream must not force the new one to stop holding.
+// Completion may be reporting its tally while the same request opens a
+// stream again. The new one waits for it, and holds as any other.
 func TestCompletedStreamDoesNotDegradeItsSuccessor(t *testing.T) {
 	v := vault.New(make([]byte, 32), 100)
 	placeholder := v.Placeholder("scope", "EMAIL", "alice@example.test")
@@ -118,7 +94,7 @@ func TestCompletedStreamDoesNotDegradeItsSuccessor(t *testing.T) {
 	finishing, resume := make(chan struct{}), make(chan struct{})
 	release := sync.OnceFunc(func() { close(resume) })
 	defer release()
-	call := streamCall{scope: "scope", requestBody: []byte("same"), init: true}
+	call := streamCall{scope: "scope", requestID: "same", init: true}
 	r.chunk(call, func(*restore.Tally) { close(finishing); <-resume })
 	completed := make(chan struct{})
 	go func() {

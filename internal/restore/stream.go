@@ -21,8 +21,8 @@ import (
 //
 // The host hands a passthrough stream over one SSE line per chunk, so an
 // event line waits for its data line and the event goes out whole. A Stream
-// without holding restores line by line and keeps no state, for a stream Veil
-// cannot tell apart from another.
+// without holding restores line by line and keeps no state, for a chunk Veil
+// cannot place in a stream.
 type Stream struct {
 	r     *Restorer
 	scope string
@@ -51,12 +51,6 @@ func (r *Restorer) NewStream(scope string, hold bool) *Stream {
 	return &Stream{r: r, scope: scope, hold: hold}
 }
 
-// StopHolding turns holding off; whatever is held goes out with the next
-// chunk.
-func (s *Stream) StopHolding() {
-	s.hold = false
-}
-
 // Tally returns what the events delivered so far had restored.
 func (s *Stream) Tally() *Tally {
 	var t Tally
@@ -75,9 +69,6 @@ func (s *Stream) Chunk(chunk []byte) (out []byte, done bool) {
 		}
 	}
 	var b bytes.Buffer
-	if !s.hold {
-		s.release(&b)
-	}
 	for len(chunk) > 0 {
 		line := chunk
 		if i := bytes.IndexByte(chunk, '\n'); i >= 0 {

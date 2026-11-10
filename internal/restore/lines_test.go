@@ -138,24 +138,3 @@ func TestStreamDataOnlyLinePerChunkWithoutEndings(t *testing.T) {
 		t.Fatalf("text %q", text.String())
 	}
 }
-
-// An event line held when holding stops, as a second stream of the same
-// request starts, goes out on a line of its own.
-func TestStreamHeldEventLineSurvivesStopHolding(t *testing.T) {
-	r, v := newRestorer(t)
-	p := v.Placeholder("", "EMAIL", "a@b.com")
-	b, _ := json.Marshal(map[string]any{"type": "response.output_text.delta", "item_id": "m1", "output_index": 0, "content_index": 0, "delta": "to " + p})
-	s := r.NewStream("", true)
-	var out []string
-	if got, _ := s.Chunk([]byte("event: response.output_text.delta")); len(got) > 0 {
-		out = append(out, string(got))
-	}
-	s.StopHolding()
-	if got, _ := s.Chunk([]byte("data: " + string(b))); len(got) > 0 {
-		out = append(out, string(got))
-	}
-	frames := sseFrames(t, strings.Join(out, "\n")+"\n\n")
-	if len(frames) != 1 || frames[0]["event"] != "response.output_text.delta" || !strings.Contains(frames[0]["data"], "a@b.com") {
-		t.Fatalf("frames %v from %q", frames, out)
-	}
-}

@@ -33,10 +33,10 @@ func (i *pluginInstance) configureMasking(dir string, key []byte, d *detect.Dete
 	if i.vault != nil {
 		if len(key) > 0 {
 			if !bytes.Equal(key, i.key) {
-				return fmt.Errorf("changing the veil key requires a CPA restart, or a full disable and re-enable on a host that calls shutdown (CPA v8; CPA v7 config disable does not)")
+				return fmt.Errorf("changing the veil key requires a CPA restart, or a full disable and re-enable of the plugin")
 			}
 		} else if i.explicitKey || i.dir != dir {
-			return fmt.Errorf("changing the veil key source requires a CPA restart, or a full disable and re-enable on a host that calls shutdown (CPA v8; CPA v7 config disable does not)")
+			return fmt.Errorf("changing the veil key source requires a CPA restart, or a full disable and re-enable of the plugin")
 		}
 	} else {
 		if len(key) == 0 {

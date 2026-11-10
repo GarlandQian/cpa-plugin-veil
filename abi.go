@@ -47,6 +47,7 @@ import "C"
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -81,14 +82,14 @@ type abiError struct {
 type abiLifecycleRequest struct {
 	ConfigYAML []byte `json:"config_yaml"`
 	PluginDir  string `json:"plugin_dir,omitempty"`
-	// SchemaVersion is the host's; CPA v7 sends none.
+	// SchemaVersion is the Host's; one older than CPA v8 sends none.
 	SchemaVersion uint32 `json:"schema_version,omitempty"`
 }
 
 // The hook calls hold only the fields Veil reads, not the SDK's types: one
 // field that does not decode fails the whole call, and a request hook's call
-// that fails is a Stopped request (ADR-0002). RequestID is CPA v8's; on CPA v7
-// it stays empty.
+// that fails is a Stopped request (ADR-0002). RequestID is the Host's name for
+// one request, the same in every call about it.
 
 type abiRequestInterceptRequest struct {
 	RequestID      string
@@ -100,9 +101,8 @@ type abiRequestInterceptRequest struct {
 	HostCallbackID string `json:"host_callback_id,omitempty"`
 }
 
-// abiRequestInterceptResponse is a request hook's answer. The fields after Body
-// are CPA v8's: Terminate keeps the request from the upstream and answers the
-// client with the rest. CPA v7 does not know them and goes by Body.
+// abiRequestInterceptResponse is a request hook's answer. Terminate keeps the
+// request from the upstream and answers the client with the fields after it.
 type abiRequestInterceptResponse struct {
 	Body            []byte
 	Terminate       bool        `json:",omitempty"`
@@ -112,22 +112,18 @@ type abiRequestInterceptResponse struct {
 }
 
 type abiResponseInterceptRequest struct {
-	RequestID       string
-	RequestHeaders  http.Header
-	OriginalRequest []byte
-	RequestBody     []byte
-	Body            []byte
-	HostCallbackID  string `json:"host_callback_id,omitempty"`
+	RequestID      string
+	RequestHeaders http.Header
+	Body           []byte
+	HostCallbackID string `json:"host_callback_id,omitempty"`
 }
 
 type abiStreamChunkInterceptRequest struct {
-	RequestID       string
-	RequestHeaders  http.Header
-	OriginalRequest []byte
-	RequestBody     []byte
-	Body            []byte
-	ChunkIndex      int
-	HostCallbackID  string `json:"host_callback_id,omitempty"`
+	RequestID      string
+	RequestHeaders http.Header
+	Body           []byte
+	ChunkIndex     int
+	HostCallbackID string `json:"host_callback_id,omitempty"`
 }
 
 type abiRegistration struct {
@@ -322,26 +318,39 @@ func answerHost(ctx context.Context, method string, request []byte) []byte {
 	return runtime.answer(ctx, method, request)
 }
 
-// veilSchemaVersion is the plugin schema Veil speaks where the host does
-// too. From 3 on, a stream's payload chunks come without the request bodies
+// veilSchemaVersion is the plugin schema Veil speaks, which every CPA v8
+// offers. From 3 on, a stream's payload chunks come without the request bodies
 // and from 5 on without the chunks before them, which a host otherwise
 // copies and encodes into every chunk, megabytes each for an agent's long
 // history; Veil knows a stream by its request ID instead. From 6 on CPA
 // would stop escaping management answers, which the records page undoes.
 const veilSchemaVersion = 5
 
-// schemaOmittingStreamBodies is the first schema whose payload chunks come
-// without the request bodies.
-const schemaOmittingStreamBodies = 3
+// originalSchemaVersion is the schema of a Host that offers none.
+const originalSchemaVersion = 1
 
-// schemaFor is the schema Veil registers with on a host that offers host:
-// the original one on a host that offers none (CPA v7) or one that still
-// sends every chunk its request bodies.
+// schemaFor is the schema Veil registers with on a Host that offers host. A
+// Host that does not have Veil's still gets a registration, in the schema it
+// is sure to take: without one it would run with no Veil and send every
+// request as it came, and with one Veil stops them (ADR-0002).
 func schemaFor(host uint32) uint32 {
-	if host < schemaOmittingStreamBodies {
-		return pluginabi.SchemaVersion
+	if host < veilSchemaVersion {
+		return originalSchemaVersion
 	}
-	return min(host, veilSchemaVersion)
+	return veilSchemaVersion
+}
+
+// hostTooOld says why Veil stops every request of a Host that offers schema
+// host, and nothing for a Host Veil works with.
+func hostTooOld(host uint32) string {
+	if host >= veilSchemaVersion {
+		return ""
+	}
+	offers := "no plugin schema"
+	if host > 0 {
+		offers = fmt.Sprintf("plugin schema %d", host)
+	}
+	return fmt.Sprintf("this CLIProxyAPI offers %s and Veil needs %d, which CLIProxyAPI v8 has; upgrade CLIProxyAPI", offers, veilSchemaVersion)
 }
 
 func newABIRegistration(metadata pluginapi.Metadata, hostSchema uint32) abiRegistration {

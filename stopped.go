@@ -13,9 +13,6 @@ import (
 // and stream settings, and every conversation field emptied, which every
 // provider rejects as a bad request before any inference. Nothing of the
 // original text goes out.
-//
-// CPA v7 offers a plugin no way to fail a request itself, and routes the
-// request before interceptors run, so there it still reaches the upstream.
 func stoppedBody(body []byte) []byte {
 	out := []byte{'{'}
 	add := func(key string, raw []byte) {
@@ -61,6 +58,10 @@ const stoppedStatus = http.StatusForbidden
 // handle. The reason goes to the log, where it cannot quote the request.
 const stoppedUnreadable = "Veil could not process this request, so it was not sent. See the CLIProxyAPI log."
 
+// stoppedHostTooOld is what a client is told on a Host Veil does not work
+// with, where the Host can tell it anything.
+const stoppedHostTooOld = "Veil needs CLIProxyAPI v8, so this request was not sent. See the CLIProxyAPI log."
+
 // stoppedBlocked is what a client is told of a request holding Kinds with the
 // block Action: their names, for the caller to know what to take out, and
 // neither the values nor where they were.
@@ -74,10 +75,10 @@ func stoppedBlocked(kinds map[string]int) string {
 }
 
 // stoppedAnswer is a request hook's answer for a Stopped request, of a client
-// speaking format. A Host that can refuse a request goes by Terminate; one
-// that cannot sends the rewritten body, which the upstream rejects. Both are
-// always there: Veil does not ask which Host it has, and a Host that stopped
-// honoring Terminate would still send nothing of the request.
+// speaking format. The Host goes by Terminate and refuses the request. The
+// rewritten body is there as well: a Host that did not go by Terminate, as one
+// older than CPA v8 does not, would still send nothing of the request, and the
+// upstream would reject what it got.
 func stoppedAnswer(format string, body []byte, told string) abiRequestInterceptResponse {
 	return abiRequestInterceptResponse{
 		Body:            stoppedBody(body),

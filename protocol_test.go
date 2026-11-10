@@ -79,7 +79,7 @@ func TestNewFilterErrorNamesRulesSource(t *testing.T) {
 
 func registerRequest(t *testing.T, dir, configYAML string) []byte {
 	t.Helper()
-	raw, err := json.Marshal(abiLifecycleRequest{ConfigYAML: []byte(configYAML), PluginDir: dir})
+	raw, err := json.Marshal(abiLifecycleRequest{ConfigYAML: []byte(configYAML), PluginDir: dir, SchemaVersion: hostV8.schema})
 	if err != nil {
 		t.Fatal(err)
 	}

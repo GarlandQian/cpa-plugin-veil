@@ -133,17 +133,11 @@ func TestRecordsOnDiskHoldNoValues(t *testing.T) {
 
 func TestResponsesAddWhatTheyRestoredToTheRecord(t *testing.T) {
 	i := newConfiguredInterceptor(t, "")
-	p := i
-	headers := bearer("k")
-	masked := intercept(t, i, abiRequestInterceptRequest{Headers: headers, Body: []byte(`{"input":"mail ` + recordedEmail + `"}`)})
-	placeholder := emailPlaceholder.FindString(string(masked))
+	h := hostOf(t, i)
+	r := h.send("k", `{"input":"mail `+recordedEmail+`"}`)
+	placeholder := emailPlaceholder.FindString(string(r.upstream))
 	gone := "{{EMAIL_aaaaaaaa}}"
-	resp := respondTo(t, p, abiResponseInterceptRequest{
-		RequestHeaders:  headers,
-		OriginalRequest: masked,
-		Body:            []byte(`{"output_text":"sent to ` + placeholder + `, not ` + gone + `"}`),
-	})
-	if !strings.Contains(string(resp), recordedEmail) {
+	if resp := h.respond(r, `{"output_text":"sent to `+placeholder+`, not `+gone+`"}`); !strings.Contains(resp, recordedEmail) {
 		t.Fatalf("response not restored: %s", resp)
 	}
 	got := recordsOf(t, i)
@@ -151,7 +145,7 @@ func TestResponsesAddWhatTheyRestoredToTheRecord(t *testing.T) {
 		t.Fatalf("record restored = %+v", got[0].Restored)
 	}
 	// A second response to the same request is not linked twice.
-	respondTo(t, p, abiResponseInterceptRequest{RequestHeaders: headers, OriginalRequest: masked, Body: []byte(`{"output_text":"` + placeholder + `"}`)})
+	h.respond(r, `{"output_text":"`+placeholder+`"}`)
 	if got := recordsOf(t, i); got[0].Restored.Back[placeholder] != 1 {
 		t.Fatalf("a second response counted: %+v", got[0].Restored)
 	}
@@ -159,16 +153,15 @@ func TestResponsesAddWhatTheyRestoredToTheRecord(t *testing.T) {
 
 func TestStreamsAddWhatTheyRestoredToTheRecord(t *testing.T) {
 	i := newConfiguredInterceptor(t, "")
-	p := i
-	headers := bearer("k")
-	masked := intercept(t, i, abiRequestInterceptRequest{Headers: headers, Body: []byte(`{"messages":[{"role":"user","content":"mail ` + recordedEmail + `"}]}`)})
-	placeholder := emailPlaceholder.FindString(string(masked))
+	h := hostOf(t, i)
+	r := h.send("k", `{"messages":[{"role":"user","content":"mail `+recordedEmail+`"}]}`)
+	placeholder := emailPlaceholder.FindString(string(r.upstream))
 	var chunks []string
 	for _, piece := range []string{"to ", placeholder[:7], placeholder[7:], " ok"} {
 		chunks = append(chunks, deltaEvent(piece)...)
 	}
 	chunks = append(chunks, "event: message_stop\n", `data: {"type":"message_stop"}`+"\n", "\n")
-	hostOf(t, p).stream(&fakeRequest{headers: headers, original: masked, upstream: masked}, chunks)
+	h.stream(r, chunks)
 	got := recordsOf(t, i)
 	if len(got) != 1 || got[0].Restored == nil || got[0].Restored.Back[placeholder] != 1 {
 		t.Fatalf("record restored = %+v", got[0].Restored)

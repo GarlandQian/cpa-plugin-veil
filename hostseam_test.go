@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/GarlandQian/cpa-plugin-veil/internal/records"
 	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginabi"
 	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginapi"
 )
@@ -38,7 +39,7 @@ func TestRequestHooksNeverLetTheOriginalThrough(t *testing.T) {
 		"no runtime, unreadable": {func(h *fakeHost) { h.runtime = nil }, wrongType, "{}"},
 		"shut down, unreadable":  {func(h *fakeHost) { h.runtime.close() }, []byte(`not json`), "{}"},
 	} {
-		for _, profile := range hostProfiles {
+		for _, profile := range []hostProfile{hostV7, hostV8} {
 			for _, method := range []string{pluginabi.MethodRequestInterceptBefore, pluginabi.MethodRequestInterceptAfter} {
 				t.Run(name+"/"+profile.name+"/"+method, func(t *testing.T) {
 					h := newFakeHost(t, profile)
@@ -151,23 +152,59 @@ func TestFieldsVeilDoesNotReadCannotFailACall(t *testing.T) {
 	}
 }
 
-// On a Host with Terminate a Stopped request never reaches the upstream, and
-// the client gets a refusal it can read; on one without, the upstream gets the
-// emptied body and rejects it itself.
-func TestAStoppedRequestIsRefusedWhereTheHostCan(t *testing.T) {
+// A Stopped request never reaches the upstream, and the client gets a refusal
+// it can read.
+func TestAStoppedRequestIsRefused(t *testing.T) {
 	block := func(c *veilConfig) { c.Actions = map[string]string{"EMAIL": "block"} }
-
 	r := newFakeHost(t, hostV8, block).send("k", seamBody)
 	if r.upstream != nil || r.rejected == nil || r.rejected.StatusCode != http.StatusForbidden {
-		t.Fatalf("CPA v8: the upstream gets %s, refused: %+v", r.upstream, r.rejected)
+		t.Fatalf("the upstream gets %s, refused: %+v", r.upstream, r.rejected)
 	}
 	if got := r.rejected.ResponseHeaders.Get("Content-Type"); got != "application/json" {
 		t.Fatalf("Content-Type = %q", got)
 	}
+}
 
-	r = newFakeHost(t, hostV7, block).send("k", seamBody)
-	if string(r.upstream) != `{"model":"m","stream":true,"input":[]}` || r.rejected != nil {
-		t.Fatalf("CPA v7: the upstream gets %s, refused: %+v", r.upstream, r.rejected)
+// A Host older than CPA v8 still gets Veil registered, and every request of
+// it stopped: one that failed to register would run with no Veil, and send
+// every request as it came. The log says what to do about it, once at
+// registration and for each request, which is recorded once.
+func TestAHostOlderThanV8HasEveryRequestStopped(t *testing.T) {
+	const clean = `{"model":"m","stream":true,"input":"hello"}`
+	const stopped = `{"model":"m","stream":true,"input":[]}`
+	for _, tt := range []struct {
+		profile hostProfile
+		offers  string
+	}{
+		{hostV7, "no plugin schema"},
+		{hostProfile{name: "schema 4", schema: 4}, "plugin schema 4"},
+	} {
+		t.Run(tt.profile.name, func(t *testing.T) {
+			logs := capturePluginLogs(t)
+			h := newFakeHost(t, tt.profile, func(c *veilConfig) { c.SkipModels = []string{"m"} })
+			if h.schema != originalSchemaVersion {
+				t.Fatalf("registered with schema %d", h.schema)
+			}
+			if !strings.Contains(logs.String(), "veil will stop every request") || !strings.Contains(logs.String(), tt.offers) {
+				t.Fatalf("registration log = %s", logs)
+			}
+			logs.Reset()
+			for _, body := range []string{seamBody, clean} {
+				r := h.send("k", body)
+				switch {
+				case tt.profile.schema == 0 && (string(r.upstream) != stopped || r.rejected != nil):
+					t.Fatalf("the upstream gets %s, refused: %+v", r.upstream, r.rejected)
+				case tt.profile.schema > 0 && (r.upstream != nil || r.rejected == nil || !strings.Contains(string(r.rejected.ResponseBody), "Veil needs CLIProxyAPI v8")):
+					t.Fatalf("the upstream gets %s, refused: %+v", r.upstream, r.rejected)
+				}
+			}
+			if got := strings.Count(logs.String(), "veil stopped a request"); got != 2 || !strings.Contains(logs.String(), "upgrade CLIProxyAPI") {
+				t.Fatalf("%d stops logged: %s", got, logs)
+			}
+			if got := recordsOf(t, h.runtime.plugin); len(got) != 2 || got[0].Stopped != records.StoppedError {
+				t.Fatalf("records = %+v", got)
+			}
+		})
 	}
 }
 
@@ -225,34 +262,27 @@ func TestAFailedRequestToldNothingOfWhy(t *testing.T) {
 	}
 }
 
-// A request masks and comes back restored on either Host, whole and streamed
-// in pieces that cut a Placeholder apart.
+// A request masks and comes back restored, whole and streamed in pieces that
+// cut a Placeholder apart.
 func TestRoundTripAtTheHostSeam(t *testing.T) {
-	for _, tt := range []struct {
-		profile hostProfile
-		schema  uint32
-	}{{hostV7, 1}, {hostV8, veilSchemaVersion}} {
-		t.Run(tt.profile.name, func(t *testing.T) {
-			h := newFakeHost(t, tt.profile)
-			if h.schema != tt.schema {
-				t.Fatalf("registered with schema %d, want %d", h.schema, tt.schema)
-			}
-			r := h.send("k", seamBody)
-			if strings.Contains(string(r.upstream), seamEmail) {
-				t.Fatalf("the upstream gets %s", r.upstream)
-			}
-			placeholder := emailPlaceholder.FindString(string(r.upstream))
-			if got := h.respond(r, `{"output_text":"to `+placeholder+`"}`); got != `{"output_text":"to `+seamEmail+`"}` {
-				t.Fatalf("response = %s", got)
-			}
-			var chunks []string
-			for _, line := range responsesV8Lines("to "+placeholder+" ok", 4) {
-				chunks = append(chunks, line+"\n")
-			}
-			if got := deltas(t, h.stream(h.send("k", seamBody), chunks)); got != "to "+seamEmail+" ok" {
-				t.Fatalf("stream text = %q", got)
-			}
-		})
+	h := newFakeHost(t, hostV8)
+	if h.schema != veilSchemaVersion {
+		t.Fatalf("registered with schema %d, want %d", h.schema, veilSchemaVersion)
+	}
+	r := h.send("k", seamBody)
+	if strings.Contains(string(r.upstream), seamEmail) {
+		t.Fatalf("the upstream gets %s", r.upstream)
+	}
+	placeholder := emailPlaceholder.FindString(string(r.upstream))
+	if got := h.respond(r, `{"output_text":"to `+placeholder+`"}`); got != `{"output_text":"to `+seamEmail+`"}` {
+		t.Fatalf("response = %s", got)
+	}
+	var chunks []string
+	for _, line := range responsesV8Lines("to "+placeholder+" ok", 4) {
+		chunks = append(chunks, line+"\n")
+	}
+	if got := deltas(t, h.stream(h.send("k", seamBody), chunks)); got != "to "+seamEmail+" ok" {
+		t.Fatalf("stream text = %q", got)
 	}
 }
 

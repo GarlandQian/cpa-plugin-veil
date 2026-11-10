@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginabi"
@@ -16,20 +17,27 @@ import (
 )
 
 // hostProfile is what a CPA release does at the Host seam. Veil never asks
-// which one it has: it sees a schema offered or not, and a request ID or not.
+// which one it has: it sees the schema the Host offers.
 type hostProfile struct {
 	name string
-	// schema is what the Host offers at plugin.register. CPA v7 offers none,
-	// gives no request IDs, sends the request bodies with every chunk and has
-	// no Terminate.
+	// schema is what the Host offers at plugin.register. CPA v7, which Veil
+	// does not work with, offers none, gives no request IDs and has no
+	// Terminate.
 	schema uint32
 }
 
 var (
-	hostV7       = hostProfile{name: "CPA v7"}
-	hostV8       = hostProfile{name: "CPA v8", schema: 10}
-	hostProfiles = []hostProfile{hostV7, hostV8}
+	hostV7 = hostProfile{name: "CPA v7"}
+	hostV8 = hostProfile{name: "CPA v8", schema: 10}
 )
+
+// requestIDs numbers the requests of every fakeHost, as CPA gives each
+// request an ID no other has.
+var requestIDs atomic.Int64
+
+func newRequestID() string {
+	return fmt.Sprintf("request-%d", requestIDs.Add(1))
+}
 
 // fakeHost is the in-memory adapter at the Host seam, as the cgo adapter is
 // the production one: it talks to Veil only in the bytes the Host sends. It
@@ -40,7 +48,6 @@ type fakeHost struct {
 	profile hostProfile
 	runtime *pluginRuntime
 	schema  uint32 // what Veil registered with
-	ids     int
 }
 
 // fakeRequest is one request going through the Host.
@@ -54,13 +61,8 @@ type fakeRequest struct {
 	rejected *abiRequestInterceptResponse
 }
 
-// hostOf is a CPA v7 at the seam of p, for a test that set p up itself.
+// hostOf is a CPA v8 at the seam of p, for a test that set p up itself.
 func hostOf(t testing.TB, p *veilPlugin) *fakeHost {
-	return &fakeHost{t: t, profile: hostV7, runtime: &pluginRuntime{plugin: p}}
-}
-
-// v8HostOf is hostOf with CPA v8, Veil having registered with what it takes.
-func v8HostOf(t testing.TB, p *veilPlugin) *fakeHost {
 	return &fakeHost{t: t, profile: hostV8, runtime: &pluginRuntime{plugin: p}, schema: veilSchemaVersion}
 }
 
@@ -158,8 +160,7 @@ func (h *fakeHost) send(caller, body string) *fakeRequest {
 	h.t.Helper()
 	r := &fakeRequest{headers: bearer(caller), original: []byte(body), upstream: []byte(body)}
 	if h.profile.schema > 0 {
-		h.ids++
-		r.id = fmt.Sprintf("request-%d", h.ids)
+		r.id = newRequestID()
 	}
 	for _, method := range []string{pluginabi.MethodRequestInterceptBefore, pluginabi.MethodRequestInterceptAfter} {
 		r.upstream, r.rejected = h.acted(h.call(method, h.requestCall(r, r.upstream)), r.upstream)
@@ -189,6 +190,8 @@ func (h *fakeHost) acted(envelope abiEnvelope, body []byte) ([]byte, *abiRequest
 	return body, nil
 }
 
+// responseCall is the Host's call of a response hook. bodies says whether the
+// request bodies come with it, which Veil does not read.
 func (h *fakeHost) responseCall(r *fakeRequest, bodies bool) map[string]any {
 	call := map[string]any{"RequestHeaders": r.headers}
 	if r.id != "" {
@@ -233,9 +236,8 @@ type fakeStream struct {
 	out  []string
 }
 
-// open starts a stream with the header-init call. A plugin of schema 3 or more
-// gets the request bodies with that call only, on a Host that goes by the
-// schema.
+// open starts a stream with the header-init call. A plugin of Veil's schema
+// gets the request bodies with that call only.
 func (h *fakeHost) open(r *fakeRequest) *fakeStream {
 	h.t.Helper()
 	init := h.responseCall(r, true)
@@ -247,7 +249,7 @@ func (h *fakeHost) open(r *fakeRequest) *fakeStream {
 // send delivers one chunk. A hook that failed leaves it as it came.
 func (s *fakeStream) send(chunk string) {
 	s.h.t.Helper()
-	call := s.h.responseCall(s.r, s.h.profile.schema == 0 || s.h.schema < schemaOmittingStreamBodies)
+	call := s.h.responseCall(s.r, s.h.schema < veilSchemaVersion)
 	call["ChunkIndex"], call["Body"] = s.next, []byte(chunk)
 	s.next++
 	var out pluginapi.StreamChunkInterceptResponse
