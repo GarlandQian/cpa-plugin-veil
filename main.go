@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/GarlandQian/cpa-plugin-veil/internal/records"
-	"github.com/GarlandQian/cpa-plugin-veil/internal/restore"
 
 	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginapi"
 )
@@ -59,11 +58,9 @@ func (i *pluginInstance) configure(configYAML []byte, pluginDir string) (*veilPl
 		cfg:       cfg,
 		pluginDir: pluginDir,
 		masker:    i.masker.WithValues(cfg.recordsOn()),
-		restorer:  restore.New(i.vault),
 		vault:     i.vault,
-		streams:   i.streams,
+		trips:     i.trips,
 		clean:     newBodySet(),
-		links:     i.links,
 	}
 	if cfg.recordsOn() {
 		p.records = i.records

@@ -195,6 +195,14 @@ func (s *Store) Add(r Record) (Ref, bool) {
 	return ref, true
 }
 
+// Restore adds what a response put back to the record ref follows, in the
+// Store that returned it. The zero Ref follows none.
+func (ref Ref) Restore(back, unrestored map[string]int) {
+	if ref.owner != nil {
+		ref.owner.Restore(ref, back, unrestored)
+	}
+}
+
 // Restore follows the original record, even after SetDir. A clear in that
 // directory invalidates older refs, including ones held by active streams.
 // Like Add, it drops excess submissions without waiting, until BeginDrain.

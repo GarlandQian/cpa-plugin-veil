@@ -1,4 +1,4 @@
-package main
+package roundtrip
 
 import (
 	"crypto/sha256"
@@ -53,16 +53,4 @@ func (l *recordLinks) take(scope, requestID string) (records.Ref, bool) {
 	delete(l.cur, key)
 	delete(l.prev, key)
 	return ref, ok
-}
-
-// requestKey binds a Host request ID to its Caller scope. Streams and records
-// share it.
-func requestKey(scope, requestID string) (key [sha256.Size]byte) {
-	h := sha256.New()
-	h.Write([]byte("request\x00"))
-	h.Write([]byte(scope))
-	h.Write([]byte{0})
-	h.Write([]byte(requestID))
-	h.Sum(key[:0])
-	return key
 }

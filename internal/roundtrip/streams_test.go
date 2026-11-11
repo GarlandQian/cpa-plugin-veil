@@ -1,62 +1,17 @@
-package main
+package roundtrip
 
 import (
 	"fmt"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/GarlandQian/cpa-plugin-veil/internal/restore"
 	"github.com/GarlandQian/cpa-plugin-veil/internal/vault"
 )
 
-func TestStreamFinishesOnceOnEveryExit(t *testing.T) {
-	for _, exit := range []string{"completion", "replacement", "timeout", "shutdown"} {
-		t.Run(exit, func(t *testing.T) {
-			v := vault.New(make([]byte, 32), 100)
-			placeholder := v.Placeholder("scope", "EMAIL", "alice@example.test")
-			r := newStreamRestorer(v)
-			defer r.close()
-			now := time.Now()
-			r.now = func() time.Time { return now }
-			finished := 0
-			r.chunk(streamCall{scope: "scope", requestID: "r1", init: true}, func(tally *restore.Tally) {
-				finished++
-				if tally.Back[placeholder] != 1 {
-					t.Errorf("final tally: %+v", tally)
-				}
-			})
-			// One empty chunk must not break the next chunk's sequence.
-			r.chunk(streamCall{scope: "scope", requestID: "r1", index: 0}, nil)
-			out := r.chunk(streamCall{scope: "scope", requestID: "r1", index: 1, body: []byte(strings.Join(deltaEvent(placeholder+" ok"), ""))}, nil)
-			if !strings.Contains(string(out), "alice@example.test") {
-				t.Fatalf("not restored: %s", out)
-			}
-			if finished != 0 {
-				t.Fatal("finished before stream ended")
-			}
-			switch exit {
-			case "completion":
-				r.chunk(streamCall{scope: "scope", requestID: "r1", index: 2, body: []byte("event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n")}, nil)
-			case "replacement":
-				r.chunk(streamCall{scope: "scope", requestID: "r1", init: true}, nil)
-			case "timeout":
-				now = now.Add(streamIdleTimeout + time.Second)
-				r.chunk(streamCall{scope: "scope", requestID: "r2", init: true}, nil)
-			case "shutdown":
-				r.close()
-			}
-			r.close()
-			r.close()
-			r.chunk(streamCall{scope: "scope", requestID: "r1", init: true}, func(*restore.Tally) { t.Error("closed restorer reopened") })
-			if finished != 1 {
-				t.Fatalf("finished %d times", finished)
-			}
-		})
-	}
-}
+// These two need an interleaving the interface cannot arrange: they hold a
+// stream's count open while another call arrives.
 
 func TestStreamChunkAndReplacementAreSerialized(t *testing.T) {
 	v := vault.New(make([]byte, 32), 100)
@@ -72,7 +27,7 @@ func TestStreamChunkAndReplacementAreSerialized(t *testing.T) {
 				c := streamCall{scope: "scope", requestID: fmt.Sprintf("r%d", worker%4), init: true}
 				r.chunk(c, func(*restore.Tally) { finished.Add(1) })
 				c.init = false
-				c.body = []byte(strings.Join(deltaEvent(placeholder+" ok"), ""))
+				c.body = []byte(deltaEvent(placeholder + " ok"))
 				r.chunk(c, nil)
 			}
 		})
@@ -100,7 +55,7 @@ func TestCompletedStreamDoesNotDegradeItsSuccessor(t *testing.T) {
 	go func() {
 		c := call
 		c.init = false
-		c.body = []byte("event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n")
+		c.body = []byte(stopLine)
 		r.chunk(c, nil)
 		close(completed)
 	}()
@@ -122,7 +77,7 @@ func TestCompletedStreamDoesNotDegradeItsSuccessor(t *testing.T) {
 		c := call
 		c.init = false
 		c.index = n
-		c.body = []byte(strings.Join(deltaEvent(piece), ""))
+		c.body = []byte(deltaEvent(piece))
 		out = append(out, r.chunk(c, nil)...)
 	}
 	if got := streamedText(t, string(out)); got != "alice@example.test ok" {
