@@ -474,8 +474,8 @@ last four characters, and "Default caller" for requests without a key. Veil keep
 - Restore counts find their record by caller and request ID, and are written when the response ends: with a whole
   response, with the event that ends a stream, or when CLIProxyAPI says the request is complete. A response that had
   nothing to restore still marks its record as answered; a request that got no response leaves it without counts.
-- A connection that carries several requests in turn under one request ID, as Codex over a WebSocket does, has a
-  record for each turn, and each turn's stream is restored like any other.
+- A connection that carries several requests in turn under one request ID, as a Codex WebSocket does with
+  CLIProxyAPI's `response-steering` on, has a record for each turn, and each turn's stream is restored like any other.
 - Records are written in the background and never make a request wait; when the queue is full a record is dropped,
   and the page says how many were.
 - "First time" is judged from the mappings in memory and starts over when CPA restarts.
