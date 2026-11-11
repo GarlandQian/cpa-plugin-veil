@@ -259,7 +259,7 @@ func TestRegistrationCapabilityJSON(t *testing.T) {
 	if err != nil {
 		t.Fatalf("json.Marshal() error = %v", err)
 	}
-	for _, name := range []string{`"request_interceptor":true`, `"response_interceptor":true`, `"response_stream_interceptor":true`} {
+	for _, name := range []string{`"request_interceptor":true`, `"response_interceptor":true`, `"response_stream_interceptor":true`, `"request_lifecycle_plugin":true`} {
 		if !strings.Contains(string(raw), name) {
 			t.Fatalf("expected %s in JSON: %s", name, raw)
 		}

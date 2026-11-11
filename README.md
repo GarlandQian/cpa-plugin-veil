@@ -110,7 +110,7 @@ sets `plugins.configs.veil.enabled` to `true`. No restart is needed.
 ### By hand
 
 1. Download `veil_<version>_<os>_<arch>.zip` for your platform from
-   [Releases](https://github.com/GarlandQian/cpa-plugin-veil/releases), for example `veil_0.9.0_darwin_arm64.zip` on
+   [Releases](https://github.com/GarlandQian/cpa-plugin-veil/releases), for example `veil_0.10.0_darwin_arm64.zip` on
    an Apple silicon Mac. You can check it against `checksums.txt` from the same page:
 
    ```bash
@@ -392,7 +392,8 @@ event releases it unchanged, and the last event of a block is never held. Events
 SSE framing, event names and sequence numbers the client sees are those the provider sent.
 
 Veil knows a stream's chunks by the request's ID, so CLIProxyAPI does not send it the request bodies with every
-chunk, and a long conversation costs a stream no more than a short one.
+chunk, and a long conversation costs a stream no more than a short one. What Veil holds for a request it lets go
+when CLIProxyAPI says the request is complete.
 
 Common `skip_formats` values are the host's source format names, such as `openai`, `openai-response`, `claude`,
 `gemini`, `gemini-cli`, `openai-image`, and `openai-video`.
@@ -421,7 +422,9 @@ Supported request shapes include:
 ## Masking records
 
 Veil keeps a Masking record of each request that had a value masked, warned about or blocked, and of each Stopped
-request. A "脱敏记录" (Masking records) entry appears in management panels that show plugin menus, such as
+request. A request has one record however often CLIProxyAPI hands it to Veil, which it does once before it picks a
+credential and again for each credential it tries; what each of those found goes into the same record, each value
+once. A request sent again is another request, with a record of its own. A "脱敏记录" (Masking records) entry appears in management panels that show plugin menus, such as
 CPA-Manager-Plus, and the page below can be opened directly too. It has:
 
 - **Overview**: places with sensitive values and how many different values, requests and Stopped requests, places
@@ -468,7 +471,11 @@ last four characters, and "Default caller" for requests without a key. Veil keep
   Restore counts follow their original record, even if its response finishes after the switch. The page shows
   only the current directory. Old files stay in place, and clearing the page does not delete them. With a file
   key, changing directories still requires a new instance as described above.
-- Restore counts find their record by caller and request ID.
+- Restore counts find their record by caller and request ID, and are written when the response ends: with a whole
+  response, with the event that ends a stream, or when CLIProxyAPI says the request is complete. A response that had
+  nothing to restore still marks its record as answered; a request that got no response leaves it without counts.
+- A connection that carries several requests in turn under one request ID, as a Codex WebSocket does with
+  CLIProxyAPI's `response-steering` on, has a record for each turn, and each turn's stream is restored like any other.
 - Records are written in the background and never make a request wait; when the queue is full a record is dropped,
   and the page says how many were.
 - "First time" is judged from the mappings in memory and starts over when CPA restarts.

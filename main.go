@@ -10,7 +10,7 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginapi"
 )
 
-var pluginVersion = "0.9.0"
+var pluginVersion = "0.10.0"
 
 func (i *pluginInstance) configure(configYAML []byte, pluginDir string) (*veilPlugin, error) {
 	i.mu.Lock()
@@ -60,7 +60,6 @@ func (i *pluginInstance) configure(configYAML []byte, pluginDir string) (*veilPl
 		masker:    i.masker.WithValues(cfg.recordsOn()),
 		vault:     i.vault,
 		trips:     i.trips,
-		clean:     newBodySet(),
 	}
 	if cfg.recordsOn() {
 		p.records = i.records

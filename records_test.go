@@ -28,6 +28,7 @@ func recordsOf(t *testing.T, i *veilPlugin) []records.Record {
 func TestARequestWithValuesLeavesARecordWithoutThem(t *testing.T) {
 	i := newConfiguredInterceptor(t, "actions:\n  PHONE: warn\n")
 	req := abiRequestInterceptRequest{
+		RequestID:    newRequestID(),
 		Model:        "gpt-test",
 		SourceFormat: "openai",
 		Headers:      bearer("client-a"),
@@ -62,7 +63,7 @@ func TestARequestWithValuesLeavesARecordWithoutThem(t *testing.T) {
 	}
 
 	// The after-auth pass of the same request leaves no second record.
-	interceptAfter(t, i, abiRequestInterceptRequest{Headers: req.Headers, Body: masked})
+	interceptAfter(t, i, abiRequestInterceptRequest{RequestID: req.RequestID, Headers: req.Headers, Body: masked})
 	if n := len(recordsOf(t, i)); n != 1 {
 		t.Fatalf("after-auth left %d records", n)
 	}

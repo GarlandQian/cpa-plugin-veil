@@ -41,6 +41,14 @@ _Avoid_: snapshot, frozen text
 The CLIProxyAPI process that loads Veil and hands it each request, response and stream chunk; when Veil answers with a failure, the Host carries on with what it had, so a request goes upstream as it stands.
 _Avoid_: server, proxy
 
+**Pass** (遍):
+One time the Host hands Veil a request to mask. A request has one Pass before the Host picks a credential and one more for each credential it tries, and all of them are the same request.
+_Avoid_: hook call, phase, attempt
+
+**Round trip** (往返):
+One request and the response to it: every Pass of the request, then the response, whole or streamed, until it ends. A connection that carries several requests in turn makes a Round trip of each.
+_Avoid_: exchange, session, turn, lifecycle
+
 ### Isolation
 
 **Caller scope** (调用方范围):
@@ -90,5 +98,5 @@ _Avoid_: rejected request, fail-open
 ### Records
 
 **Masking record** (脱敏记录):
-What Veil did to one request that had a Hit or was a Stopped request: which Caller scope sent it, to which model, and each value it masked or warned about, told by its Placeholder or Stand-in, its Kind and a hint, never by the value itself; and once the response is done, how many places each was restored in and which Placeholders came back that could not be restored.
+What Veil did in one Round trip whose request had a Hit or was a Stopped request, in all its Passes together: which Caller scope sent it, to which model, and each value it masked or warned about, told by its Placeholder or Stand-in, its Kind and a hint, never by the value itself; and once the response is done, how many places each was restored in and which Placeholders came back that could not be restored. A request sent again is another Round trip, with a record of its own.
 _Avoid_: log, audit, history

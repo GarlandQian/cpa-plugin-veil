@@ -3,12 +3,10 @@ package main
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"errors"
 	"fmt"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/GarlandQian/cpa-plugin-veil/internal/mask"
@@ -27,7 +25,6 @@ type veilPlugin struct {
 	// trips follows each request to the end of its response. The instance's
 	// config views share it, as they do the Vault.
 	trips *roundtrip.Trips
-	clean *bodySet
 	// records is nil when records are off.
 	records *records.Store
 	// hostTooOld says why every request of this Host is a Stopped request. It
@@ -35,17 +32,25 @@ type veilPlugin struct {
 	hostTooOld string
 }
 
-// interceptRequest masks a request. A request Veil cannot mask, or one holding
-// a Kind whose Action is block, becomes a Stopped request. The Host runs it
-// twice: the after-auth pass masks again because other plugins can add text
-// after the before-auth pass, lower-priority before-auth interceptors and
-// higher-priority after-auth interceptors both running later in the chain.
-// Masking is idempotent, so an already-masked body produces no hits.
-func (p *veilPlugin) interceptRequest(ctx context.Context, req abiRequestInterceptRequest) (resp abiRequestInterceptResponse) {
+// interceptRequest masks a request in one Pass. A request Veil cannot mask, or
+// one holding a Kind whose Action is block, becomes a Stopped request. The Host
+// hands a request over before it picks a credential and again after, for each
+// credential it tries: other plugins can add text in between, lower-priority
+// before-auth interceptors and higher-priority after-auth interceptors both
+// running later in the chain. Masking is idempotent, so an already-masked body
+// produces no hits, and all the Passes keep one Masking record.
+func (p *veilPlugin) interceptRequest(ctx context.Context, req abiRequestInterceptRequest, beforeAuth bool) (resp abiRequestInterceptResponse) {
 	start := time.Now()
+	var pass *roundtrip.Pass
+	keep := func(report mask.Report, stopped string) {
+		if pass == nil {
+			pass = p.passOf(req, false)
+		}
+		pass.Keep(p.records, recordOf(req, report, stopped, start))
+	}
 	defer func() {
 		if r := recover(); r != nil {
-			p.record(req, mask.Report{}, records.StoppedError, start)
+			keep(mask.Report{}, records.StoppedError)
 			resp = stop(ctx, req, fmt.Sprintf("masking failed: %v", r), stoppedUnreadable)
 		}
 	}()
@@ -53,34 +58,34 @@ func (p *veilPlugin) interceptRequest(ctx context.Context, req abiRequestInterce
 	if len(req.Body) == 0 {
 		return resp
 	}
+	pass = p.passOf(req, beforeAuth)
 	if p.hostTooOld != "" {
-		// A Host without Terminate hands the emptied body to the next pass,
+		// A Host without Terminate hands the emptied body to the next Pass,
 		// which has nothing left to stop.
 		if bytes.Equal(req.Body, stoppedBody(req.Body)) {
 			return resp
 		}
-		p.record(req, mask.Report{}, records.StoppedError, start)
+		keep(mask.Report{}, records.StoppedError)
 		return stop(ctx, req, p.hostTooOld, stoppedHostTooOld)
 	}
-	scope := vault.ScopeOf(req.Headers)
-	// A body one pass already left masked, such as the before-auth output the
-	// after-auth pass receives, needs no second look.
-	sum := bodySum(scope, req.Body)
-	if p.cfg.shouldSkip(req.Model, req.RequestedModel, req.SourceFormat) || p.clean.has(sum) {
+	// A body an earlier Pass of the request left, such as the before-auth
+	// output the after-auth Pass receives, needs no second look.
+	if p.cfg.shouldSkip(req.Model, req.RequestedModel, req.SourceFormat) || pass.Left(req.Body) {
 		return resp
 	}
 
+	scope := vault.ScopeOf(req.Headers)
 	masked, report, err := p.masker.Mask(scope, req.Body)
 	if err != nil {
 		stopped := records.StoppedError
 		if errors.Is(err, mask.ErrMalformed) {
 			stopped = records.StoppedMalformed
 		}
-		p.record(req, report, stopped, start)
+		keep(report, stopped)
 		return stop(ctx, req, "masking failed: "+err.Error(), stoppedUnreadable)
 	}
 	if len(report.Blocked) > 0 {
-		p.record(req, report, records.StoppedBlock, start)
+		keep(report, records.StoppedBlock)
 		return stop(ctx, req, fmt.Sprintf("it holds %s in %s, whose action is block", kindSummary(report.Blocked), strings.Join(report.BlockedPaths, ", ")), stoppedBlocked(report.Blocked))
 	}
 	if len(report.Warned) > 0 {
@@ -91,14 +96,11 @@ func (p *veilPlugin) interceptRequest(ctx context.Context, req abiRequestInterce
 			"warned_fields": report.WarnedPaths,
 		})
 	}
-	if ref, recorded := p.record(req, report, "", start); recorded {
-		p.trips.Recorded(scope, req.RequestID, ref)
-	}
+	keep(report, "")
+	pass.Leave(masked)
 	if masked == nil {
-		p.clean.add(sum)
 		return resp
 	}
-	p.clean.add(bodySum(scope, masked))
 
 	// The host text formatter only prints a fixed set of field names, so the
 	// summary is repeated in the message.
@@ -114,13 +116,21 @@ func (p *veilPlugin) interceptRequest(ctx context.Context, req abiRequestInterce
 	return resp
 }
 
-// record keeps a Masking record of a request that had a value or did not
-// reach the upstream; stopped says why it did not. It returns the record's
-// key, if it kept one.
-func (p *veilPlugin) record(req abiRequestInterceptRequest, report mask.Report, stopped string, start time.Time) (records.Ref, bool) {
-	if p.records == nil || (len(report.Values) == 0 && stopped == "") {
-		return records.Ref{}, false
-	}
+// passOf is the Pass a request hook's call is, in the Round trip of its
+// request.
+func (p *veilPlugin) passOf(req abiRequestInterceptRequest, beforeAuth bool) *roundtrip.Pass {
+	return p.trips.Pass(vault.ScopeOf(req.Headers), req.RequestID, beforeAuth)
+}
+
+// keepStopped keeps a Masking record of a request stopped before Veil could
+// look at it.
+func (p *veilPlugin) keepStopped(req abiRequestInterceptRequest, start time.Time) {
+	p.passOf(req, false).Keep(p.records, recordOf(req, mask.Report{}, records.StoppedError, start))
+}
+
+// recordOf is what a Masking record says of one Pass: the values it found,
+// and why it stopped the request, if it did.
+func recordOf(req abiRequestInterceptRequest, report mask.Report, stopped string, start time.Time) records.Record {
 	r := records.Record{
 		Time:    start,
 		Caller:  vault.ScopeOf(req.Headers),
@@ -150,7 +160,7 @@ func (p *veilPlugin) record(req abiRequestInterceptRequest, report mask.Report, 
 			r.Snips[v.Placeholder] = v.Snip
 		}
 	}
-	return p.records.Add(r)
+	return r
 }
 
 // stop turns a request into a Stopped request. The log gets reason in full;
@@ -227,54 +237,4 @@ func kindSummary(counts map[string]int) string {
 		parts[i] = fmt.Sprintf("%s=%d", kind, counts[kind])
 	}
 	return strings.Join(parts, ", ")
-}
-
-func bodySum(scope string, body []byte) [sha256.Size]byte {
-	h := sha256.New()
-	h.Write([]byte(scope))
-	h.Write([]byte{0})
-	h.Write(body)
-	var sum [sha256.Size]byte
-	h.Sum(sum[:0])
-	return sum
-}
-
-// bodySet remembers the hashes of bodies a pass has already left masked, in
-// two generations so it stays bounded.
-type bodySet struct {
-	mu   sync.Mutex
-	cur  map[[sha256.Size]byte]struct{}
-	prev map[[sha256.Size]byte]struct{}
-}
-
-const bodySetGenSize = 4096
-
-func newBodySet() *bodySet {
-	return &bodySet{cur: make(map[[sha256.Size]byte]struct{})}
-}
-
-func (s *bodySet) has(sum [sha256.Size]byte) bool {
-	if s == nil {
-		return false
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if _, ok := s.cur[sum]; ok {
-		return true
-	}
-	_, ok := s.prev[sum]
-	return ok
-}
-
-func (s *bodySet) add(sum [sha256.Size]byte) {
-	if s == nil {
-		return
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if len(s.cur) >= bodySetGenSize {
-		s.prev = s.cur
-		s.cur = make(map[[sha256.Size]byte]struct{}, bodySetGenSize)
-	}
-	s.cur[sum] = struct{}{}
 }
