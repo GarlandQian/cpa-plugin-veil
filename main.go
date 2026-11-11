@@ -82,7 +82,7 @@ func pluginMetadata() pluginapi.Metadata {
 			{
 				Name:        "key",
 				Type:        pluginapi.ConfigFieldTypeString,
-				Description: "Secret placeholder key: 64 hexadecimal characters (32 random bytes). Keep it in config.yaml for stable placeholders across restarts; changing it requires a CPA restart, or on CPA v8 a full disable and re-enable.",
+				Description: "Secret placeholder key: 64 hexadecimal characters (32 random bytes). Keep it in config.yaml for stable placeholders across restarts; changing it requires a CPA restart, or a full disable and re-enable of the plugin.",
 			},
 			{
 				Name:        "base_dir",
@@ -137,7 +137,7 @@ func pluginMetadata() pluginapi.Metadata {
 			{
 				Name:        "records",
 				Type:        pluginapi.ConfigFieldTypeBoolean,
-				Description: "Keep a Masking record of each request that had a value masked, warned about or blocked, never the value itself. On unless false. Records go to disk only under base_dir or, on CPA v7, the plugin directory.",
+				Description: "Keep a Masking record of each request that had a value masked, warned about or blocked, never the value itself. On unless false. Records go to disk only under base_dir, or the plugin directory where CPA loads the library from it.",
 			},
 		},
 	}

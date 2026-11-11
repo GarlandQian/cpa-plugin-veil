@@ -297,7 +297,4 @@ func TestKeyChangesOnReloadKeepThePreviousPlugin(t *testing.T) {
 	if !strings.Contains(logs.String(), "requires a CPA restart") || strings.Contains(logs.String(), "do-not-log-this") || strings.Contains(logs.String(), strings.TrimSpace(string(key))) {
 		t.Fatal("reload warning was missing or exposed a key")
 	}
-	if !strings.Contains(logs.String(), "CPA v7 config disable does not") {
-		t.Fatal("reload warning incorrectly promises a new instance after v7 config disable")
-	}
 }

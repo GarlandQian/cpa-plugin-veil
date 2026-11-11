@@ -50,10 +50,7 @@ func configureRecordRuntime(t *testing.T, r *pluginRuntime, dir string, enabled 
 
 func maskRecordRuntime(t *testing.T, r *pluginRuntime, id, caller string) ([]byte, string) {
 	t.Helper()
-	req := map[string]any{"Headers": bearer(caller), "Body": []byte(`{"input":"` + correlationTerm + `"}`)}
-	if id != "" {
-		req["RequestID"] = id
-	}
+	req := map[string]any{"RequestID": id, "Headers": bearer(caller), "Body": []byte(`{"input":"` + correlationTerm + `"}`)}
 	var before, after pluginapi.RequestInterceptResponse
 	callRecordRuntime(t, r, pluginabi.MethodRequestInterceptBefore, req, &before)
 	var body struct{ Input string }
@@ -73,10 +70,7 @@ func maskRecordRuntime(t *testing.T, r *pluginRuntime, id, caller string) ([]byt
 
 func restoreRecordRuntime(t *testing.T, r *pluginRuntime, id, caller string, masked []byte, placeholder string, count int, stream bool) {
 	t.Helper()
-	h := &fakeHost{t: t, profile: hostV7, runtime: r}
-	if id != "" {
-		h.profile, h.schema = hostV8, veilSchemaVersion
-	}
+	h := &fakeHost{t: t, profile: hostV8, runtime: r, schema: veilSchemaVersion}
 	req := &fakeRequest{id: id, headers: bearer(caller), original: masked, upstream: masked}
 	text := strings.Repeat(placeholder+" ", count)
 	var restored string
@@ -178,61 +172,21 @@ func TestRuntimeRecordIDsCannotReviveClearedRecords(t *testing.T) {
 	}
 }
 
-func TestRuntimeUnknownRecordIDDoesNotConsumeALegacyRecord(t *testing.T) {
+// A response is its request's by the request ID alone: one that names another
+// request takes no record, however alike the bodies.
+func TestRuntimeUnknownRecordIDTakesNoRecord(t *testing.T) {
 	r := &pluginRuntime{}
 	defer r.close()
 	configureRecordRuntime(t, r, t.TempDir(), true)
-	masked, placeholder := maskRecordRuntime(t, r, "", "caller")
+	masked, placeholder := maskRecordRuntime(t, r, "known", "caller")
 	restoreRecordRuntime(t, r, "unknown", "caller", masked, placeholder, 1, false)
 	all := listedRuntimeRecords(t, r)
 	if len(all) != 1 || all[0].Restored != nil {
-		t.Fatalf("unknown ID fell back to body: %+v", all)
+		t.Fatalf("a response of another request took the record: %+v", all)
 	}
-	// A unique legacy request still works, including its no-op after-auth hook.
-	restoreRecordRuntime(t, r, "", "caller", masked, placeholder, 2, false)
+	restoreRecordRuntime(t, r, "known", "caller", masked, placeholder, 2, false)
 	all = listedRuntimeRecords(t, r)
 	if len(all) != 1 || all[0].Restored == nil || all[0].Restored.Back[placeholder] != 2 {
-		t.Fatalf("unique legacy response tally: %+v", all)
-	}
-}
-
-func TestRuntimeAmbiguousLegacyRecordsNeverTakeANewerRecord(t *testing.T) {
-	for _, initiallyEnabled := range []bool{true, false} {
-		name := "recorded"
-		if !initiallyEnabled {
-			name = "records_disabled"
-		}
-		t.Run(name, func(t *testing.T) {
-			a, b := t.TempDir(), t.TempDir()
-			r := &pluginRuntime{}
-			defer r.close()
-			configureRecordRuntime(t, r, a, initiallyEnabled)
-			masked, placeholder := maskRecordRuntime(t, r, "", "caller")
-			configureRecordRuntime(t, r, b, true)
-			maskRecordRuntime(t, r, "", "caller")
-			for n := 0; n < 2; n++ {
-				restoreRecordRuntime(t, r, "", "caller", masked, placeholder, 1, false)
-			}
-			// A further request must not erase ambiguity left by earlier ones.
-			maskRecordRuntime(t, r, "", "caller")
-			restoreRecordRuntime(t, r, "", "caller", masked, placeholder, 1, false)
-			current := listedRuntimeRecords(t, r)
-			if len(current) != 2 {
-				t.Fatalf("current records: %+v", current)
-			}
-			old := storedRuntimeRecords(t, a)
-			wantOld := 0
-			if initiallyEnabled {
-				wantOld = 1
-			}
-			if len(old) != wantOld {
-				t.Fatalf("old records: %+v", old)
-			}
-			for _, record := range append(current, old...) {
-				if record.Restored != nil {
-					t.Fatalf("ambiguous response assigned a tally: %+v", record)
-				}
-			}
-		})
+		t.Fatalf("the request's own response tally: %+v", all)
 	}
 }

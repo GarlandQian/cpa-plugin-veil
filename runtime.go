@@ -94,8 +94,12 @@ func (r *pluginRuntime) register(ctx context.Context, method string, request []b
 		}
 		return nil, err
 	}
+	plugin.hostTooOld = hostTooOld(req.SchemaVersion)
 	r.plugin = plugin
 	r.mu.Unlock()
+	if plugin.hostTooOld != "" {
+		pluginLog(ctx, logLevelError, "veil will stop every request: "+plugin.hostTooOld, nil)
+	}
 	return abiOKEnvelope(newABIRegistration(pluginMetadata(), req.SchemaVersion))
 }
 
@@ -205,18 +209,12 @@ func (r *pluginRuntime) handle(ctx context.Context, method string, request []byt
 	defer done()
 
 	switch method {
-	case pluginabi.MethodRequestInterceptBefore:
+	case pluginabi.MethodRequestInterceptBefore, pluginabi.MethodRequestInterceptAfter:
 		req, errDecode := readRequestCall(request)
 		if errDecode != nil {
 			return nil, errDecode
 		}
-		return abiOKEnvelope(p.interceptRequest(withHostCallbackID(ctx, req.HostCallbackID), req, false))
-	case pluginabi.MethodRequestInterceptAfter:
-		req, errDecode := readRequestCall(request)
-		if errDecode != nil {
-			return nil, errDecode
-		}
-		return abiOKEnvelope(p.interceptRequest(withHostCallbackID(ctx, req.HostCallbackID), req, true))
+		return abiOKEnvelope(p.interceptRequest(withHostCallbackID(ctx, req.HostCallbackID), req))
 	case pluginabi.MethodResponseInterceptAfter:
 		var req abiResponseInterceptRequest
 		if errDecode := json.Unmarshal(request, &req); errDecode != nil {

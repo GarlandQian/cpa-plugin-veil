@@ -27,10 +27,13 @@ type veilPlugin struct {
 	vault     *vault.Vault
 	streams   *streamRestorer
 	clean     *bodySet
-	// records is nil when records are off. links still observes requests so
-	// a late unidentified response cannot take a record after re-enabling.
+	// records is nil when records are off. A response still gives up its
+	// request's link then, so that it cannot count once they are back on.
 	records *records.Store
 	links   *recordLinks
+	// hostTooOld says why every request of this Host is a Stopped request. It
+	// is empty on a Host Veil works with.
+	hostTooOld string
 }
 
 // interceptRequest masks a request. A request Veil cannot mask, or one holding
@@ -39,7 +42,7 @@ type veilPlugin struct {
 // after the before-auth pass, lower-priority before-auth interceptors and
 // higher-priority after-auth interceptors both running later in the chain.
 // Masking is idempotent, so an already-masked body produces no hits.
-func (p *veilPlugin) interceptRequest(ctx context.Context, req abiRequestInterceptRequest, afterAuth bool) (resp abiRequestInterceptResponse) {
+func (p *veilPlugin) interceptRequest(ctx context.Context, req abiRequestInterceptRequest) (resp abiRequestInterceptResponse) {
 	start := time.Now()
 	defer func() {
 		if r := recover(); r != nil {
@@ -51,14 +54,20 @@ func (p *veilPlugin) interceptRequest(ctx context.Context, req abiRequestInterce
 	if len(req.Body) == 0 {
 		return resp
 	}
+	if p.hostTooOld != "" {
+		// A Host without Terminate hands the emptied body to the next pass,
+		// which has nothing left to stop.
+		if bytes.Equal(req.Body, stoppedBody(req.Body)) {
+			return resp
+		}
+		p.record(req, mask.Report{}, records.StoppedError, start)
+		return stop(ctx, req, p.hostTooOld, stoppedHostTooOld)
+	}
 	scope := vault.ScopeOf(req.Headers)
 	// A body one pass already left masked, such as the before-auth output the
 	// after-auth pass receives, needs no second look.
 	sum := bodySum(scope, req.Body)
 	if p.cfg.shouldSkip(req.Model, req.RequestedModel, req.SourceFormat) || p.clean.has(sum) {
-		if !afterAuth && p.links != nil {
-			p.links.put(scope, req.RequestID, sum, records.Ref{})
-		}
 		return resp
 	}
 
@@ -83,19 +92,14 @@ func (p *veilPlugin) interceptRequest(ctx context.Context, req abiRequestInterce
 			"warned_fields": report.WarnedPaths,
 		})
 	}
-	key, recorded := p.record(req, report, "", start)
+	if key, recorded := p.record(req, report, "", start); recorded && p.links != nil {
+		p.links.put(scope, req.RequestID, key)
+	}
 	if masked == nil {
 		p.clean.add(sum)
-		if p.links != nil && (recorded || !afterAuth) {
-			p.links.put(scope, req.RequestID, sum, key)
-		}
 		return resp
 	}
-	maskedSum := bodySum(scope, masked)
-	p.clean.add(maskedSum)
-	if p.links != nil {
-		p.links.put(scope, req.RequestID, maskedSum, key)
-	}
+	p.clean.add(bodySum(scope, masked))
 
 	// The host text formatter only prints a fixed set of field names, so the
 	// summary is repeated in the message.
@@ -151,12 +155,12 @@ func (p *veilPlugin) record(req abiRequestInterceptRequest, report mask.Report, 
 }
 
 // recordOf consumes the response's association even when recording has since
-// been disabled. Request IDs take precedence over the legacy body fallback.
-func (p *veilPlugin) recordOf(scope, requestID string, bodies ...[]byte) (records.Ref, bool) {
+// been disabled.
+func (p *veilPlugin) recordOf(scope, requestID string) (records.Ref, bool) {
 	if p.links == nil {
 		return records.Ref{}, false
 	}
-	ref, ok := p.links.take(scope, requestID, bodies...)
+	ref, ok := p.links.take(scope, requestID)
 	return ref, ok && p.records != nil
 }
 
@@ -189,7 +193,7 @@ func (p *veilPlugin) interceptResponse(ctx context.Context, req abiResponseInter
 		return resp
 	}
 	scope := vault.ScopeOf(req.RequestHeaders)
-	key, recorded := p.recordOf(scope, req.RequestID, req.OriginalRequest, req.RequestBody)
+	key, recorded := p.recordOf(scope, req.RequestID)
 	var tally *restore.Tally
 	if recorded {
 		tally = &restore.Tally{}
@@ -202,11 +206,9 @@ func (p *veilPlugin) interceptResponse(ctx context.Context, req abiResponseInter
 }
 
 // interceptStreamChunk restores a chunk of a streamed response, of the stream
-// of the request the Host knows by its ID, or, where it gives none (CPA v7),
-// by its body. The header-only call that opens a stream registers it; each
-// chunk then goes through that stream's Held tail state. Only the header-init
-// call is sure to have the request bodies: on CPA v8 the payload chunks come
-// without them.
+// of the request the Host knows by its ID. The header-only call that opens a
+// stream registers it; each chunk then goes through that stream's Held tail
+// state.
 func (p *veilPlugin) interceptStreamChunk(ctx context.Context, req abiStreamChunkInterceptRequest) (resp pluginapi.StreamChunkInterceptResponse) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -218,11 +220,11 @@ func (p *veilPlugin) interceptStreamChunk(ctx context.Context, req abiStreamChun
 	init := req.ChunkIndex == pluginapi.StreamChunkHeaderInitIndex
 	var finish func(*restore.Tally)
 	if init {
-		if record, ok := p.recordOf(scope, req.RequestID, req.OriginalRequest, req.RequestBody); ok {
+		if record, ok := p.recordOf(scope, req.RequestID); ok {
 			finish = func(t *restore.Tally) { p.restored(record, t) }
 		}
 	}
-	out := p.streams.chunk(streamCall{scope: scope, requestID: req.RequestID, requestBody: req.RequestBody, body: req.Body, index: req.ChunkIndex, init: init}, finish)
+	out := p.streams.chunk(streamCall{scope: scope, requestID: req.RequestID, body: req.Body, index: req.ChunkIndex, init: init}, finish)
 	if init || len(req.Body) == 0 {
 		return resp
 	}

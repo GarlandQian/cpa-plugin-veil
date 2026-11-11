@@ -12,19 +12,22 @@ import (
 const streamIdleTimeout = 10 * time.Minute
 
 // streamCall is the host-independent input to streamed Restore. The adapter
-// only identifies the header-init call and supplies the bodies the host gave.
+// only identifies the header-init call and names the request the Host gave.
 type streamCall struct {
-	scope, requestID  string
-	requestBody, body []byte
-	index             int
-	init              bool
+	scope, requestID string
+	body             []byte
+	index            int
+	init             bool
 }
 
 // streamRestorer owns matching, sequencing, Held tails and once-only finish.
-// Entries never escape it. Unrelated streams can process chunks concurrently.
+// A stream is known by its request's ID; a chunk that names no request, or
+// one whose stream Veil does not have, is restored on its own, with no Held
+// tail. Entries never escape it. Unrelated streams can process chunks
+// concurrently.
 type streamRestorer struct {
 	mu        sync.Mutex
-	streams   map[[sha256.Size]byte][]*streamEntry
+	streams   map[[sha256.Size]byte]*streamEntry
 	lastSweep time.Time
 	now       func() time.Time
 	closed    bool
@@ -55,14 +58,14 @@ func (e *streamEntry) done() {
 }
 
 func newStreamRestorer(v *vault.Vault) *streamRestorer {
-	return &streamRestorer{streams: make(map[[sha256.Size]byte][]*streamEntry), now: time.Now, vault: v, restorer: restore.New(v)}
+	return &streamRestorer{streams: make(map[[sha256.Size]byte]*streamEntry), now: time.Now, vault: v, restorer: restore.New(v)}
 }
 
 // chunk returns the bytes to send, including the original bytes for a no-op.
 // finish is used only on init, and called on completion, replacement, expiry
-// or close. Empty payloads still advance the expected chunk index on CPA v8.
+// or close. Empty payloads still advance the expected chunk index.
 func (r *streamRestorer) chunk(c streamCall, finish func(*restore.Tally)) []byte {
-	key, unique := requestKey(c.scope, c.requestID, c.requestBody)
+	key := requestKey(c.scope, c.requestID)
 	r.mu.Lock()
 	if r.closed {
 		r.mu.Unlock()
@@ -72,44 +75,27 @@ func (r *streamRestorer) chunk(c streamCall, finish func(*restore.Tally)) []byte
 	r.sweep(now)
 	if c.init {
 		defer r.mu.Unlock()
-		if !r.vault.HasScope(c.scope) {
+		if c.requestID == "" || !r.vault.HasScope(c.scope) {
 			return c.body
 		}
-		entries := r.streams[key]
-		live := entries[:0]
-		for _, e := range entries {
+		if e := r.streams[key]; e != nil {
 			e.mu.Lock()
-			if unique {
-				e.done()
-			} else if !e.ended {
-				e.stream.StopHolding()
-				// Without IDs, chunks from these streams cannot be attributed
-				// reliably. Drop both tallies rather than assign one to the other.
-				e.finish = nil
-				live = append(live, e)
-			}
+			e.done()
 			e.mu.Unlock()
 		}
-		if len(live) > 0 {
-			finish = nil
-		}
-		r.streams[key] = append(live, &streamEntry{stream: r.restorer.NewStream(c.scope, len(live) == 0), seen: now, finish: finish})
+		r.streams[key] = &streamEntry{stream: r.restorer.NewStream(c.scope, true), seen: now, finish: finish}
 		return c.body
 	}
 	var entry *streamEntry
-	for _, e := range r.streams[key] {
-		if e.next != c.index {
-			continue
-		}
+	if e := r.streams[key]; c.requestID != "" && e != nil && e.next == c.index {
 		e.mu.Lock()
 		if e.ended {
 			e.mu.Unlock()
-			continue
+		} else {
+			e.next++
+			e.seen = now
+			entry = e
 		}
-		e.next++
-		e.seen = now
-		entry = e
-		break
 	}
 	r.mu.Unlock()
 	if entry == nil {
@@ -133,16 +119,8 @@ func (r *streamRestorer) chunk(c streamCall, finish func(*restore.Tally)) []byte
 	}()
 	if done {
 		r.mu.Lock()
-		live := r.streams[key][:0]
-		for _, e := range r.streams[key] {
-			if e != entry {
-				live = append(live, e)
-			}
-		}
-		if len(live) == 0 {
+		if r.streams[key] == entry {
 			delete(r.streams, key)
-		} else {
-			r.streams[key] = live
 		}
 		r.mu.Unlock()
 	}
@@ -155,22 +133,14 @@ func (r *streamRestorer) sweep(now time.Time) {
 		return
 	}
 	r.lastSweep = now
-	for key, entries := range r.streams {
-		live := entries[:0]
-		for _, e := range entries {
-			if now.Sub(e.seen) < streamIdleTimeout {
-				live = append(live, e)
-				continue
-			}
-			e.mu.Lock()
-			e.done()
-			e.mu.Unlock()
+	for key, e := range r.streams {
+		if now.Sub(e.seen) < streamIdleTimeout {
+			continue
 		}
-		if len(live) == 0 {
-			delete(r.streams, key)
-		} else {
-			r.streams[key] = live
-		}
+		e.mu.Lock()
+		e.done()
+		e.mu.Unlock()
+		delete(r.streams, key)
 	}
 }
 
@@ -178,12 +148,10 @@ func (r *streamRestorer) close() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.closed = true
-	for _, entries := range r.streams {
-		for _, e := range entries {
-			e.mu.Lock()
-			e.done()
-			e.mu.Unlock()
-		}
+	for _, e := range r.streams {
+		e.mu.Lock()
+		e.done()
+		e.mu.Unlock()
 	}
 	r.streams = nil
 }

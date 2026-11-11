@@ -32,13 +32,13 @@ func TestRuntimeShutdownDrainsCallsStreamsAndRecords(t *testing.T) {
 		}
 		release = sync.OnceFunc(release)
 		defer release()
-		request := abiRequestInterceptRequest{Headers: bearer("k"), Body: []byte(`{"input":"mail ` + recordedEmail + `"}`)}
-		masked := intercept(t, p, request)
-		placeholder := emailPlaceholder.FindString(string(masked))
+		host := hostOf(t, p)
+		request := host.send("k", `{"input":"mail `+recordedEmail+`"}`)
+		placeholder := emailPlaceholder.FindString(string(request.upstream))
 		if placeholder == "" {
 			t.Fatal("fixture was not masked")
 		}
-		h := openStream(t, p, "k", masked)
+		h := host.open(request)
 		for _, line := range deltaEvent(placeholder + " ok") {
 			h.send(line)
 		}
@@ -78,7 +78,7 @@ func TestRuntimeShutdownDrainsCallsStreamsAndRecords(t *testing.T) {
 		if fresh.plugin.vault.Len() != 0 {
 			t.Fatal("re-enable retained old mappings")
 		}
-		if again := intercept(t, fresh.plugin, request); !bytes.Equal(masked, again) {
+		if again := intercept(t, fresh.plugin, abiRequestInterceptRequest{Headers: request.headers, Body: request.original}); !bytes.Equal(request.upstream, again) {
 			t.Fatal("re-enable changed the persisted key")
 		}
 	})
@@ -147,12 +147,13 @@ func TestReloadRoutesAnOldStreamsTallyToItsOriginalDirectory(t *testing.T) {
 	register()
 	first := r.plugin
 	req := abiRequestInterceptRequest{Headers: bearer("k"), Body: []byte(`{"input":"mail ` + recordedEmail + `"}`)}
-	masked := intercept(t, first, req)
+	sent := hostOf(t, first).send("k", string(req.Body))
+	masked := sent.upstream
 	placeholder := emailPlaceholder.FindString(string(masked))
 	if placeholder == "" {
 		t.Fatal("fixture was not masked")
 	}
-	stream := openStream(t, first, "k", masked)
+	stream := hostOf(t, first).open(sent)
 	for _, line := range deltaEvent(placeholder[:7]) {
 		stream.send(line)
 	}
